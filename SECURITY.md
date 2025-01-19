@@ -1,5 +1,10 @@
 # Telcoin Network Bridging Security
 
+## Reporting a Vulnerability
+
+If you discover a security vulnerability, please email [`security@telcoin.org`](mailto:security@telcoin.org).
+We will **acknowledge** your report within 48 hours and provide a timeline for investigation.
+
 ## Background
 
 Cross chain bridging bears notoriety for security breaches arising from the dozens of bridge-related exploits in the few years since developers began exploring cross chain messaging systems to power blockchain bridges.
