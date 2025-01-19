@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { StakeInfo } from "./IStakeManager.sol";
+import {StakeInfo} from "./IStakeManager.sol";
 
 /**
  * @title ConsensusRegistry Interface
@@ -12,8 +12,7 @@ import { StakeInfo } from "./IStakeManager.sol";
  * @dev This contract should be deployed to a predefined system address for use with system calls
  */
 interface IConsensusRegistry {
-
-/*
+    /*
 ConsensusRegistry storage layout for genesis
 | Name               | Type                          | Slot                                                               | Offset | Bytes |
 |--------------------|-------------------------------|--------------------------------------------------------------------|--------|-------|
@@ -38,7 +37,7 @@ ConsensusRegistry storage layout for genesis
 | futureEpochInfo    | FutureEpochInfo[0]            | 0xaf33537d204b7c8488a91ad2a40f2c043712bad394401b7dd7bd4cb801f23102 | 0      | y     |
 | validators         | ValidatorInfo[]               | 0xaf33537d204b7c8488a91ad2a40f2c043712bad394401b7dd7bd4cb801f23103 | 0      | z     |
 
-Storage locations for dynamic variables 
+Storage locations for dynamic variables
 - `stakeInfo` content (s) begins at slot `0x3b2018e21a7d1a934ee474879a6c46622c725c81fe1ab37a62fbdda1c85e54e4`
 - `_name` comprises the following in slot `0x3b2018e21a7d1a934ee474879a6c46622c725c81fe1ab37a62fbdda1c85e54e4`
     - 31 bytes of content `"ConsensusNFT" == 0x436f6e73656e7375734e4654` and 1 byte for content length (12 == 0x0c)
@@ -90,7 +89,10 @@ representation
     error InvalidECDSAPubkey();
     error InvalidProof();
     error InitializerArityMismatch();
-    error InvalidCommitteeSize(uint256 minCommitteeSize, uint256 providedCommitteeSize);
+    error InvalidCommitteeSize(
+        uint256 minCommitteeSize,
+        uint256 providedCommitteeSize
+    );
     error CommitteeRequirement(address ecdsaPubkey);
     error NotValidator(address ecdsaPubkey);
     error AlreadyDefined(address ecdsaPubkey);
@@ -117,11 +119,9 @@ representation
     /// @notice Voting Validator Committee changes once every epoch (== 32 rounds)
     /// @notice Can only be called in a `syscall` context, at the end of an epoch
     /// @dev Accepts the committee of voting validators for 2 epochs in the future
-    /// @param newCommittee The future validator committee for 2 epochs after 
+    /// @param newCommittee The future validator committee for 2 epochs after
     /// the current one is finalized; ie `$.currentEpoch + 3` (this func increments `currentEpoch`)
-    function concludeEpoch(
-        address[] calldata newCommittee
-    ) external;
+    function concludeEpoch(address[] calldata newCommittee) external;
 
     /// @dev Issues an exit request for a validator to be ejected from the active validator set
     /// @notice Reverts if the caller would cause the network to lose BFT by exiting
@@ -139,17 +139,25 @@ representation
 
     /// @dev Returns information about the provided epoch. Only four latest & two future epochs are stored
     /// @notice When querying for future epochs, `blockHeight` will be 0 as they are not yet known
-    function getEpochInfo(uint32 epoch) external view returns (EpochInfo memory currentEpochInfo);
+    function getEpochInfo(
+        uint32 epoch
+    ) external view returns (EpochInfo memory currentEpochInfo);
 
     /// @dev Returns an array of `ValidatorInfo` structs that match the provided status for this epoch
-    function getValidators(ValidatorStatus status) external view returns (ValidatorInfo[] memory);
+    function getValidators(
+        ValidatorStatus status
+    ) external view returns (ValidatorInfo[] memory);
 
     /// @dev Fetches the `validatorIndex` for a given validator address
     /// @notice A returned `validatorIndex` value of `0` is invalid and indicates
     /// that the given address is not a known validator's ECDSA externalkey
-    function getValidatorIndex(address ecdsaPubkey) external view returns (uint24 validatorIndex);
+    function getValidatorIndex(
+        address ecdsaPubkey
+    ) external view returns (uint24 validatorIndex);
 
     /// @dev Fetches the `ValidatorInfo` for a given validator index
     /// @notice To enable checks against storage slots initialized to zero by the EVM, `validatorIndex` cannot be `0`
-    function getValidatorByIndex(uint24 validatorIndex) external view returns (ValidatorInfo memory validator);
+    function getValidatorByIndex(
+        uint24 validatorIndex
+    ) external view returns (ValidatorInfo memory validator);
 }

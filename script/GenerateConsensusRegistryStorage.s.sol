@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
-import { Script } from "forge-std/Script.sol";
-import { VmSafe } from "forge-std/Vm.sol";
-import { LibString } from "solady/utils/LibString.sol";
-import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
-import { IConsensusRegistry } from "src/consensus/interfaces/IConsensusRegistry.sol";
+import {Script} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
+import {LibString} from "solady/utils/LibString.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ConsensusRegistry} from "src/consensus/ConsensusRegistry.sol";
+import {IConsensusRegistry} from "src/consensus/interfaces/IConsensusRegistry.sol";
 
 /// @title ConsensusRegistry Genesis Storage Config Generator
 /// @notice Generates a .txt file comprising the storage slots and their values written by `initialize()`
@@ -67,10 +67,26 @@ contract GenerateConsensusRegistryStorage is Script, Test {
     function setUp() public {
         consensusRegistryImpl = new ConsensusRegistry();
 
-        validator1BlsPubkey = abi.encodePacked(VALIDATOR_1_BLS_A, VALIDATOR_1_BLS_B, VALIDATOR_1_BLS_C);
-        validator2BlsPubkey = abi.encodePacked(VALIDATOR_2_BLS_A, VALIDATOR_2_BLS_B, VALIDATOR_2_BLS_C);
-        validator3BlsPubkey = abi.encodePacked(VALIDATOR_3_BLS_A, VALIDATOR_3_BLS_B, VALIDATOR_3_BLS_C);
-        validator4BlsPubkey = abi.encodePacked(VALIDATOR_4_BLS_A, VALIDATOR_4_BLS_B, VALIDATOR_4_BLS_C);
+        validator1BlsPubkey = abi.encodePacked(
+            VALIDATOR_1_BLS_A,
+            VALIDATOR_1_BLS_B,
+            VALIDATOR_1_BLS_C
+        );
+        validator2BlsPubkey = abi.encodePacked(
+            VALIDATOR_2_BLS_A,
+            VALIDATOR_2_BLS_B,
+            VALIDATOR_2_BLS_C
+        );
+        validator3BlsPubkey = abi.encodePacked(
+            VALIDATOR_3_BLS_A,
+            VALIDATOR_3_BLS_B,
+            VALIDATOR_3_BLS_C
+        );
+        validator4BlsPubkey = abi.encodePacked(
+            VALIDATOR_4_BLS_A,
+            VALIDATOR_4_BLS_B,
+            VALIDATOR_4_BLS_C
+        );
 
         // populate `initialValidators` array with base struct from storage
         validatorInfo1 = IConsensusRegistry.ValidatorInfo(
@@ -122,8 +138,18 @@ contract GenerateConsensusRegistryStorage is Script, Test {
         vm.startBroadcast();
 
         vm.startStateDiffRecording();
-        recordedRegistry = ConsensusRegistry(payable(address(new ERC1967Proxy(address(consensusRegistryImpl), ""))));
-        recordedRegistry.initialize(address(rwTEL), stakeAmount, minWithdrawAmount, initialValidators, owner);
+        recordedRegistry = ConsensusRegistry(
+            payable(
+                address(new ERC1967Proxy(address(consensusRegistryImpl), ""))
+            )
+        );
+        recordedRegistry.initialize(
+            address(rwTEL),
+            stakeAmount,
+            minWithdrawAmount,
+            initialValidators,
+            owner
+        );
         Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
 
         // loop through all records to identify written storage slots so their final (current) value can later be read
@@ -132,15 +158,21 @@ contract GenerateConsensusRegistryStorage is Script, Test {
             // grab all slots with recorded state changes associated with `consensusRegistry`
             uint256 storageAccessesLen = records[i].storageAccesses.length;
             for (uint256 j; j < storageAccessesLen; ++j) {
-                VmSafe.StorageAccess memory currentStorageAccess = records[i].storageAccesses[j];
+                VmSafe.StorageAccess memory currentStorageAccess = records[i]
+                    .storageAccesses[j];
                 // sanity check the slot is relevant to registry
-                assertEq(currentStorageAccess.account, address(recordedRegistry));
+                assertEq(
+                    currentStorageAccess.account,
+                    address(recordedRegistry)
+                );
 
                 if (currentStorageAccess.isWrite) {
                     // check `writtenStorageSlots` to skip duplicates, since some slots are updated multiple times
                     bool isDuplicate;
                     for (uint256 k; k < writtenStorageSlots.length; ++k) {
-                        if (writtenStorageSlots[k] == currentStorageAccess.slot) {
+                        if (
+                            writtenStorageSlots[k] == currentStorageAccess.slot
+                        ) {
                             isDuplicate = true;
                             break;
                         }
@@ -155,7 +187,10 @@ contract GenerateConsensusRegistryStorage is Script, Test {
         }
 
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/consensus-registry-storage.yaml");
+        string memory dest = string.concat(
+            root,
+            "/deployments/consensus-registry-storage.yaml"
+        );
         vm.writeLine(dest, "---"); // indicate yaml format
 
         // read all unique storage slots touched by `initialize()` and fetch their final value
@@ -176,7 +211,10 @@ contract GenerateConsensusRegistryStorage is Script, Test {
             }
 
             // write slot and value to file
-            string memory slot = LibString.toHexString(uint256(currentSlot), 32);
+            string memory slot = LibString.toHexString(
+                uint256(currentSlot),
+                32
+            );
             string memory value = LibString.toHexString(uint256(slotValue), 32);
             string memory entry = string.concat(slot, ": ", value);
 

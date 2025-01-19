@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { Test, console2 } from "forge-std/Test.sol";
-import { Script } from "forge-std/Script.sol";
-import { LibString } from "solady/utils/LibString.sol";
-import { Deployments } from "../../deployments/Deployments.sol";
+import {Test, console2} from "forge-std/Test.sol";
+import {Script} from "forge-std/Script.sol";
+import {LibString} from "solady/utils/LibString.sol";
+import {Deployments} from "../../deployments/Deployments.sol";
 import "../../src/CI/GitAttestationRegistry.sol";
 
 /// @dev Usage: `forge script script/deploy/TestnetDeployGitAttestationRegistry.s.sol --rpc-url $TN_RPC_URL -vvvv
@@ -24,7 +24,10 @@ contract TestnetDeployGitAttestationRegistry is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(
+            root,
+            "/deployments/deployments.json"
+        );
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -39,14 +42,18 @@ contract TestnetDeployGitAttestationRegistry is Script {
         maintainers.push(maintainer2);
 
         bufferSize = 32;
-        gitAttestationRegistrySalt = bytes32(keccak256("GitAttestationRegistry"));
+        gitAttestationRegistrySalt = bytes32(
+            keccak256("GitAttestationRegistry")
+        );
     }
 
     function run() public {
         vm.startBroadcast();
 
         // deploy implementation
-        gitAttestationRegistry = new GitAttestationRegistry{ salt: gitAttestationRegistrySalt }(bufferSize, maintainers);
+        gitAttestationRegistry = new GitAttestationRegistry{
+            salt: gitAttestationRegistrySalt
+        }(bufferSize, maintainers);
 
         // add maintainer2's attestation wallet without affecting deploy address via constructor args
         address maintainer3 = 0x9D39C91A3f9058ee55AEb3869ce23ea6714A40cf;
@@ -65,9 +72,15 @@ contract TestnetDeployGitAttestationRegistry is Script {
 
         // logs
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(
+            root,
+            "/deployments/deployments.json"
+        );
         vm.writeJson(
-            LibString.toHexString(uint256(uint160(address(gitAttestationRegistry))), 20),
+            LibString.toHexString(
+                uint256(uint160(address(gitAttestationRegistry))),
+                20
+            ),
             dest,
             ".GitAttestationRegistry"
         );

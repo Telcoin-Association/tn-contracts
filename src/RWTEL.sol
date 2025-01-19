@@ -1,13 +1,12 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity ^0.8.20;
 
-import { AxelarGMPExecutable } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarGMPExecutable.sol";
-import { RecoverableWrapper } from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { Ownable } from "solady/auth/Ownable.sol";
-import { Context } from "@openzeppelin/contracts/utils/Context.sol";
-import { IRWTEL } from "./interfaces/IRWTEL.sol";
+import {AxelarGMPExecutable} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarGMPExecutable.sol";
+import {RecoverableWrapper} from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {IRWTEL} from "./interfaces/IRWTEL.sol";
 
 /* RecoverableWrapper Storage Layout (Provided because RW is non-ERC7201 compliant)
      _______________________________________________________________________________________
@@ -26,7 +25,13 @@ import { IRWTEL } from "./interfaces/IRWTEL.sol";
     | governanceAddress | address                                                    | 10   |
 */
 
-contract RWTEL is IRWTEL, RecoverableWrapper, AxelarGMPExecutable, UUPSUpgradeable, Ownable {
+contract RWTEL is
+    IRWTEL,
+    RecoverableWrapper,
+    AxelarGMPExecutable,
+    UUPSUpgradeable,
+    Ownable
+{
     address private immutable consensusRegistry;
 
     /// @dev Overrides for `ERC20` storage since `RecoverableWrapper` dep restricts them
@@ -46,16 +51,26 @@ contract RWTEL is IRWTEL, RecoverableWrapper, AxelarGMPExecutable, UUPSUpgradeab
         uint16 maxToClean
     )
         AxelarGMPExecutable(gateway_)
-        RecoverableWrapper(name_, symbol_, recoverableWindow_, governanceAddress_, baseERC20_, maxToClean)
+        RecoverableWrapper(
+            name_,
+            symbol_,
+            recoverableWindow_,
+            governanceAddress_,
+            baseERC20_,
+            maxToClean
+        )
     {
         consensusRegistry = consensusRegistry_;
     }
 
     /// @inheritdoc IRWTEL
-    function distributeStakeReward(address validator, uint256 rewardAmount) external {
+    function distributeStakeReward(
+        address validator,
+        uint256 rewardAmount
+    ) external {
         if (msg.sender != consensusRegistry) revert OnlyConsensusRegistry();
 
-        (bool res,) = validator.call{ value: rewardAmount }("");
+        (bool res, ) = validator.call{value: rewardAmount}("");
         if (!res) revert RewardDistributionFailure(validator);
     }
 
@@ -72,10 +87,7 @@ contract RWTEL is IRWTEL, RecoverableWrapper, AxelarGMPExecutable, UUPSUpgradeab
         address governanceAddress_,
         uint16 maxToClean_,
         address owner_
-    )
-        public
-        initializer
-    {
+    ) public initializer {
         _initializeOwner(owner_);
         setName(name_);
         setSymbol(symbol_);
@@ -91,7 +103,9 @@ contract RWTEL is IRWTEL, RecoverableWrapper, AxelarGMPExecutable, UUPSUpgradeab
         _symbol_ = newSymbol;
     }
 
-    function setGovernanceAddress(address newGovernanceAddress) public override onlyOwner {
+    function setGovernanceAddress(
+        address newGovernanceAddress
+    ) public override onlyOwner {
         governanceAddress = newGovernanceAddress;
     }
 
@@ -122,20 +136,18 @@ contract RWTEL is IRWTEL, RecoverableWrapper, AxelarGMPExecutable, UUPSUpgradeab
     /// @notice Params `sourceChain` and `sourceAddress` are not currently used for vanilla bridging but may later on
     function _execute(
         bytes32 commandId,
-        string calldata, /* sourceChain */
-        string calldata, /* sourceAddress */
+        string calldata /* sourceChain */,
+        string calldata /* sourceAddress */,
         bytes calldata payload
-    )
-        internal
-        virtual
-        override
-    {
+    ) internal virtual override {
         ExtCall memory bridgeMsg = abi.decode(payload, (ExtCall));
         address target = bridgeMsg.target;
-        (bool res,) = target.call{ value: bridgeMsg.value }(bridgeMsg.data);
+        (bool res, ) = target.call{value: bridgeMsg.value}(bridgeMsg.data);
         // to prevent stuck messages, emit failure event rather than revert
         if (!res) emit ExecutionFailed(commandId, target);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner { }
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal virtual override onlyOwner {}
 }

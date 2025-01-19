@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
 /**
@@ -30,7 +30,11 @@ interface IStakeManager {
 
     /// @dev Accepts the stake amount of native TEL and issues an activation request for the caller (validator)
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance
-    function stake(bytes calldata blsPubkey, bytes calldata blsSig, bytes32 ed25519Pubkey) external payable;
+    function stake(
+        bytes calldata blsPubkey,
+        bytes calldata blsSig,
+        bytes32 ed25519Pubkey
+    ) external payable;
 
     /// @dev Increments the claimable rewards for each validator
     /// @notice May only be called by the client via system call, at the start of a new epoch
@@ -49,5 +53,7 @@ interface IStakeManager {
     /// @dev Fetches the claimable rewards accrued for a given validator address
     /// @notice Does not include the original stake amount and cannot be claimed until surpassing `minWithdrawAmount`
     /// @return claimableRewards The validator's claimable rewards, not including the validator's stake
-    function getRewards(address ecdsaPubkey) external view returns (uint240 claimableRewards);
+    function getRewards(
+        address ecdsaPubkey
+    ) external view returns (uint240 claimableRewards);
 }

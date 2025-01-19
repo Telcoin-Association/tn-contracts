@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
-import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
-import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {StablecoinHandler} from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
+import {Stablecoin} from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
 import "../src/StablecoinManager.sol";
 
 contract StablecoinManagerTest is Test {
@@ -27,17 +27,31 @@ contract StablecoinManagerTest is Test {
     function setUp() public {
         faucets.push(address(0xc0ffee));
 
-        stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
+        stablecoinManagerImpl = new StablecoinManager{
+            salt: stablecoinManagerSalt
+        }();
 
         bytes memory initCall = abi.encodeWithSelector(
             StablecoinManager.initialize.selector,
             StablecoinManager.StablecoinManagerInitParams(
-                admin, maintainer, new address[](0), max, min, faucets, dripAmount, nativeDripAmount
+                admin,
+                maintainer,
+                new address[](0),
+                max,
+                min,
+                faucets,
+                dripAmount,
+                nativeDripAmount
             )
         );
 
         stablecoinManager = StablecoinManager(
-            payable(new ERC1967Proxy{ salt: stablecoinManagerSalt }(address(stablecoinManagerImpl), initCall))
+            payable(
+                new ERC1967Proxy{salt: stablecoinManagerSalt}(
+                    address(stablecoinManagerImpl),
+                    initCall
+                )
+            )
         );
     }
 
@@ -151,7 +165,10 @@ contract StablecoinManagerTest is Test {
         }
 
         address[] memory enabledXYZs = stablecoinManager.getEnabledXYZs();
-        assertEq(enabledXYZs.length, numTokens - numRemove + initEnabledXYZs.length);
+        assertEq(
+            enabledXYZs.length,
+            numTokens - numRemove + initEnabledXYZs.length
+        );
 
         for (uint256 i; i < tokens.length; ++i) {
             bool validity = i >= numRemove ? true : false;
@@ -186,7 +203,8 @@ contract StablecoinManagerTest is Test {
 
         vm.prank(maintainer);
         stablecoinManager.setNativeDripAmount(newNativeDripAmount);
-        uint256 storedNativeDripAmount = stablecoinManager.getNativeDripAmount();
+        uint256 storedNativeDripAmount = stablecoinManager
+            .getNativeDripAmount();
         assertEq(storedNativeDripAmount, newNativeDripAmount);
     }
 
@@ -215,7 +233,8 @@ contract StablecoinManagerTest is Test {
         uint256 dripAmt = stablecoinManager.getDripAmount();
         assertEq(balBefore + dripAmt, balAfter);
 
-        uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(currency), recipient);
+        uint256 lastFulfilledDrip = stablecoinManager
+            .getLastFulfilledDripTimestamp(address(currency), recipient);
         assertEq(lastFulfilledDrip, block.timestamp);
     }
 
@@ -235,7 +254,8 @@ contract StablecoinManagerTest is Test {
 
         assertEq(balBefore + nativeDripAmt, balAfter);
 
-        uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
+        uint256 lastFulfilledDrip = stablecoinManager
+            .getLastFulfilledDripTimestamp(address(0), recipient);
         assertEq(lastFulfilledDrip, block.timestamp);
     }
 
@@ -282,7 +302,7 @@ contract StablecoinManagerTest is Test {
     /*  Solidity equivalent of rust test util in `telcoin-network::execution.rs` against local network
     function test_localTNFaucet() public {
         uint256 localFork = vm.createSelectFork("http://localhost:8545");
-        address arachnid = 0x4e59b44847b379578588920cA78FbF26c0B4956C; 
+        address arachnid = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     vm.etch(arachnid,
     hex'7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3');
 
@@ -342,7 +362,7 @@ contract StablecoinManagerTest is Test {
     00000000000000000000000000000000000000000000000000000000000003e8
     0000000000000000000000000000000000000000000000000000000000000001
     ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-    00000000000000000000000000000000000000000000000000000000000003e8 
+    00000000000000000000000000000000000000000000000000000000000003e8
     0000000000000000000000000000000000000000000000000000000000000004 faucets len
     000000000000000000000000e626ce81714cb7777b1bf8ad2323963fb3398ad5 faucets data
     000000000000000000000000b3fabbd1d2edde4d9ced3ce352859ce1bebf7907
@@ -436,7 +456,7 @@ ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff maxlimit
 0000000000000000000000006af9941928152dccf1d6a943553f00445d113325 faucet data
 00000000000000000000000000000000000000000000000000000000
 
-`init_call`  
+`init_call`
 note: correct for `StablecoinManager.InitCodeParams` struct (sol! macro or proxy.initialize())
 16ada6b1 // initialize
 0000000000000000000000000000000000000000000000000000000000000020 initparams ofs

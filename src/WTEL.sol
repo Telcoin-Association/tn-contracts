@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity ^0.8.20;
 
-import { WETH } from "solady/tokens/WETH.sol";
+import {WETH} from "solady/tokens/WETH.sol";
 
 contract WTEL is WETH {
     /// @dev Returns the name of the wTEL token.

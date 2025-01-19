@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @title Faucet
@@ -31,11 +31,15 @@ abstract contract TNFaucet {
 
     // keccak256(abi.encode(uint256(keccak256("erc7201.telcoin.storage.Faucet")) - 1))
     //   & ~bytes32(uint256(0xff))
-    bytes32 internal constant FaucetStorageSlot = 0x331c20f00e5afe412d6bf194b51e8f2d981ce2eedc3a9ed8e5a5801a2017e900;
+    bytes32 internal constant FaucetStorageSlot =
+        0x331c20f00e5afe412d6bf194b51e8f2d981ce2eedc3a9ed8e5a5801a2017e900;
 
     /// @dev For use with proxies- implement without code if not using
     /// @notice Could not be implemented here with `initializer` modifier due to StablecoinHandler conflict
-    function __Faucet_init(uint256 dripAmount_, uint256 nativeDripAmount_) internal virtual;
+    function __Faucet_init(
+        uint256 dripAmount_,
+        uint256 nativeDripAmount_
+    ) internal virtual;
 
     /**
      *
@@ -66,13 +70,20 @@ abstract contract TNFaucet {
     }
 
     /// @notice Agnostic to enabled/disabled status for data availability
-    function getNativeDripAmount() public view returns (uint256 nativeDripAmount) {
+    function getNativeDripAmount()
+        public
+        view
+        returns (uint256 nativeDripAmount)
+    {
         FaucetStorage storage $ = _faucetStorage();
         return $._nativeDripAmount;
     }
 
     /// @dev Exposes the timestamp of the last fulfilled faucet drip for a given `token` and `recipient`
-    function getLastFulfilledDripTimestamp(address token, address recipient) public view returns (uint256 timestamp) {
+    function getLastFulfilledDripTimestamp(
+        address token,
+        address recipient
+    ) public view returns (uint256 timestamp) {
         FaucetStorage storage $ = _faucetStorage();
         timestamp = $._lastDripTimestamp[recipient][token];
     }
@@ -103,7 +114,11 @@ abstract contract TNFaucet {
         emit NativeDripAmountUpdated(newNativeDripAmount);
     }
 
-    function _setLastFulfilledDripTimestamp(address token, address recipient, uint256 timestamp) internal {
+    function _setLastFulfilledDripTimestamp(
+        address token,
+        address recipient,
+        uint256 timestamp
+    ) internal {
         FaucetStorage storage $ = _faucetStorage();
         $._lastDripTimestamp[recipient][token] = timestamp;
     }
@@ -111,12 +126,18 @@ abstract contract TNFaucet {
     /// @dev Emits an alert for indexer when faucet balance can only process <= 10_000 more requests
     function _checkLowNativeBalance() internal {
         uint256 thresholdDripsLeft = _getLowBalanceThreshold();
-        if (address(this).balance <= getNativeDripAmount() * thresholdDripsLeft) {
+        if (
+            address(this).balance <= getNativeDripAmount() * thresholdDripsLeft
+        ) {
             emit FaucetLowNativeBalance();
         }
     }
 
-    function _getLowBalanceThreshold() internal view returns (uint256 thresholdDripsLeft) {
+    function _getLowBalanceThreshold()
+        internal
+        view
+        returns (uint256 thresholdDripsLeft)
+    {
         FaucetStorage storage $ = _faucetStorage();
         thresholdDripsLeft = $._lowBalanceThreshold;
     }

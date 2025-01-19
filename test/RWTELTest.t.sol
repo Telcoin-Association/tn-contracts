@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity ^0.8.20;
 
-import { Test, console2 } from "forge-std/Test.sol";
-import { RecoverableWrapper } from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
-import { WTEL } from "../src/WTEL.sol";
+import {Test, console2} from "forge-std/Test.sol";
+import {RecoverableWrapper} from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
+import {WTEL} from "../src/WTEL.sol";
 
 contract RWTELTest is Test {
     WTEL wTEL;
@@ -27,7 +27,14 @@ contract RWTELTest is Test {
         baseERC20_ = address(wTEL);
         maxToClean = type(uint16).max; // gas is not expected to be an obstacle; clear all relevant storage
 
-        rwTEL = new RecoverableWrapper(name_, symbol_, recoverableWindow_, governanceAddress_, baseERC20_, maxToClean);
+        rwTEL = new RecoverableWrapper(
+            name_,
+            symbol_,
+            recoverableWindow_,
+            governanceAddress_,
+            baseERC20_,
+            maxToClean
+        );
     }
 
     function test_setUp() public view {

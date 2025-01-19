@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import { GitAttestationRegistry } from "../../src/CI/GitAttestationRegistry.sol";
+import {GitAttestationRegistry} from "../../src/CI/GitAttestationRegistry.sol";
 
 contract GitAttestationRegistryTest is Test {
     GitAttestationRegistry gitAttestationRegistry;
@@ -55,7 +55,9 @@ contract GitAttestationRegistryTest is Test {
         gitAttestationRegistry.setBufferSize(newSize);
 
         for (uint8 i = 0; i < 4; i++) {
-            bool result = gitAttestationRegistry.gitCommitHashAttested(hashes[i]);
+            bool result = gitAttestationRegistry.gitCommitHashAttested(
+                hashes[i]
+            );
             assertTrue(result);
         }
 
@@ -97,7 +99,10 @@ contract GitAttestationRegistryTest is Test {
 
         address[] memory maintainers = new address[](1);
         maintainers[0] = admin;
-        GitAttestationRegistry fuzzGitAttestationRegistry = new GitAttestationRegistry(bufferSize, maintainers);
+        GitAttestationRegistry fuzzGitAttestationRegistry = new GitAttestationRegistry(
+                bufferSize,
+                maintainers
+            );
 
         vm.startPrank(admin);
         fuzzGitAttestationRegistry.attestGitCommitHash(gitHash, true);
