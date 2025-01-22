@@ -43,8 +43,8 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 dripAmount_;
         uint256 nativeDripAmount_;
     }
-    /// @custom:storage-location erc7201:telcoin.storage.StablecoinManager
 
+    /// @custom:storage-location erc7201:telcoin.storage.StablecoinManager
     struct StablecoinManagerStorage {
         address[] _enabledXYZs;
         uint256 _dripAmount;

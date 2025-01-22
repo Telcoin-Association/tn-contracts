@@ -6,6 +6,8 @@
   "StablecoinImpl": "0xd3930b15461fcecff57a4c9bd65abf6fa2a44307",
   "StablecoinManager": "0x0e26ade1f5a99bd6b5d40f870a87bfe143db68b6",
   "StablecoinManagerImpl": "0x2745C660f10C77CF6C9668b4578F1C6956b70207",
+  "TanIssuancePlugin": "0xd5ac3373187e34dff4fd156f8aef9b1de5123cae",
+  "TanIssuanceHistory": "0x5b16071fb5c48c4103c971dcb78a4d06d7cb7a06",
   "UniswapV2Factory": "0x764eca68a03ff1eb710e7d1a02c2e7c008877f2f",
   "UniswapV2Router02": "0x76b5628c7071c9cb587f38c78943c5a55c77ee3f",
   "admin": "0xc1612C97537c2CC62a11FC4516367AB6F62d4B23",
