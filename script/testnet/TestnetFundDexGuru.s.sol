@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
-import { Deployments } from "../deployments/Deployments.sol";
-import { WTEL } from "../src/WTEL.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
+import { WTEL } from "../../src/WTEL.sol";
 
 /// @dev Usage: `forge script script/TestnetFundDexGuru.s.sol -vvvv --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
 contract TestnetFundDexGuru is Script {

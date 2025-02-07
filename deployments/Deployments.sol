@@ -11,6 +11,8 @@ struct Deployments {
     address StablecoinImpl;
     address StablecoinManager;
     address StablecoinManagerImpl;
+    address TANIssuanceHistory;
+    address TANIssuancePlugin;
     address UniswapV2Factory;
     address UniswapV2Router02;
     address admin;

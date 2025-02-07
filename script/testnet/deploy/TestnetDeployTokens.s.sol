@@ -7,8 +7,8 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { RecoverableWrapper } from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
-import { WTEL } from "../../src/WTEL.sol";
-import { Deployments } from "../../deployments/Deployments.sol";
+import { WTEL } from "../../../src/WTEL.sol";
+import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev To deploy the Arachnid deterministic deployment proxy:
 /// `cast send 0x3fab184622dc19b6109349b94811493bf2a45362 --value 0.01ether --rpc-url $TN_RPC_URL --private-key

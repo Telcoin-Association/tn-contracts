@@ -48,6 +48,8 @@ jobs:
         id: build
 
       - name: Run Forge tests
+        env:
+          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
         run: |
           forge test -vvv
         id: test

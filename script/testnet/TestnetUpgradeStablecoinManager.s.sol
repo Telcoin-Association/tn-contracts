@@ -5,8 +5,8 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import { StablecoinManager } from "../src/StablecoinManager.sol";
-import { Deployments } from "../deployments/Deployments.sol";
+import { StablecoinManager } from "../../src/StablecoinManager.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/TestnetDeployTokens.s.sol --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
 contract TestnetUpgradeStablecoinManager is Script {

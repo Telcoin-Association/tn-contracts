@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
-import { Deployments } from "../deployments/Deployments.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/TestnetGrantRole.s.sol --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
 contract TestnetGrantRole is Script {

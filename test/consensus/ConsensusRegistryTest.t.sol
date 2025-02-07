@@ -164,11 +164,12 @@ contract ConsensusRegistryTest is KeyTestUtils, Test {
 0x14D1F3AD8599CD8151592DDEADE449F790ADD4D7065A031FBE8F7DBB1833E0A9 : `keccak256(epochInfoBaseSlot + 4) => epochInfos[2].committee` `[validator0] == [0xBABE]`
 0x79af749cb95fe9cb496550259d0d961dfb54cb2ad0ce32a4118eed13c438a935 : `keccak256(epochInfoBaseSlot + 6) => epochInfos[3].committee` `not set == [address(0x0)]`
 */
+    /// @dev To examine the ConsensusRegistry's storage, uncomment the console log statements
     function test_setUp() public view {
         bytes32 ownerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
         bytes32 ownerWord = vm.load(address(consensusRegistry), ownerSlot);
-        console2.logString("OwnableUpgradeable slot0");
-        console2.logBytes32(ownerWord);
+        // console2.logString("OwnableUpgradeable slot0");
+        // console2.logBytes32(ownerWord);
         assertEq(address(uint160(uint256(ownerWord))), owner);
 
         /**

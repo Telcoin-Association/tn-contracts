@@ -3,8 +3,8 @@ pragma solidity 0.8.26;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
-import { StablecoinManager } from "../src/StablecoinManager.sol";
-import { Deployments } from "../deployments/Deployments.sol";
+import { StablecoinManager } from "../../src/StablecoinManager.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/TestnetDisableStablecoin.s.sol --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
 contract TestnetDisableStablecoin is Script {

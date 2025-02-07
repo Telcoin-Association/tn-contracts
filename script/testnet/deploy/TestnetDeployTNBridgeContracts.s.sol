@@ -13,7 +13,7 @@ import {
     WeightedSigner,
     WeightedSigners
 } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/WeightedMultisigTypes.sol";
-import { Deployments } from "../../deployments/Deployments.sol";
+import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/deploy/TestnetDeployTNBridgeContracts.s.sol --rpc-url $TN_RPC_URL -vvvv
 /// --private-key
