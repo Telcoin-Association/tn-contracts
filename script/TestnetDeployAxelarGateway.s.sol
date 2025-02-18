@@ -51,7 +51,10 @@ contract TestnetDeployAxelarGateway is Script {
         bytes memory dummyData = abi.encode(address(0), address(0), "");
         externalGateway = AxelarGateway(address(new AxelarGatewayProxy(address(externalGatewayImpl), dummyData)));
 
-        tokenToRegister = deployments.sepoliaTEL;
+        /// @dev Customize appropriately
+        // tokenToRegister = deployments.sepoliaTEL;
+        tokenToRegister = deployments.rwTEL;
+
         // eg. "Telcoin"
         name = ERC20(tokenToRegister).name();
         // eg. "TEL"
