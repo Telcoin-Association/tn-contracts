@@ -7,16 +7,18 @@ import { ERC20 } from "solady/tokens/ERC20.sol";
 import { AxelarGateway } from "@axelar-network/axelar-cgp-solidity/contracts/AxelarGateway.sol";
 import { AxelarGatewayProxy } from "@axelar-network/axelar-cgp-solidity/contracts/AxelarGatewayProxy.sol";
 import { TokenDeployer } from "@axelar-network/axelar-cgp-solidity/contracts/TokenDeployer.sol";
-import { Deployments } from "../deployments/Deployments.sol";
+import { AxelarAuthWeighted } from "@axelar-network/axelar-cgp-solidity/contracts/auth/AxelarAuthWeighted.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
 
-/// @dev Usage: `forge script script/TestnetDeployAxelarGateway.s.sol -vvvv --rpc-url $SEPOLIA_RPC --private-key $PK`
+/// @dev Usage: `forge script script/deploy/TestnetDeployAxelarGateway.s.sol -vvvv \
+/// --rpc-url $RPC --private-key $ADMIN_PK`
 /// @notice Requires either updates to `solidity ^0.8.9` in fixed Axelar dependency contracts
 /// or a separate Foundry environment than this one, which is pinned to `solidity 0.8.26`
 contract TestnetDeployAxelarGateway is Script {
     // set configs below
     AxelarGateway externalGatewayImpl;
     AxelarGateway externalGateway;
-    Auth auth;
+    AxelarAuthWeighted auth;
     TokenDeployer tokenDeployer;
 
     // eg. $TEL
@@ -37,23 +39,35 @@ contract TestnetDeployAxelarGateway is Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
+        /// @dev Customize appropriately
+        // tokenToRegister = deployments.sepoliaTEL;
+        tokenToRegister = deployments.rwTEL;
+
         // for sepolia scripting:
         // externalGatewayImpl = AxelarGateway(0xc1712652326E87D193Ac11910934085FF45C2F48);
         // externalGateway = AxelarGateway(0xe432150cce91c13a887f7D836923d5597adD8E31);
+        
+        // for TN scripting:
+        // externalGatewayImpl = AxelarGateway();
+        // externalGateway = AxelarGateway();
     }
 
     function run() public {
         vm.startBroadcast();
 
-        auth = new Auth();
+        // deploy Axelar Auth contract with one sole operator (admin)
+        bytes[] memory operators = new bytes[](1);
+        address[] memory newOperators = new address[](1);
+        newOperators[0] = deployments.admin;
+        uint256[] memory newWeights = new uint256[](1);
+        newWeights[0] = 1;
+        uint256 newThreshold = 1;
+        adminOperator = abi.encode(newOperators, newWeights, newThreshold);
+        auth = new AxelarAuthWeighted(operators);
         tokenDeployer = new TokenDeployer();
         externalGatewayImpl = new AxelarGateway(address(auth), address(tokenDeployer));
         bytes memory dummyData = abi.encode(address(0), address(0), "");
         externalGateway = AxelarGateway(address(new AxelarGatewayProxy(address(externalGatewayImpl), dummyData)));
-
-        /// @dev Customize appropriately
-        // tokenToRegister = deployments.sepoliaTEL;
-        tokenToRegister = deployments.rwTEL;
 
         // eg. "Telcoin"
         name = ERC20(tokenToRegister).name();
