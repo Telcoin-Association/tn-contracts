@@ -1,13 +1,5 @@
 # Telcoin Network Smart Contracts
 
-## TANIP-1 Telcoin Application Network Issuance Program
-
-This repository currently houses the `TANIssuanceHistory` smart contract used for distributing and recording rewards to TEL stakers participating in the TANIP-1 referral program. It is located in `src/issuance/TANIssuanceHistory.sol` and its tests are located in both `test/issuance/TANIssuanceHistoryTest.t.sol` and `test/issuance/TANIssuanceHistoryForkTest.t.sol`
-
-For auditors, please refer to the readme at `src/issuance/README.md`. For those looking to find more generalized information about this program, please refer to [the backend (offchain) calculator repository](https://github.com/Telcoin-Association/telcoin-laboratories-contracts) which calculates the rewards to build accounts & rewards calldata for settlement on the `TANIssuanceHistory` contract.
-
-As TANIP-1 is not strictly a Telcoin-Network program, this smart contract will be eventually moved to the [Telcoin labs repository](https://github.com/Telcoin-Association/telcoin-laboratories-contracts)
-
 ## ConsensusRegistry
 
 ### Role
