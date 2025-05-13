@@ -5,7 +5,7 @@ import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
-import { StakeInfo, RewardInfo, Slash, IStakeManager } from "../interfaces/IStakeManager.sol";
+import { RewardInfo, Slash, IStakeManager } from "../interfaces/IStakeManager.sol";
 import { StakeManager } from "./StakeManager.sol";
 import { IConsensusRegistry } from "../interfaces/IConsensusRegistry.sol";
 import { SystemCallable } from "./SystemCallable.sol";
@@ -24,13 +24,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     uint8 internal epochPointer;
     EpochInfo[4] public epochInfo;
     EpochInfo[4] public futureEpochInfo;
-    mapping(uint24 => ValidatorInfo) public validators;
+    mapping(address => ValidatorInfo) public validators;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
 
     /// @dev Addresses precision loss for incentives calculations
-    uint232 internal constant PRECISION_FACTOR = 1e32;
+    uint256 internal constant PRECISION_FACTOR = 1e32;
 
     /**
      *
@@ -54,35 +54,34 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc IConsensusRegistry
     function applyIncentives(RewardInfo[] calldata rewardInfos) public override onlySystemCall {
         // identify total & individual weight factoring in stake & consensus headers
-        uint232 totalWeight;
-        uint232[] memory weights = new uint232[](rewardInfos.length);
+        uint256 totalWeight;
+        uint256[] memory weights = new uint256[](rewardInfos.length);
         for (uint256 i; i < rewardInfos.length; ++i) {
             RewardInfo calldata reward = rewardInfos[i];
             if (reward.consensusHeaderCount == 0) continue;
 
             // signed consensus header means validator is whitelisted, staked, & active
-            uint24 tokenId = _getTokenId(reward.validatorAddress);
             // unless validator was forcibly retired & unstaked via burn: skip
-            if (tokenId == UNSTAKED) continue;
+            if (isRetired(reward.validatorAddress)) continue;
 
-            uint8 rewardeeVersion = validators[tokenId].stakeVersion;
+            uint8 rewardeeVersion = validators[reward.validatorAddress].stakeVersion;
             // derive validator's weight using initial stake for stability
-            uint232 stakeAmount = versions[rewardeeVersion].stakeAmount;
-            uint232 weight = stakeAmount * reward.consensusHeaderCount;
+            uint256 stakeAmount = versions[rewardeeVersion].stakeAmount;
+            uint256 weight = stakeAmount * reward.consensusHeaderCount;
 
             totalWeight += weight;
             weights[i] = weight;
         }
 
         // derive and apply validator's weighted share of epoch issuance
-        uint232 epochIssuance = getCurrentStakeConfig().epochIssuance;
+        uint256 epochIssuance = getCurrentStakeConfig().epochIssuance;
         for (uint256 i; i < rewardInfos.length; ++i) {
             if (totalWeight == 0) break;
 
-            uint232 weight = PRECISION_FACTOR * weights[i] / totalWeight;
-            uint232 rewardAmount = (epochIssuance * weight) / PRECISION_FACTOR;
+            uint256 weight = PRECISION_FACTOR * weights[i] / totalWeight;
+            uint256 rewardAmount = (epochIssuance * weight) / PRECISION_FACTOR;
 
-            stakeInfo[rewardInfos[i].validatorAddress].balance += rewardAmount;
+            stakeInfo[rewardInfos[i].validatorAddress] += rewardAmount;
         }
     }
 
@@ -91,16 +90,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         for (uint256 i; i < slashes.length; ++i) {
             Slash calldata slash = slashes[i];
             // signed consensus header means validator is whitelisted, staked, & active
-            uint24 tokenId = _getTokenId(slash.validatorAddress);
             // unless validator was forcibly retired & unstaked via burn: skip
-            if (tokenId == UNSTAKED) continue;
+            if (isRetired(slash.validatorAddress)) continue;
 
-            StakeInfo storage info = stakeInfo[slash.validatorAddress];
-            if (info.balance > slash.amount) {
-                info.balance -= slash.amount;
+            uint256 balance = stakeInfo[slash.validatorAddress];
+            if (balance > slash.amount) {
+                stakeInfo[slash.validatorAddress] -= slash.amount;
             } else {
                 // eject validators whose balance would reach 0
-                _consensusBurn(tokenId, slash.validatorAddress);
+                _consensusBurn(slash.validatorAddress);
             }
         }
     }
@@ -139,30 +137,32 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IConsensusRegistry
     function getValidatorTokenId(address validatorAddress) public view returns (uint256) {
-        return _checkConsensusNFTOwner(validatorAddress);
+        _checkConsensusNFTOwner(validatorAddress);
+
+        return _getTokenId(validatorAddress);
     }
 
     /// @inheritdoc IConsensusRegistry
-    function getValidatorByTokenId(uint256 tokenId) public view returns (ValidatorInfo memory) {
-        if (!_exists(tokenId)) revert InvalidTokenId(tokenId);
+    function getValidator(address validatorAddress) public view returns (ValidatorInfo memory) {
+        _checkConsensusNFTOwner(validatorAddress);
 
-        return validators[uint24(tokenId)];
+        return validators[validatorAddress];
     }
 
     /// @inheritdoc IConsensusRegistry
-    function isRetired(uint256 tokenId) public view returns (bool) {
-        // tokenId cannot be in use, `0`, `UNSTAKED`, or out of uint24 bounds
-        if (_exists(tokenId)) revert InvalidTokenId(tokenId);
+    function isRetired(address validatorAddress) public view returns (bool) {
+        // tokenId cannot be in use, `0`, `UNSTAKED`, or out of uint160 bounds
+        _checkConsensusNFTOwner(validatorAddress); //todo
+        // if tokenId exists, validator should not be retired
+        // if tokenId doesn't exist, ensure validator used to exist and is now retired
 
-        return validators[uint24(tokenId)].isRetired;
+        return validators[validatorAddress].isRetired;
     }
 
     /// @inheritdoc StakeManager
-    function getRewards(address validatorAddress) public view override returns (uint232) {
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
-
-        uint8 stakeVersion = validators[tokenId].stakeVersion;
-        uint232 initialStake = versions[stakeVersion].stakeAmount;
+    function getRewards(address validatorAddress) public view override returns (uint256) {
+        uint8 stakeVersion = validators[validatorAddress].stakeVersion;
+        uint256 initialStake = versions[stakeVersion].stakeAmount;
 
         return _getRewards(validatorAddress, initialStake);
     }
@@ -176,16 +176,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function stake(bytes calldata blsPubkey) external payable override whenNotPaused {
         if (blsPubkey.length != 96) revert InvalidBLSPubkey();
+        // require validator has not yet staked
+        _checkValidatorStatus(msg.sender, ValidatorStatus.Undefined);
 
         // require caller is known & whitelisted, having been issued a ConsensusNFT by governance
         uint8 validatorVersion = stakeVersion;
-        uint232 stakeAmt = _checkStakeValue(msg.value, validatorVersion);
-        uint24 tokenId = _checkConsensusNFTOwner(msg.sender);
-        // require validator has not yet staked
-        _checkValidatorStatus(tokenId, ValidatorStatus.Undefined);
+        uint256 stakeAmt = _checkStakeValue(msg.value, validatorVersion);
 
         // enter validator in activation queue
-        _recordStaked(blsPubkey, msg.sender, false, validatorVersion, tokenId, stakeAmt);
+        _recordStaked(blsPubkey, msg.sender, false, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc StakeManager
@@ -203,37 +202,37 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // require caller is known & whitelisted, having been issued a ConsensusNFT by governance
         uint8 validatorVersion = stakeVersion;
-        uint232 stakeAmt = _checkStakeValue(msg.value, validatorVersion);
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
+        uint256 stakeAmt = _checkStakeValue(msg.value, validatorVersion);
+        _checkConsensusNFTOwner(validatorAddress);
 
         // require validator status is `Undefined`
-        _checkValidatorStatus(tokenId, ValidatorStatus.Undefined);
+        _checkValidatorStatus(validatorAddress, ValidatorStatus.Undefined);
         uint64 nonce = delegations[validatorAddress].nonce++;
         bytes32 blsPubkeyHash = keccak256(blsPubkey);
 
         // governance may utilize white-glove onboarding or offchain agreements
         if (msg.sender != owner()) {
             bytes32 structHash =
-                keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, msg.sender, tokenId, validatorVersion, nonce));
+                keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce));
             bytes32 digest = _hashTypedData(structHash);
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, validatorSig)) {
                 revert NotValidator(validatorAddress);
             }
         }
 
-        delegations[validatorAddress] = Delegation(blsPubkeyHash, msg.sender, tokenId, validatorVersion, nonce);
-        _recordStaked(blsPubkey, validatorAddress, true, validatorVersion, tokenId, stakeAmt);
+        delegations[validatorAddress] = Delegation(blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce);
+        _recordStaked(blsPubkey, validatorAddress, true, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc IConsensusRegistry
     function activate() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
-        uint24 tokenId = _checkConsensusNFTOwner(msg.sender);
+        _checkConsensusNFTOwner(msg.sender);
 
         // require caller status is `Staked`
-        _checkValidatorStatus(tokenId, ValidatorStatus.Staked);
+        _checkValidatorStatus(msg.sender, ValidatorStatus.Staked);
 
-        ValidatorInfo storage validator = validators[tokenId];
+        ValidatorInfo storage validator = validators[msg.sender];
         // begin validator activation, completing automatically next epoch
         _beginActivation(validator, currentEpoch);
     }
@@ -241,8 +240,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function claimStakeRewards(address validatorAddress) external override whenNotPaused nonReentrant {
         // require validator is whitelisted, having been issued a ConsensusNFT by governance
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
-        uint8 validatorVersion = validators[tokenId].stakeVersion;
+        _checkConsensusNFTOwner(validatorAddress);
+        uint8 validatorVersion = validators[validatorAddress].stakeVersion;
 
         // require caller is either the validator or its delegator
         address recipient = validatorAddress;
@@ -255,7 +254,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc IConsensusRegistry
     function beginExit() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
-        uint24 tokenId = _checkConsensusNFTOwner(msg.sender);
+        _checkConsensusNFTOwner(msg.sender);
 
         // disallow filling up the exit queue
         uint256 numActive = _getValidators(ValidatorStatus.Active).length;
@@ -263,10 +262,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkCommitteeSize(numActive, committeeSize);
 
         // require caller status is `Active` and `currentEpoch >= activationEpoch`
-        _checkValidatorStatus(tokenId, ValidatorStatus.Active);
-        ValidatorInfo storage validator = validators[tokenId];
+        _checkValidatorStatus(msg.sender, ValidatorStatus.Active);
+        ValidatorInfo storage validator = validators[msg.sender];
         uint32 current = currentEpoch;
-        if (current < validators[tokenId].activationEpoch) {
+        if (current < validators[msg.sender].activationEpoch) {
             revert InvalidEpoch(current);
         }
 
@@ -277,21 +276,21 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function unstake(address validatorAddress) external override whenNotPaused nonReentrant {
         // require validator is whitelisted, having been issued a ConsensusNFT by governance
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
+        _checkConsensusNFTOwner(validatorAddress);
 
         // require caller is either the validator or its delegator
         address recipient = validatorAddress;
         if (msg.sender != validatorAddress) recipient = _checkKnownDelegation(validatorAddress, msg.sender);
 
         // require validator status is `Exited`
-        _checkValidatorStatus(tokenId, ValidatorStatus.Exited);
+        _checkValidatorStatus(validatorAddress, ValidatorStatus.Exited);
 
         // permanently retire the validator and burn the ConsensusNFT
-        ValidatorInfo storage validator = validators[tokenId];
+        ValidatorInfo storage validator = validators[validatorAddress];
         _retire(validator);
 
         // return stake and send any outstanding rewards
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, uint256(tokenId), validator.stakeVersion);
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, validator.stakeVersion);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }
@@ -303,29 +302,25 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
      */
 
     /// @inheritdoc StakeManager
-    function mint(address validatorAddress, uint256 tokenId) external override onlyOwner {
+    function mint(address validatorAddress) external override onlyOwner {
         // validators may only possess one token and `validatorAddress` cannot be reused
-        if (balanceOf(validatorAddress) != 0 || _getTokenId(validatorAddress) != 0) {
+        // enforce `tokenId` does not exist, is valid, and not retired
+        if (balanceOf(validatorAddress) != 0 || isRetired(validatorAddress)) {
             revert AlreadyDefined(validatorAddress);
         }
 
-        // set tokenId and increment supply
-        stakeInfo[validatorAddress].tokenId = uint24(tokenId);
-        uint24 newSupply = ++totalSupply;
-
-        // enforce `tokenId` does not exist, is valid, and in incrementing order if not retired
-        if (tokenId != newSupply && !isRetired(tokenId)) revert InvalidTokenId(tokenId);
-
         // issue the ConsensusNFT
-        _mint(validatorAddress, tokenId);
+        ++totalSupply;
+        _mint(validatorAddress, _getTokenId(validatorAddress));
     }
 
     /// @inheritdoc StakeManager
     function burn(address validatorAddress) external override onlyOwner {
+        if (isRetired(validatorAddress)) revert InvalidStatus(ValidatorStatus.Any);
         // require validatorAddress is whitelisted, having been issued a ConsensusNFT by governance
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
+        _checkConsensusNFTOwner(validatorAddress);
 
-        _consensusBurn(tokenId, validatorAddress);
+        _consensusBurn(validatorAddress);
     }
 
     /// @inheritdoc StakeManager
@@ -347,14 +342,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         address validatorAddress,
         bool isDelegated,
         uint8 stakeVersion,
-        uint24 tokenId,
-        uint232 stakeAmt
+        uint256 stakeAmt
     )
         internal
     {
         ValidatorInfo memory newValidator = ValidatorInfo(
             blsPubkey,
-            validatorAddress,
             PENDING_EPOCH,
             uint32(0),
             ValidatorStatus.Staked,
@@ -362,8 +355,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             isDelegated,
             stakeVersion
         );
-        validators[tokenId] = newValidator;
-        stakeInfo[validatorAddress].balance = stakeAmt;
+        validators[validatorAddress] = newValidator;
+        stakeInfo[validatorAddress] = stakeAmt;
 
         emit ValidatorStaked(newValidator);
     }
@@ -421,8 +414,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function _updateValidatorQueue(address[] calldata futureCommittee, uint32 current) internal {
         ValidatorInfo[] memory pendingActivation = _getValidators(ValidatorStatus.PendingActivation);
         for (uint256 i; i < pendingActivation.length; ++i) {
-            uint24 tokenId = _getTokenId(pendingActivation[i].validatorAddress);
-            ValidatorInfo storage activateValidator = validators[tokenId];
+            ValidatorInfo storage activateValidator = validators[pendingActivation[i].validatorAddress];
 
             _activate(activateValidator);
         }
@@ -441,8 +433,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                     || _isCommitteeMember(validatorAddress, futureCommittee)
             ) continue;
 
-            uint24 tokenId = _getTokenId(validatorAddress);
-            ValidatorInfo storage exitValidator = validators[tokenId];
+            ValidatorInfo storage exitValidator = validators[validatorAddress];
             _exit(exitValidator, current);
         }
     }
@@ -480,20 +471,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
-    function _consensusBurn(uint24 tokenId, address validatorAddress) internal {
-        // mark `validatorAddress` as spent using `UNSTAKED`
-        stakeInfo[validatorAddress].tokenId = UNSTAKED;
-
+    function _consensusBurn(address validatorAddress) internal {
         // reverts if decremented committee size after ejection reaches 0, preventing network halt
         uint256 numEligible = _getValidators(ValidatorStatus.Active).length;
         _ejectFromCommittees(validatorAddress, numEligible);
 
         // exit, retire, and unstake + burn validator immediately
-        ValidatorInfo storage validator = validators[tokenId];
+        ValidatorInfo storage validator = validators[validatorAddress];
         _exit(validator, currentEpoch);
         _retire(validator);
         address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient, tokenId, validator.stakeVersion);
+        _unstake(validatorAddress, recipient, validator.stakeVersion);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch
@@ -556,8 +544,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Reverts if the provided validator's status doesn't match the provided `requiredStatus`
-    function _checkValidatorStatus(uint24 tokenId, ValidatorStatus requiredStatus) private view {
-        ValidatorStatus status = validators[tokenId].currentStatus;
+    function _checkValidatorStatus(address validatorAddress, ValidatorStatus requiredStatus) private view {
+        ValidatorStatus status = validators[validatorAddress].currentStatus;
         if (status != requiredStatus) revert InvalidStatus(status);
     }
 
@@ -686,11 +674,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (currentValidator.isRetired != false) {
                 revert InvalidStatus(ValidatorStatus.Exited);
             }
-            uint24 tokenId = uint24(i + 1);
             if (currentValidator.isDelegated == true) {
                 // at genesis, only governance delegations are enabled
                 delegations[currentValidator.validatorAddress] =
-                    Delegation(keccak256(currentValidator.blsPubkey), owner_, tokenId, uint8(0), uint64(1));
+                    Delegation(keccak256(currentValidator.blsPubkey), currentValidator.validatorAddress, owner_, uint8(0), uint64(1));
             }
             if (currentValidator.stakeVersion != 0) {
                 revert InvalidStakeAmount(currentValidator.stakeVersion);
@@ -704,11 +691,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 futureEpochInfo[j].committee.push(currentValidator.validatorAddress);
             }
 
-            validators[tokenId] = currentValidator;
-            stakeInfo[currentValidator.validatorAddress].tokenId = tokenId;
-            stakeInfo[currentValidator.validatorAddress].balance = genesisConfig_.stakeAmount;
+            validators[currentValidator.validatorAddress] = currentValidator;
+            stakeInfo[currentValidator.validatorAddress] = genesisConfig_.stakeAmount;
             totalSupply++;
-            _mint(currentValidator.validatorAddress, tokenId);
+            _mint(currentValidator.validatorAddress, _getTokenId(currentValidator.validatorAddress));
 
             emit ValidatorActivated(currentValidator);
         }

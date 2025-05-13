@@ -7,7 +7,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
-import { StakeInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { InterchainTEL } from "src/InterchainTEL.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
@@ -33,7 +33,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             assertEq(active[i].validatorAddress, initialValidators[i].validatorAddress);
             assertEq(consensusRegistry.getValidatorTokenId(initialValidators[i].validatorAddress), i + 1);
             assertEq(
-                consensusRegistry.getValidatorByTokenId(i + 1).validatorAddress, initialValidators[i].validatorAddress
+                consensusRegistry.getValidator(validatorAddress).validatorAddress, initialValidators[i].validatorAddress
             );
             vm.expectRevert();
             consensusRegistry.isRetired(i + 1);

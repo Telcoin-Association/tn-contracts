@@ -10,43 +10,35 @@ pragma solidity 0.8.26;
  * @dev Implemented within StakeManager.sol, which is inherited by the ConsensusRegistry
  */
 
-/// @notice Struct used by storage ledger to record outstanding validator balances
-/// @dev Links balances to ConsensusNFTs to enable DPoS & permanent validator retirement
-/// @dev Updated via rewards and slashes
-struct StakeInfo {
-    uint24 tokenId;
-    uint232 balance;
-}
-
 /// @notice Protocol info for system calls to split the epoch issuance amount
 /// between validators based on how many consensus headers they produced
 /// @notice Not enabled during MNO pilot
 struct RewardInfo {
     address validatorAddress;
-    uint232 consensusHeaderCount;
+    uint256 consensusHeaderCount;
 }
 
 /// @notice Slash information for system calls to decrement outstanding validator balances
 /// @notice Not enabled during MNO pilot
 struct Slash {
     address validatorAddress;
-    uint232 amount;
+    uint256 amount;
 }
 
 interface IStakeManager {
     /// @notice New StakeConfig versions take effect in the next epoch
     /// ie they are set for each epoch at its start
     struct StakeConfig {
-        uint232 stakeAmount;
-        uint232 minWithdrawAmount;
-        uint232 epochIssuance;
+        uint256 stakeAmount;
+        uint256 minWithdrawAmount;
+        uint256 epochIssuance;
         uint32 epochDuration;
     }
 
     struct Delegation {
         bytes32 blsPubkeyHash;
+        address validatorAddress;
         address delegator;
-        uint24 tokenId;
         uint8 validatorVersion;
         uint64 nonce;
     }
@@ -97,13 +89,13 @@ interface IStakeManager {
 
     /// @dev Fetches the claimable rewards accrued for a given validator address
     /// @return _ The validator's claimable rewards, not including the validator's stake
-    function getRewards(address validatorAddress) external view returns (uint232);
+    function getRewards(address validatorAddress) external view returns (uint256);
 
     /// @dev Fetches the StakeManager's issuance contract address
     function issuance() external view returns (address payable);
 
     /// @dev Returns staking information for the given address
-    function getStakeInfo(address validatorAddress) external view returns (StakeInfo memory);
+    function getStakeInfo(address validatorAddress) external view returns (uint256);
 
     /// @dev Returns the current version
     function stakeVersion() external view returns (uint8);

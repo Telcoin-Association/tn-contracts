@@ -83,7 +83,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
             // deal `stakeAmount` funds and prank governance NFT mint to `newValidator`
             vm.deal(newValidator, stakeAmount_);
             vm.prank(crOwner);
-            consensusRegistry.mint(newValidator, tokenId);
+            consensusRegistry.mint(newValidator);
         }
     }
 

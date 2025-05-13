@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
-import { StakeInfo, IStakeManager } from "../interfaces/IStakeManager.sol";
+import { IStakeManager } from "../interfaces/IStakeManager.sol";
 import { Issuance } from "./Issuance.sol";
 
 /**
@@ -19,16 +19,16 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     uint24 public totalSupply;
     uint8 public stakeVersion;
     mapping(uint8 => StakeConfig) internal versions;
-    mapping(address => StakeInfo) internal stakeInfo;
+    mapping(address => uint256) internal stakeInfo;
     mapping(address => Delegation) internal delegations;
 
     /// @dev Validators that unstake are permanently ejected by setting their index to `UNSTAKED`
     /// @notice Rejoining requires re-onboarding with new validator address, tokenId, stake, & index
-    uint24 internal constant UNSTAKED = type(uint24).max;
+    uint256 internal constant UNSTAKED = type(uint160).max;
 
     /// @dev EIP-712 typed struct hash used to enable delegated proof of stake
     bytes32 DELEGATION_TYPEHASH = keccak256(
-        "Delegation(bytes32 blsPubkeyHash,address delegator,uint24 tokenId,uint8 validatorVersion,uint64 nonce)"
+        "Delegation(bytes32 blsPubkeyHash,address validatorAddress,address delegator,uint8 validatorVersion,uint64 nonce)"
     );
 
     constructor(string memory name, string memory symbol) ERC721(name, symbol) { }
@@ -53,10 +53,10 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     function unstake(address validatorAddress) external virtual;
 
     /// @inheritdoc IStakeManager
-    function getRewards(address validatorAddress) public view virtual returns (uint232);
+    function getRewards(address validatorAddress) public view virtual returns (uint256);
 
     /// @inheritdoc IStakeManager
-    function getStakeInfo(address validatorAddress) public view virtual returns (StakeInfo memory) {
+    function getStakeInfo(address validatorAddress) public view virtual returns (uint256) {
         return stakeInfo[validatorAddress];
     }
 
@@ -87,11 +87,11 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
         override
         returns (bytes32)
     {
-        uint24 tokenId = _checkConsensusNFTOwner(validatorAddress);
+        _checkConsensusNFTOwner(validatorAddress);
         uint64 nonce = delegations[validatorAddress].nonce;
         bytes32 blsPubkeyHash = keccak256(blsPubkey);
         bytes32 structHash =
-            keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, delegator, tokenId, stakeVersion, nonce));
+            keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce));
 
         return _hashTypedData(structHash);
     }
@@ -105,10 +105,9 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     /// @dev The StakeManager's ERC721 ledger serves a permissioning role over validators, requiring
     /// Telcoin governance to approve each node operator and manually issue them a `ConsensusNFT`
     /// @param to Refers to the struct member `ValidatorInfo.validatorAddress` in `IConsensusRegistry`
-    /// @param tokenId Refers to the `ERC721::tokenId` which must be less than `UNSTAKED` and nonzero
-    /// tokenIds must be minted in order unless overwriting a retired validator for storage efficiency
+    /// @notice tokenId Will be `uint160(to)` which must be less than `UNSTAKED` and nonzero
     /// @notice Access-gated in ConsensusRegistry to its owner, which is a Telcoin governance address
-    function mint(address to, uint256 tokenId) external virtual;
+    function mint(address to) external virtual;
 
     /// @dev In the case of malicious or erroneous node operator behavior, governance can use this function
     /// to burn a validator's `ConsensusNFT` and immediately eject from consensus committees if applicable
@@ -160,11 +159,11 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     )
         internal
         virtual
-        returns (uint232)
+        returns (uint256)
     {
         // check rewards are claimable and send via the InterchainTEL contract
-        uint232 rewards = _checkRewards(validatorAddress, validatorVersion);
-        stakeInfo[validatorAddress].balance -= rewards;
+        uint256 rewards = _checkRewards(validatorAddress, validatorVersion);
+        stakeInfo[validatorAddress] -= rewards;
         Issuance(issuance).distributeStakeReward(recipient, rewards);
 
         return rewards;
@@ -173,7 +172,6 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     function _unstake(
         address validatorAddress,
         address recipient,
-        uint256 tokenId,
         uint8 validatorVersion
     )
         internal
@@ -181,15 +179,13 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
         returns (uint256)
     {
         // wipe existing stakeInfo and burn the token
-        StakeInfo storage info = stakeInfo[validatorAddress];
-        uint232 bal = info.balance;
-        info.balance = 0;
-        info.tokenId = UNSTAKED;
+        uint256 bal = stakeInfo[validatorAddress];
+        stakeInfo[validatorAddress] = 0;
         if (--totalSupply == 0) revert InvalidSupply();
-        _burn(tokenId);
+        _burn(_getTokenId(validatorAddress));
 
         // forward stake to recipient through Issuance
-        uint232 stakeAmt = versions[validatorVersion].stakeAmount;
+        uint256 stakeAmt = versions[validatorVersion].stakeAmount;
         uint256 rewards = _getRewards(validatorAddress, stakeAmt);
         Issuance(issuance).distributeStakeReward{ value: bal }(recipient, rewards);
 
@@ -202,9 +198,9 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
         return bal + rewards;
     }
 
-    function _checkRewards(address validatorAddress, uint8 validatorVersion) internal virtual returns (uint232) {
-        uint232 initialStake = versions[validatorVersion].stakeAmount;
-        uint232 rewards = _getRewards(validatorAddress, initialStake);
+    function _checkRewards(address validatorAddress, uint8 validatorVersion) internal virtual returns (uint256) {
+        uint256 initialStake = versions[validatorVersion].stakeAmount;
+        uint256 rewards = _getRewards(validatorAddress, initialStake);
 
         if (rewards == 0 || rewards < versions[validatorVersion].minWithdrawAmount) {
             revert InsufficientRewards(rewards);
@@ -213,15 +209,15 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
         return rewards;
     }
 
-    function _checkStakeValue(uint256 value, uint8 version) internal virtual returns (uint232) {
+    function _checkStakeValue(uint256 value, uint8 version) internal virtual returns (uint256) {
         if (value != versions[version].stakeAmount) revert InvalidStakeAmount(value);
 
-        return uint232(value);
+        return uint256(value);
     }
 
-    function _getRewards(address validatorAddress, uint232 initialStake) internal view virtual returns (uint232) {
-        uint232 balance = stakeInfo[validatorAddress].balance;
-        uint232 rewards = balance > initialStake ? balance - initialStake : 0;
+    function _getRewards(address validatorAddress, uint256 initialStake) internal view virtual returns (uint256) {
+        uint256 balance = stakeInfo[validatorAddress];
+        uint256 rewards = balance > initialStake ? balance - initialStake : 0;
 
         return rewards;
     }
@@ -245,16 +241,13 @@ abstract contract StakeManager is ERC721, EIP712, IStakeManager {
     }
 
     /// @dev Reverts if the provided address doesn't correspond to an existing `tokenId` owned by `validatorAddress`
-    function _checkConsensusNFTOwner(address validatorAddress) internal view returns (uint24) {
-        uint24 tokenId = _getTokenId(validatorAddress);
+    function _checkConsensusNFTOwner(address validatorAddress) internal view{
+        uint256 tokenId = _getTokenId(validatorAddress);
         if (!_exists(tokenId)) revert InvalidTokenId(tokenId);
-        if (ownerOf(tokenId) != validatorAddress) revert RequiresConsensusNFT();
-
-        return tokenId;
     }
 
-    function _getTokenId(address validatorAddress) internal view returns (uint24) {
-        return stakeInfo[validatorAddress].tokenId;
+    function _getTokenId(address validatorAddress) internal view returns (uint256) {
+        return uint256(uint160(validatorAddress));
     }
 
     function _exists(uint256 tokenId) internal view virtual returns (bool) {
