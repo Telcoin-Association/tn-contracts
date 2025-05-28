@@ -642,10 +642,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev There are ~1000 total MNOs in the world so `SLOAD` loops should not run out of gas
     /// @dev Room for storage optimization (SSTORE2 etc) to hold more validators
     function _getValidators(ValidatorStatus status) internal view returns (ValidatorInfo[] memory) {
-        ValidatorInfo[] memory untrimmed = new ValidatorInfo[]((totalSupply()));
+        ValidatorInfo[] memory validatorsMatched = new ValidatorInfo[]((totalSupply()));
         uint256 numMatches;
 
-        for (uint256 i; i < untrimmed.length; ++i) {
+        for (uint256 i; i < validatorsMatched.length; ++i) {
             address validatorAddress = _getAddress(tokenByIndex(i));
             ValidatorInfo storage current = validators[validatorAddress];
             if (current.isRetired) continue;
@@ -666,15 +666,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
 
             if (matchFound) {
-                untrimmed[numMatches++] = current;
+                validatorsMatched[numMatches++] = current;
             }
         }
 
-        // trim and return final array
-        ValidatorInfo[] memory validatorsMatched = new ValidatorInfo[](numMatches);
+        // trim and return array
         assembly {
-            mstore(untrimmed, numMatches)
-            validatorsMatched := untrimmed
+            mstore(validatorsMatched, numMatches)
         }
 
         return validatorsMatched;
