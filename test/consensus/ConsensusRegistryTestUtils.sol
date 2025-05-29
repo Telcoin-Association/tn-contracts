@@ -9,10 +9,10 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
     ConsensusRegistry public consensusRegistry;
 
     address public crOwner = address(0xc0ffee);
-    address public validator1 = _createRandomAddress(1);
-    address public validator2 = _createRandomAddress(2);
-    address public validator3 = _createRandomAddress(3);
-    address public validator4 = _createRandomAddress(4);
+    address public validator1 = _addressFromSeed(1);
+    address public validator2 = _addressFromSeed(2);
+    address public validator3 = _addressFromSeed(3);
+    address public validator4 = _addressFromSeed(4);
 
     ValidatorInfo validatorInfo1;
     ValidatorInfo validatorInfo2;
@@ -24,14 +24,14 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
     address public sysAddress;
 
     // non-genesis validator for testing
-    address public validator5 = _createRandomAddress(5);
+    address public validator5 = _addressFromSeed(5);
     bytes public validator5BlsPubkey = _createRandomBlsPubkey(5);
 
     uint256 public telMaxSupply = 100_000_000_000 ether;
-    uint232 public stakeAmount_ = 1_000_000 ether;
-    uint232 public minWithdrawAmount_ = 1000 ether;
-    uint232 public epochIssuance_ = 714_285_714_285_714_285_714_285;
-    uint32 public epochDuration_ = 24 hours;
+    uint256 public stakeAmount_ = 1_000_000 ether;
+    uint256 public minWithdrawAmount_ = 1000 ether;
+    uint256 public epochIssuance_ = 714_285_714_285_714_285_714_285;
+    uint32 public epochDuration_ = 25 hours;
     // `OZ::ERC721Upgradeable::mint()` supports up to ~14_300 fuzzed mint iterations
     uint256 public MAX_MINTABLE = 14_000;
 
@@ -65,7 +65,20 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         return initialValidators;
     }
 
-    function _createRandomAddress(uint256 seed) internal pure returns (address) {
+    function _sortAddresses(address[] memory arr) internal pure {
+        uint256 length = arr.length;
+        for (uint256 i; i < length; i++) {
+            for (uint256 j; j < length - 1; j++) {
+                if (arr[j] > arr[j + 1]) {
+                    address temp = arr[j];
+                    arr[j] = arr[j + 1];
+                    arr[j + 1] = temp;
+                }
+            }
+        }
+    }
+
+    function _addressFromSeed(uint256 seed) internal pure returns (address) {
         return address(uint160(uint256(keccak256(abi.encode(seed)))));
     }
 
@@ -78,12 +91,12 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         for (uint256 i; i < numValidators; ++i) {
             // account for initial validators
             uint256 tokenId = i + 5;
-            address newValidator = _createRandomAddress(tokenId);
+            address newValidator = _addressFromSeed(tokenId);
 
             // deal `stakeAmount` funds and prank governance NFT mint to `newValidator`
             vm.deal(newValidator, stakeAmount_);
             vm.prank(crOwner);
-            consensusRegistry.mint(newValidator, tokenId);
+            consensusRegistry.mint(newValidator);
         }
     }
 
@@ -113,7 +126,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         uint256 counter;
         for (uint256 i; i < numValidators; ++i) {
             uint256 tokenId = tokenIds[i];
-            address validatorToBurn = _createRandomAddress(tokenId);
+            address validatorToBurn = _addressFromSeed(tokenId);
 
             // skip burning two committee members
             if (validatorToBurn == skipper || validatorToBurn == skippy) {
@@ -138,7 +151,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         for (uint256 i; i < numValidators; ++i) {
             // recreate `newValidator`, accounting for initial validators
             uint256 tokenId = i + 5;
-            address newValidator = _createRandomAddress(tokenId);
+            address newValidator = _addressFromSeed(tokenId);
 
             // create random new validator keys
             bytes memory newBLSPubkey = _createRandomBlsPubkey(tokenId);
@@ -154,7 +167,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         for (uint256 i; i < numValidators; ++i) {
             // recreate `newValidator`, accounting for initial validators
             uint256 tokenId = i + 5;
-            address newValidator = _createRandomAddress(tokenId);
+            address newValidator = _addressFromSeed(tokenId);
 
             vm.prank(newValidator);
             consensusRegistry.activate();
@@ -175,13 +188,13 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
             // 4 initial and 6 new validators would be under the 10 committee size
             committeeSize = numActive;
         } else {
-            committeeSize = (numActive * PRECISION_FACTOR) / 3 / PRECISION_FACTOR + 1;
+            committeeSize = (numActive * 1e32) / 3 / 1e32 + 1;
         }
 
         return committeeSize;
     }
 
-    function _fuzz_createNewCommittee(
+    function _fuzz_createFutureCommittee(
         uint256 numActive,
         uint256 committeeSize
     )
@@ -189,23 +202,37 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         pure
         returns (address[] memory)
     {
-        // reloop to construct `newCommittee` array
-        address[] memory newCommittee = new address[](committeeSize);
+        // reloop to construct `futureCommittee` array
+        address[] memory futureCommittee = new address[](committeeSize);
         uint256 committeeCounter;
         // `tokenId` is 1-indexed
         uint256 index = 1 + uint256(keccak256(abi.encode(committeeSize))) % committeeSize;
         // handle index overflow by wrapping around to first index
         uint256 nonOverflowIndex = 1 + numActive - committeeSize;
         index = index > nonOverflowIndex ? nonOverflowIndex : index;
-        while (committeeCounter < newCommittee.length) {
+        while (committeeCounter < futureCommittee.length) {
             // recreate `validator` address with ConsensusNFT in `setUp()` loop
-            address validator = _createRandomAddress(index);
-            newCommittee[committeeCounter] = validator;
+            address validator = _addressFromSeed(index);
+            futureCommittee[committeeCounter] = validator;
             committeeCounter++;
             index++;
         }
 
-        return newCommittee;
+        _sortAddresses(futureCommittee);
+
+        return futureCommittee;
+    }
+
+    function _createTokenIdCommittee(uint256 committeeSize) internal pure returns (address[] memory) {
+        address[] memory committee = new address[](committeeSize);
+        for (uint256 i; i < committee.length; ++i) {
+            // create dummy `validator` address equivalent to their `tokenId`
+            uint256 tokenId = i + 1;
+            address validator = address(uint160(tokenId));
+            committee[i] = validator;
+        }
+
+        return committee;
     }
 
     function _fuzz_createRewardInfos(uint24 numRewardees)
@@ -216,10 +243,10 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         RewardInfo[] memory rewardInfos = new RewardInfo[](numRewardees);
         uint256 totalWeight;
         for (uint256 i; i < numRewardees; ++i) {
-            address rewardee = _createRandomAddress(i + 1);
+            address rewardee = _addressFromSeed(i + 1);
             // 0-10000 is reasonable range of consensus blocks leaders can authorize per epoch
             uint256 uniqueSeed = i + numRewardees;
-            uint232 consensusHeaderCount = uint232(uint256(keccak256(abi.encode(uniqueSeed))) % 10_000);
+            uint256 consensusHeaderCount = uint256(uint256(keccak256(abi.encode(uniqueSeed))) % 10_000);
 
             rewardInfos[i] = RewardInfo(rewardee, consensusHeaderCount);
             totalWeight += stakeAmount_ * consensusHeaderCount;
@@ -230,8 +257,8 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
                 expectedRewards[i] = 0;
                 continue;
             }
-            uint256 scaledWeight = PRECISION_FACTOR * stakeAmount_ * rewardInfos[i].consensusHeaderCount;
-            expectedRewards[i] = scaledWeight / totalWeight * epochIssuance_ / PRECISION_FACTOR;
+            uint256 weight = stakeAmount_ * rewardInfos[i].consensusHeaderCount;
+            expectedRewards[i] = epochIssuance_ * weight / totalWeight;
         }
 
         return (rewardInfos, expectedRewards);

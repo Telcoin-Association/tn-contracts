@@ -44,5 +44,4 @@ At the epoch boundary, the protocol performs gasless system calls to the Consens
 
 - **Rewards Claiming**: Pull-only claim flow to avoid reverts during critical consensus logic.
 - **Rewards Sourcing**: During the MNO pilot, consensus block rewards are funded by the TAO in a subsidized growth phase.
-- **Balance Tracking** Validator balances use a uint232 ledger packed with tokenIds for storage efficiency.
-- **Type Size** The uint232 type used by `StakeInfo.balance` is propagated across the codebase and more than sufficient considering the TEL token total supply is 100billion, ie 100_000_000_000e18.
+- **Balance Tracking** Validator balances use a uint256 ledger which represents outstanding balance in full, including both stake and any accrued rewards.

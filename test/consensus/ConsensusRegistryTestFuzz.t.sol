@@ -26,7 +26,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
     }
 
     function testFuzz_mintBurn(uint24 numValidators) public {
-        numValidators = uint24(bound(uint256(numValidators), 1, 645));
+        numValidators = uint24(bound(uint256(numValidators), 1, 700));
 
         _fuzz_mint(numValidators);
         vm.deal(address(consensusRegistry), stakeAmount_ * (numValidators + 5)); // provide funds
@@ -39,43 +39,44 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         // asserts
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
+        uint256 numActive = numValidators >= burnedIds.length ? numValidators - burnedIds.length : 2;
+        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActive);
+        assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActive);
         for (uint256 i; i < burnedIds.length; ++i) {
             uint256 tokenId = burnedIds[i];
 
             // recreate validator
-            address burned = _createRandomAddress(tokenId);
+            address burned = _addressFromSeed(tokenId);
 
-            assertTrue(consensusRegistry.isRetired(tokenId));
+            assertTrue(consensusRegistry.isRetired(burned));
             assertEq(consensusRegistry.balanceOf(burned), 0);
 
             vm.expectRevert();
             consensusRegistry.ownerOf(tokenId);
             vm.expectRevert();
-            consensusRegistry.getValidatorTokenId(burned);
-            vm.expectRevert();
-            consensusRegistry.getValidatorByTokenId(tokenId);
+            consensusRegistry.getValidator(burned);
         }
 
         // remint can't be done with same addresses
         vm.expectRevert();
-        consensusRegistry.mint(_createRandomAddress(1), 1);
+        consensusRegistry.mint(_addressFromSeed(1));
 
         // remint with new addresses
         for (uint256 i; i < numValidators; ++i) {
             // account for initial validators
             uint256 tokenId = i + 5;
             uint256 uniqueSeed = tokenId + numValidators;
-            address newValidator = _createRandomAddress(uniqueSeed);
+            address newValidator = _addressFromSeed(uniqueSeed);
 
             // deal `stakeAmount` funds and prank governance NFT mint to `newValidator`
             vm.deal(newValidator, stakeAmount_);
             vm.prank(crOwner);
-            consensusRegistry.mint(newValidator, tokenId);
+            consensusRegistry.mint(newValidator);
         }
     }
 
     function testFuzz_concludeEpoch(uint24 numValidators) public {
-        numValidators = uint24(bound(uint256(numValidators), 1, 2000));
+        numValidators = uint24(bound(uint256(numValidators), 1, 2100));
 
         uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length + numValidators;
 
@@ -87,36 +88,47 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         uint256 committeeSize = _fuzz_computeCommitteeSize(numActive, numValidators);
         // conclude epoch to reach activationEpoch for validators entered in stake & activate loop
         vm.startPrank(sysAddress);
-        address[] memory zeroCommittee = new address[](committeeSize);
-        consensusRegistry.concludeEpoch(zeroCommittee);
-        address[] memory newCommittee = _fuzz_createNewCommittee(numActive, committeeSize);
+        address[] memory tokenIdCommittee = _createTokenIdCommittee(committeeSize);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        address[] memory futureCommittee = _fuzz_createFutureCommittee(numActive, committeeSize);
 
         // set the subsequent epoch committee by concluding epoch
-        uint32 duration = consensusRegistry.getCurrentEpochInfo().epochDuration;
+        EpochInfo memory epochInfo = consensusRegistry.getCurrentEpochInfo();
+        uint32 newEpoch = consensusRegistry.getCurrentEpoch() + 1;
+        address[] memory newCommittee = consensusRegistry.getEpochInfo(newEpoch).committee;
         vm.expectEmit(true, true, true, true);
-        emit IConsensusRegistry.NewEpoch(IConsensusRegistry.EpochInfo(newCommittee, uint64(block.number + 1), duration));
-        consensusRegistry.concludeEpoch(newCommittee);
+        emit IConsensusRegistry.NewEpoch(
+            IConsensusRegistry.EpochInfo(
+                newCommittee,
+                epochInfo.epochIssuance,
+                uint64(block.number + 1),
+                epochInfo.epochDuration,
+                epochInfo.stakeVersion
+            )
+        );
+        consensusRegistry.concludeEpoch(futureCommittee);
 
         // asserts
         uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
         assertEq(numActiveAfter, numActive);
-        uint32 newEpoch = consensusRegistry.getCurrentEpoch();
+        uint32 returnedEpoch = consensusRegistry.getCurrentEpoch();
+        assertEq(returnedEpoch, newEpoch);
         address[] memory currentCommittee = consensusRegistry.getEpochInfo(newEpoch).committee;
         for (uint256 i; i < currentCommittee.length; ++i) {
             assertEq(currentCommittee[i], initialValidators[i].validatorAddress);
         }
         address[] memory nextCommittee = consensusRegistry.getEpochInfo(newEpoch + 1).committee;
         for (uint256 i; i < nextCommittee.length; ++i) {
-            assertEq(nextCommittee[i], zeroCommittee[i]);
+            assertEq(nextCommittee[i], tokenIdCommittee[i]);
         }
         address[] memory subsequentCommittee = consensusRegistry.getEpochInfo(newEpoch + 2).committee;
         for (uint256 i; i < subsequentCommittee.length; ++i) {
-            assertEq(subsequentCommittee[i], newCommittee[i]);
+            assertEq(subsequentCommittee[i], futureCommittee[i]);
         }
     }
 
     function testFuzz_applyIncentives(uint24 numValidators, uint24 numRewardees) public {
-        numValidators = uint24(bound(uint256(numValidators), 1, 1050));
+        numValidators = uint24(bound(uint256(numValidators), 1, 2100));
         numRewardees = uint24(bound(uint256(numRewardees), 1, numValidators));
 
         _fuzz_mint(numValidators);
@@ -136,7 +148,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
     }
 
     function testFuzz_claimStakeRewards(uint24 numValidators, uint24 numRewardees) public {
-        numValidators = uint24(bound(uint256(numValidators), 1, 2000));
+        numValidators = uint24(bound(uint256(numValidators), 1, 2100));
         numRewardees = uint24(bound(uint256(numRewardees), 1, numValidators));
 
         _fuzz_mint(numValidators);

@@ -10,43 +10,35 @@ pragma solidity 0.8.26;
  * @dev Implemented within StakeManager.sol, which is inherited by the ConsensusRegistry
  */
 
-/// @notice Struct used by storage ledger to record outstanding validator balances
-/// @dev Links balances to ConsensusNFTs to enable DPoS & permanent validator retirement
-/// @dev Updated via rewards and slashes
-struct StakeInfo {
-    uint24 tokenId;
-    uint232 balance;
-}
-
 /// @notice Protocol info for system calls to split the epoch issuance amount
 /// between validators based on how many consensus headers they produced
 /// @notice Not enabled during MNO pilot
 struct RewardInfo {
     address validatorAddress;
-    uint232 consensusHeaderCount;
+    uint256 consensusHeaderCount;
 }
 
 /// @notice Slash information for system calls to decrement outstanding validator balances
 /// @notice Not enabled during MNO pilot
 struct Slash {
     address validatorAddress;
-    uint232 amount;
+    uint256 amount;
 }
 
 interface IStakeManager {
     /// @notice New StakeConfig versions take effect in the next epoch
     /// ie they are set for each epoch at its start
     struct StakeConfig {
-        uint232 stakeAmount;
-        uint232 minWithdrawAmount;
-        uint232 epochIssuance;
+        uint256 stakeAmount;
+        uint256 minWithdrawAmount;
+        uint256 epochIssuance;
         uint32 epochDuration;
     }
 
     struct Delegation {
         bytes32 blsPubkeyHash;
+        address validatorAddress;
         address delegator;
-        uint24 tokenId;
         uint8 validatorVersion;
         uint64 nonce;
     }
@@ -54,7 +46,7 @@ interface IStakeManager {
     error InvalidTokenId(uint256 tokenId);
     error InvalidStakeAmount(uint256 stakeAmount);
     error InsufficientRewards(uint256 withdrawAmount);
-    error NotDelegator(address notDelegator);
+    error NotRecipient(address recipient);
     error NotTransferable();
     error RequiresConsensusNFT();
     error InvalidSupply();
@@ -77,8 +69,8 @@ interface IStakeManager {
     function claimStakeRewards(address ecdaPubkey) external;
 
     /// @dev Returns previously staked funds in addition to accrued rewards, if any, to the staker
-    /// @notice May only be called after fully exiting
-    /// @notice `StakeInfo::tokenId` will be set to `UNSTAKED` so the validator address cannot be reused
+    /// @notice May be used to reverse validator onboarding pre-activation or permanently retire after full exit
+    /// @notice Once unstaked and retired, validator addresses cannot be reused
     function unstake(address validatorAddress) external;
 
     /// @notice Returns the delegation digest that a validator should sign to accept a delegation
@@ -92,21 +84,18 @@ interface IStakeManager {
         view
         returns (bytes32);
 
-    /// @dev Returns the current total supply of minted ConsensusNFTs
-    function totalSupply() external view returns (uint24);
-
     /// @dev Fetches the claimable rewards accrued for a given validator address
     /// @return _ The validator's claimable rewards, not including the validator's stake
-    function getRewards(address validatorAddress) external view returns (uint232);
+    function getRewards(address validatorAddress) external view returns (uint256);
 
     /// @dev Fetches the StakeManager's issuance contract address
     function issuance() external view returns (address payable);
 
     /// @dev Returns staking information for the given address
-    function getStakeInfo(address validatorAddress) external view returns (StakeInfo memory);
+    function getBalance(address validatorAddress) external view returns (uint256);
 
     /// @dev Returns the current version
-    function stakeVersion() external view returns (uint8);
+    function getCurrentStakeVersion() external view returns (uint8);
 
     /// @dev Returns the queried stake configuration
     function stakeConfig(uint8 version) external view returns (StakeConfig memory);

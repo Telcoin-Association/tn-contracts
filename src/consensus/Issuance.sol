@@ -30,11 +30,11 @@ contract Issuance {
     /// @dev Sends `rewardAmount` and forwards `msg.value` if stake amount is additionally provided
     function distributeStakeReward(address recipient, uint256 rewardAmount) external payable virtual onlyStakeManager {
         uint256 bal = address(this).balance;
-        if (bal < rewardAmount) {
-            revert InsufficientBalance(bal, rewardAmount);
+        uint256 totalAmount = rewardAmount + msg.value;
+        if (bal < totalAmount) {
+            revert InsufficientBalance(bal, totalAmount);
         }
 
-        uint256 totalAmount = rewardAmount + msg.value;
         (bool res,) = recipient.call{ value: totalAmount }("");
         if (!res) revert RewardDistributionFailure(recipient);
     }

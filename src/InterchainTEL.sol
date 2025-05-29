@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import { InterchainTokenStandard } from
     "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainTokenStandard.sol";
+import { Create3AddressFixed } from "@axelar-network/interchain-token-service/contracts/utils/Create3AddressFixed.sol";
 
 import { RecoverableWrapper } from "recoverable-wrapper/contracts/rwt/RecoverableWrapper.sol";
 import { RecordsDeque, RecordsDequeLib, Record } from "recoverable-wrapper/contracts/util/RecordUtil.sol";
@@ -21,7 +22,14 @@ import { IInterchainTEL } from "./interfaces/IInterchainTEL.sol";
 /// @dev Inbound ERC20 TEL from other networks is delivered as native TEL through custom mint logic
 /// whereas outbound native TEL must first be double-wrapped to iTEL & elapse the recoverable window
 /// @dev Pausability restricts all wrapping/unwrapping actions and execution of ITS bridge messages
-contract InterchainTEL is IInterchainTEL, RecoverableWrapper, InterchainTokenStandard, SystemCallable, Pausable {
+contract InterchainTEL is
+    IInterchainTEL,
+    RecoverableWrapper,
+    InterchainTokenStandard,
+    Create3AddressFixed,
+    SystemCallable,
+    Pausable
+{
     using RecordsDequeLib for RecordsDeque;
 
     /// @dev The precompiled Axelar ITS TokenManager contract address for this token
@@ -36,8 +44,7 @@ contract InterchainTEL is IInterchainTEL, RecoverableWrapper, InterchainTokenSta
     bytes32 private immutable originChainNameHash;
     bytes32 private constant PREFIX_CUSTOM_TOKEN_SALT = keccak256("custom-token-salt");
     bytes32 private constant PREFIX_INTERCHAIN_TOKEN_ID = keccak256("its-interchain-token-id");
-    bytes32 private constant CREATE_DEPLOY_BYTECODE_HASH =
-        0xdb4bab1640a2602c9f66f33765d12be4af115accf74b24515702961e82a71327;
+
     /// @notice Token factory flag to be create3-agnostic; see `InterchainTokenService::TOKEN_FACTORY_DEPLOYER`
     address private constant TOKEN_FACTORY_DEPLOYER = address(0x0);
     uint256 private constant DECIMALS_CONVERTER = 1e16;
@@ -105,7 +112,6 @@ contract InterchainTEL is IInterchainTEL, RecoverableWrapper, InterchainTokenSta
         bytes32 s
     )
         external
-        payable
         virtual
     {
         if (amount == 0) revert MintFailed(owner, amount);
@@ -133,11 +139,15 @@ contract InterchainTEL is IInterchainTEL, RecoverableWrapper, InterchainTokenSta
         _totalSupply += amount;
         _accountState[account].nonce++;
         _accountState[account].balance += bytes16Amount;
+
+        emit Transfer(address(0), account, amount);
     }
 
     /// @dev Includes pausability for unwrapping, incl outbound bridging
     function _burn(address account, uint256 amount) internal virtual override whenNotPaused {
         super._burn(account, amount);
+
+        emit Transfer(account, address(0), amount);
     }
 
     /// @inheritdoc IInterchainTEL
@@ -204,7 +214,7 @@ contract InterchainTEL is IInterchainTEL, RecoverableWrapper, InterchainTokenSta
 
     /// @inheritdoc IInterchainTEL
     function isMinter(address addr) external view virtual returns (bool) {
-        if (addr == tokenManagerAddress()) return true;
+        if (addr == tokenManager) return true;
 
         return false;
     }

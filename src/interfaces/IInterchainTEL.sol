@@ -24,16 +24,7 @@ interface IInterchainTEL {
     /// @notice Convenience function for users to wrap wTEL to iTEL in one tx without approval
     /// @dev Explicitly allows malleable signatures for optionality. Malleability is handled
     /// by abstracting signature reusability away via stateful nonce within the EIP-712 structhash
-    function permitWrap(
-        address owner,
-        uint256 amount,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    )
-        external
-        payable;
+    function permitWrap(address owner, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
 
     /// @notice Fetches the account's outstanding unsettled records
     /// @dev Intended as a convenience function only, eg for frontends. Does not prevent
