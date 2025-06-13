@@ -28,7 +28,15 @@ import { GenesisPrecompiler } from "./GenesisPrecompiler.sol";
 /// @dev All genesis fns return simulated deployments, copying state changes to genesis targets in storage
 abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
     /// @dev Sets this contract's state using ITS fetched from a `deployments.json` file
-    function _setGenesisTargets(ITS memory genesisITSTargets, address payable wtel, address payable itel, address itelTokenManager) internal {
+    function _setGenesisTargets(
+        ITS memory genesisITSTargets, 
+        address payable wtel, 
+        address payable itel, 
+        address itelTokenManager, 
+        address payable safeSingleton, 
+        address safeFactory, 
+        address payable safe
+    ) internal {
         gatewayImpl = AxelarAmplifierGateway(genesisITSTargets.AxelarAmplifierGatewayImpl);
         gateway = AxelarAmplifierGateway(genesisITSTargets.AxelarAmplifierGateway);
         tokenManagerDeployer = TokenManagerDeployer(genesisITSTargets.TokenManagerDeployer);
@@ -46,6 +54,9 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         wTEL = WTEL(wtel);
         iTEL = InterchainTEL(itel);
         iTELTokenManager = TokenManager(itelTokenManager);
+        safeImpl = Safe(safeSingleton);
+        safeProxyFactory = SafeProxyFactory(safeFactory);
+        governanceSafe = Safe(safe);
     }
 
     function instantiateAxelarAmplifierGatewayImpl()

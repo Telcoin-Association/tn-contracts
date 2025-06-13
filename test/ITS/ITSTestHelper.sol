@@ -148,7 +148,16 @@ abstract contract ITSTestHelper is Test, ITSGenesis {
         vm.deal(linker, 1 ether);
 
         // first set target genesis addresses in state (not yet deployed) for use with recording
-        _setGenesisTargets(genesisITSTargets, payable(wtel), payable(itel), itelTokenManager);
+        address payable governancePlaceholder = payable(admin);
+        _setGenesisTargets(
+            genesisITSTargets,
+            payable(wtel),
+            payable(itel),
+            itelTokenManager,
+            governancePlaceholder,
+            governancePlaceholder,
+            governancePlaceholder
+        );
 
         // instantiate deployer for state diff recording and set up config vars for devnet
         create3 = new Create3Deployer{ salt: salts.Create3DeployerSalt }();

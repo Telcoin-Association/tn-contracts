@@ -60,6 +60,8 @@ abstract contract ITSConfig is ITSUtils {
     AxelarAmplifierGateway sepoliaGateway;
 
     uint256 public constant telTotalSupply = 100_000_000_000e18;
+    /// @dev TEL genesis allocation to the governance safe for gas used to relay initial ITS bridging
+    uint256 public constant governanceInitialBalance = 10e18;
 
     /// @dev Create3 deployment of ITS requires some deterministic addresses before deployment
     /// @dev Prefetch target addrs for constructor args is also helpful for the config setups

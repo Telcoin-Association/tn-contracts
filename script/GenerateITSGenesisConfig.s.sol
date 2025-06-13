@@ -64,14 +64,8 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
 
     uint64 sharedNonce = 0;
     uint256 sharedBalance = 0;
-    // will be decremented at genesis by protocol based on initial validators stake and governance bridge amount
-    uint256 iTELBalance = 100_000_000_000 ether;
-
-    uint256 governanceBalance = 10 ether;
-    //todo: decrement above balance by governance safe bal
-    //todo: deploy singleton, safe proxy factory, safe proxy
-    //todo: call setUp() on safe proxy
-    //todo: record bytecodes and storage slots in yaml file
+    // will be further decremented at genesis by protocol, based on initial validators stake
+    uint256 iTELBalance = telTotalSupply - governanceInitialBalance;
 
     function setUp() public {
         root = vm.projectRoot();
@@ -88,7 +82,10 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
             deployments.its,
             payable(deployments.wTEL),
             payable(deployments.its.InterchainTEL),
-            deployments.its.InterchainTELTokenManager
+            deployments.its.InterchainTELTokenManager,
+            payable(deployments.SafeImpl),
+            deployments.SafeProxyFactory,
+            payable(deployments.Safe)
         );
 
         // create3 contract only used for simulation; will not be instantiated at genesis
@@ -245,7 +242,9 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
         );
         // governance safe (has storage)
         address simulatedSafe = address(instantiateGovernanceSafe());
-        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceBalance));
+        assertTrue(
+            yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceInitialBalance)
+        );
 
         vm.stopBroadcast();
     }
