@@ -67,7 +67,6 @@ abstract contract ITSUtils is Create3Utils {
     // Telcoin Network contracts
     WTEL wTEL;
     InterchainTEL iTEL;
-    address itelOwner; // note: devnet only
 
     // AxelarAmplifierGateway config
     string axelarId;

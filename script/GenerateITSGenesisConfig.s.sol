@@ -131,11 +131,8 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        address admin = deployments.admin;
-        itelOwner = admin;
-
         /// @dev For testnet and mainnet genesis configs, use corresponding function
-        _setUpDevnetConfig(admin, deployments.sepoliaTEL, deployments.wTEL, deployments.its.InterchainTEL);
+        _setUpDevnetConfig(deployments.admin, deployments.sepoliaTEL, deployments.wTEL, deployments.its.InterchainTEL);
 
         _setGenesisTargets(
             deployments.its,

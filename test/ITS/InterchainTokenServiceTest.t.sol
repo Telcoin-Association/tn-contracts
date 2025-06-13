@@ -63,7 +63,6 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         vm.deal(linker, 1 ether);
 
         // add or overwrite configs outside of devnet setup in test context
-        itelOwner = admin;
         chainName_ = MAINNET_CHAIN_NAME;
         originChainName_ = MAINNET_CHAIN_NAME;
         itsSetupParams = abi.encode(itsOperator, chainName_, trustedChainNames, trustedAddresses);
