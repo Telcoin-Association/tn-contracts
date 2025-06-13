@@ -32,7 +32,7 @@ contract LinkToken is ITSConfig, Script {
         factory = InterchainTokenFactory(deployments.its.InterchainTokenFactory);
         sourceChain = DEVNET_SEPOLIA_CHAIN_NAME;
         destinationChain = "telcoin";
-        destinationAddress = governanceAddress_;
+        destinationAddress = owner_;
 
         /// @dev For testnet and mainnet genesis configs, use corresponding function
         _setUpDevnetConfig(deployments.admin, deployments.sepoliaTEL, deployments.wTEL, deployments.its.InterchainTEL);

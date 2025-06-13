@@ -209,7 +209,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
@@ -316,7 +316,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
@@ -538,7 +538,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME; // linking done out of order after TN actions
+        destinationChain = DEVNET_TN_CHAIN_NAME; // linking done out of order after TN actions
         vm.startPrank(linker);
         (, bytes32 itelInterchainTokenId,) = eth_registerCustomTokenAndLinkToken(
             originTEL,
@@ -560,7 +560,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
             interchainAmount, // Axelar Hub will convert to 2 decimals before reaching Sepolia
             ""
         );
-        originChain = TN_CHAIN_NAME;
+        originChain = DEVNET_TN_CHAIN_NAME;
         wrappedPayload = abi.encode(MESSAGE_TYPE_RECEIVE_FROM_HUB, originChain, payload);
 
         // for interchain transfers, Message's `destinationAddress = its` and payload's `recipient = user`

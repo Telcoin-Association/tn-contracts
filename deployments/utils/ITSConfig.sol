@@ -75,7 +75,7 @@ abstract contract ITSConfig is ITSUtils {
         address ampdVerifier = 0xCc9Cc353B765Fee36669Af494bDcdc8660402d32;
 
         // AxelarAmplifierGateway
-        axelarId = TN_CHAIN_NAME;
+        axelarId = DEVNET_TN_CHAIN_NAME;
         routerAddress = ITS_HUB_ROUTER_ADDR;
         telChainId = 0x7e1;
         domainSeparator = keccak256(abi.encodePacked(axelarId, routerAddress, telChainId));
@@ -103,10 +103,10 @@ abstract contract ITSConfig is ITSUtils {
         // InterchainTokenService
         itsOwner = admin;
         itsOperator = admin;
-        chainName_ = TN_CHAIN_NAME;
+        chainName_ = DEVNET_TN_CHAIN_NAME;
         trustedChainNames.push(ITS_HUB_CHAIN_NAME); // leverage ITS hub to support remote chains
         trustedChainNames.push(DEVNET_SEPOLIA_CHAIN_NAME);
-        trustedChainNames.push(TN_CHAIN_NAME);
+        trustedChainNames.push(DEVNET_TN_CHAIN_NAME);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
@@ -121,12 +121,12 @@ abstract contract ITSConfig is ITSUtils {
         symbol_ = "iTEL";
         name_ = "Interchain Telcoin";
         recoverableWindow_ = 60; // 1 minute for devnet
-        governanceAddress_ = admin;
+        owner_ = admin;
         maxToClean = uint16(300);
         baseERC20_ = wtel; 
 
         // iTELTokenManager config
-        tmOperator = AddressBytes.toBytes(governanceAddress_);
+        tmOperator = AddressBytes.toBytes(owner_);
         tokenAddress = itel;
         params = abi.encode(tmOperator, tokenAddress);
 
@@ -134,7 +134,18 @@ abstract contract ITSConfig is ITSUtils {
         abiEncodedWeightedSigners = abi.encode(weightedSigners);
     }
 
-    function _setUpTestnetConfig(address admin, address testnetTEL, address wtel, address itel) internal virtual {
+    function _setUpTestnetConfig(address governanceSafe, address admin, address testnetTEL, address wtel, address itel) internal virtual {
         _setUpDevnetConfig(admin, testnetTEL, wtel, itel);
+
+        // overwrite select devnet configurations
+        axelarId = TESTNET_TN_CHAIN_NAME;
+        gatewayOwner = governanceSafe;
+        itsOwner = governanceSafe;
+        itfOwner = governanceSafe;
+        originChainName_ = TESTNET_SEPOLIA_CHAIN_NAME;
+        recoverableWindow_ = 600; // 10 minutes for testnet
+        owner_ = governanceSafe;
+        tmOperator = AddressBytes.toBytes(owner_);
+        params = abi.encode(tmOperator, tokenAddress);
     }
 }

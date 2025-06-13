@@ -29,7 +29,7 @@ contract InterchainTransfer is ITSConfig, Script {
 
         service = InterchainTokenService(deployments.its.InterchainTokenService);
         destinationChain = "telcoin";
-        destinationAddress = governanceAddress_;
+        destinationAddress = owner_;
         interchainAmount = 100; // 1 TEL
 
         /// @dev For testnet and mainnet genesis configs, use corresponding function

@@ -107,7 +107,7 @@ abstract contract ITSUtils is Create3Utils {
     string symbol_;
     string name_;
     uint256 recoverableWindow_;
-    address governanceAddress_;
+    address owner_;
     address baseERC20_; // wTEL
     uint16 maxToClean;
 
@@ -306,7 +306,7 @@ abstract contract ITSUtils is Create3Utils {
             name_,
             symbol_,
             recoverableWindow_,
-            governanceAddress_,
+            owner_,
             baseERC20_,
             maxToClean
         );

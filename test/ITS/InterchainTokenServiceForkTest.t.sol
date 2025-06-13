@@ -108,7 +108,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
@@ -172,7 +172,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         assertEq(returnedTELTokenManager.interchainTokenId(), tmDeploySaltIsTELInterchainTokenId);
         assertEq(returnedTELTokenManager.implementationType(), uint256(ITokenManagerType.TokenManagerType.LOCK_UNLOCK));
         assertEq(returnedTELTokenManager.tokenAddress(), address(originTEL));
-        assertEq(returnedTELTokenManager.isOperator(governanceAddress_), true);
+        assertEq(returnedTELTokenManager.isOperator(owner_), true);
         assertEq(returnedTELTokenManager.isOperator(address(sepoliaITS)), true);
         assertEq(returnedTELTokenManager.isFlowLimiter(address(sepoliaITS)), true);
         assertEq(returnedTELTokenManager.flowLimit(), 0); // set by ITS
@@ -198,7 +198,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         (, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
@@ -214,7 +214,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         vm.stopPrank();
 
         // note that TN must have been added as a trusted chain to the Ethereum ITS contract
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.prank(sepoliaITS.owner());
         sepoliaITS.setTrustedAddress(destinationChain, ITS_HUB_ROUTING_IDENTIFIER);
 
@@ -245,7 +245,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         (, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
@@ -261,7 +261,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         vm.stopPrank();
 
         // note that TN must have been added as a trusted chain to the Ethereum ITS contract
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.prank(sepoliaITS.owner());
         sepoliaITS.setTrustedAddress(destinationChain, ITS_HUB_ROUTING_IDENTIFIER);
 
@@ -296,7 +296,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         );
 
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
-        destinationChain = TN_CHAIN_NAME;
+        destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
         eth_registerCustomTokenAndLinkToken(
             originTEL,
@@ -319,7 +319,7 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
             amount,
             ""
         );
-        originChain = TN_CHAIN_NAME;
+        originChain = DEVNET_TN_CHAIN_NAME;
         wrappedPayload = abi.encode(MESSAGE_TYPE_RECEIVE_FROM_HUB, originChain, payload);
 
         // for interchain transfers, Message's `destinationAddress = its` and payload's `recipient = user`

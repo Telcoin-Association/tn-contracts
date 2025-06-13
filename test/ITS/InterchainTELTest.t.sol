@@ -39,8 +39,8 @@ contract InterchainTELTest is Test, ITSTestHelper {
         assertEq(rwSymbol, "iTEL");
         uint256 recoverableWindow = iTEL.recoverableWindow();
         assertEq(recoverableWindow, recoverableWindow_);
-        address governanceAddress = iTEL.owner();
-        assertEq(governanceAddress, governanceAddress_);
+        address owner = iTEL.owner();
+        assertEq(owner, owner_);
     }
 
     function testFuzz_permitWrap(uint96 amount, uint256 deadline) public {
@@ -194,7 +194,7 @@ contract InterchainTELTest is Test, ITSTestHelper {
     }
 
     function test_pause() public {
-        vm.prank(governanceAddress_);
+        vm.prank(owner_);
         iTEL.pause();
         assertTrue(iTEL.paused());
 
@@ -248,7 +248,7 @@ contract InterchainTELTest is Test, ITSTestHelper {
     }
 
     function test_unpause() public {
-        vm.startPrank(governanceAddress_);
+        vm.startPrank(owner_);
         iTEL.pause();
         assertTrue(iTEL.paused());
 
@@ -264,7 +264,7 @@ contract InterchainTELTest is Test, ITSTestHelper {
     }
 
     function testRevert_unpause_governanceOnly() public {
-        vm.prank(governanceAddress_);
+        vm.prank(owner_);
         iTEL.pause();
 
         bytes memory expectedErr = abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this));
