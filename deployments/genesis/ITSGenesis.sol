@@ -15,6 +15,8 @@ import { TokenManager } from "@axelar-network/interchain-token-service/contracts
 import { TokenHandler } from "@axelar-network/interchain-token-service/contracts/TokenHandler.sol";
 import { GatewayCaller } from "@axelar-network/interchain-token-service/contracts/utils/GatewayCaller.sol";
 import { AxelarGasService } from "@axelar-network/axelar-cgp-solidity/contracts/gas-service/AxelarGasService.sol";
+import { Safe } from "safe-contracts/contracts/Safe.sol";
+import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
 import { ITS } from "../Deployments.sol";
@@ -51,7 +53,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (AxelarAmplifierGateway simulatedDeployment)
     {
         simulatedDeployment = super.instantiateAxelarAmplifierGatewayImpl();
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(gatewayImpl), new bytes32[](0));
     }
 
@@ -63,7 +65,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         simulatedDeployment = super.instantiateAxelarAmplifierGateway(impl);
         Vm.AccountAccess[] memory gatewayRecords = vm.stopAndReturnStateDiff();
 
-        // copy simulated state changes to target address in storage
+        
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), gatewayRecords);
         copyContractState(address(simulatedDeployment), address(gateway), slots);
     }
@@ -73,13 +75,13 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (TokenManagerDeployer simulatedDeployment)
     {
         simulatedDeployment = super.instantiateTokenManagerDeployer();
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(tokenManagerDeployer), new bytes32[](0));
     }
 
     function instantiateInterchainTokenImpl(address its_) public virtual override returns (InterchainToken simulatedDeployment) {
         simulatedDeployment = super.instantiateInterchainTokenImpl(its_);
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(interchainTokenImpl), new bytes32[](0));
     }
 
@@ -90,19 +92,19 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (InterchainTokenDeployer simulatedDeployment)
     {
         simulatedDeployment = super.instantiateInterchainTokenDeployer(interchainTokenImpl_);
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(itDeployer), new bytes32[](0));
     }
 
     function instantiateTokenManagerImpl(address its_) public virtual override returns (TokenManager simulatedDeployment) {
         simulatedDeployment = super.instantiateTokenManagerImpl(its_);
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(tokenManagerImpl), new bytes32[](0));
     }
 
     function instantiateTokenHandler() public virtual override returns (TokenHandler simulatedDeployment) {
         simulatedDeployment = super.instantiateTokenHandler();
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(tokenHandler), new bytes32[](0));
     }
 
@@ -111,7 +113,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (AxelarGasService simulatedDeployment)
     {
         simulatedDeployment = super.instantiateAxelarGasServiceImpl();
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(gasServiceImpl), new bytes32[](0));
     }
 
@@ -135,7 +137,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (GatewayCaller simulatedDeployment)
     {
         simulatedDeployment = super.instantiateGatewayCaller(gateway_, axelarGasService_);
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(gatewayCaller), new bytes32[](0));
     }
 
@@ -162,7 +164,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
             tokenHandler_,
             gatewayCaller_
         );
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(itsImpl), new bytes32[](0));
     }
 
@@ -187,7 +189,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         returns (InterchainTokenFactory simulatedDeployment)
     {
         simulatedDeployment = super.instantiateITFImpl(its_);
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(itFactoryImpl), new bytes32[](0));
     }
 
@@ -207,7 +209,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
 
     function instantiateWTEL() public virtual override returns (WTEL simulatedDeployment) {
         simulatedDeployment = super.instantiateWTEL();
-        // copy simulated state changes to target address in storage
+        
         copyContractState(address(simulatedDeployment), address(wTEL), new bytes32[](0));
     }
 
@@ -227,5 +229,39 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
 
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), itelTMRecords);
         copyContractState(address(simulatedDeployment), address(iTELTokenManager), slots);
+    }
+
+    /// @notice Governance Safe infrastructure
+    /// @dev Used as genesis precompiles for base fees, ITS permissioning, and system contract ownership
+
+    function instantiateSafeImpl() public virtual returns (Safe simulatedDeployment) {
+        vm.startStateDiffRecording();
+        simulatedDeployment = new Safe();
+        Vm.AccountAccess[] memory safeImplRecords = vm.stopAndReturnStateDiff();
+
+        bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeImplRecords);
+        copyContractState(address(simulatedDeployment), address(safeImpl), slots);
+    }
+
+    function instantiateSafeProxyFactory() public virtual returns (SafeProxyFactory simulatedDeployment) {
+        simulatedDeployment = new SafeProxyFactory();
+
+        copyContractState(address(simulatedDeployment), address(safeProxyFactory), new bytes32[](0));
+    }
+
+    function instantiateGovernanceSafe() public virtual returns (Safe simulatedDeployment) {
+        vm.startStateDiffRecording();
+
+        address to; bytes memory data; address fallbackHandler;
+        address paymentToken; uint256 payment; address paymentReceiver;
+        bytes memory setupData = abi.encodeWithSelector(
+            Safe.setup.selector, 
+            safeOwners, safeThreshold, 
+            to, data, fallbackHandler, paymentToken, payment, paymentReceiver);
+        simulatedDeployment = Safe(payable(address(safeProxyFactory.createProxyWithNonce(address(safeImpl), setupData, 0x0))));
+
+        Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
+        bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
+        copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
     }
 }

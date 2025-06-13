@@ -147,5 +147,13 @@ abstract contract ITSConfig is ITSUtils {
         owner_ = governanceSafe;
         tmOperator = AddressBytes.toBytes(owner_);
         params = abi.encode(tmOperator, tokenAddress);
+
+        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
+        safeOwners.push(0x84B0fc1Bb26212a1BfFb48F03B010FDA4aDCe3c9);
+        safeOwners.push(0x707856C0089Fd59d9e686A47784d5DAd7c0784c4);
+        safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
+        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
+        safeOwners.push(0xd7e88D492Dc992127384215b8555C9305C218299);
+        safeThreshold = 3;
     }
 }

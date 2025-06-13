@@ -51,58 +51,6 @@ import { Safe } from "safe-contracts/contracts/Safe.sol";
 import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { SafeProxy } from "safe-contracts/contracts/proxies/SafeProxy.sol";
 
-
-    //todo: organize below
-    Safe public safeImpl;
-    SafeProxyFactory public safeProxyFactory;
-    SafeProxy public proxy;
-    uint256 governanceBalance = 10 ether;
-    function deployGovernanceSafe() public {
-
-        // todo: make create3
-        safeImpl = new Safe{salt: salt}();
-        // todo: make create3
-        safeProxyFactory = new SafeProxyFactory{salt: salt}();
-
-        // deploy the governance safe
-        address[] memory owners = new address[](5);
-        owners[0] = ; // todo: use existing TAO safe owners
-        owners[1] = ;
-        owners[2] = ;
-        uint256 threshold = 3; //todo
-        // unused
-        address to; bytes memory data; address fallbackHandler;
-        address paymentToken; uint256 payment; address paymentReceiver;
-
-        bytes memory initData = abi.encodeWithSelector(
-            Safe.setup.selector, 
-            owners, threshold, 
-            to, data, fallbackHandler, paymentToken, payment, paymentReceiver);
-        simulatedProxy = safeProxyFactory.createProxyWithNonce(address(safeImpl), initData, 0x7a0);
-
-        // safe impl (no storage)
-        address simulatedSafeImpl = address(instantiateSafeImpl());
-        assertFalse(
-            yamlAppendGenesisAccount(
-                dest, simulatedSafeImpl, deployments.its.GovernanceSafeImpl, sharedNonce, sharedBalance
-            )
-        );
-        // safe proxy factory (no storage)
-        address simulatedSafeFactory = address(instantiateSafeFactory());
-        assertFalse(
-            yamlAppendGenesisAccount(
-                dest, simulatedSafeFactory, deployments.its.GovernanceSafeFactory, sharedNonce, sharedBalance
-            )
-        );
-        // governance safe (has storage)
-        address simulatedSafe = address(instantiateGovernanceSafe());
-        assertTrue(
-            yamlAppendGenesisAccount(
-                dest, simulatedSafe, deployments.its.GovernanceSafe, sharedNonce, governanceBalance
-            )
-        );
-    }
-
 /// @title Interchain Token Service Genesis Config Generator
 /// @notice Generates a yaml file comprising the storage slots and their values
 /// Used by Telcoin-Network protocol to instantiate the contracts with required configuration at genesis
@@ -118,6 +66,8 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
     uint256 sharedBalance = 0;
     // will be decremented at genesis by protocol based on initial validators stake and governance bridge amount
     uint256 iTELBalance = 100_000_000_000 ether;
+
+    uint256 governanceBalance = 10 ether;
     //todo: decrement above balance by governance safe bal
     //todo: deploy singleton, safe proxy factory, safe proxy
     //todo: call setUp() on safe proxy
@@ -269,7 +219,7 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
             )
         );
 
-        // itel token manager
+        // itel token manager (has storage)
         address simulatedInterchainTELTokenManager =
             address(instantiateInterchainTELTokenManager(deployments.its.InterchainTokenService, customLinkedTokenId));
         assertTrue(
@@ -281,6 +231,22 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
                 sharedBalance
             )
         );
+
+        // safe impl (has storage)
+        address simulatedSafeImpl = address(instantiateSafeImpl());
+        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafeImpl, deployments.SafeImpl, sharedNonce, sharedBalance));
+
+        // safe proxy factory (no storage)
+        address simulatedSafeFactory = address(instantiateSafeProxyFactory());
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeFactory, deployments.SafeProxyFactory, sharedNonce, sharedBalance
+            )
+        );
+        // governance safe (has storage)
+        address simulatedSafe = address(instantiateGovernanceSafe());
+        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceBalance));
+
         vm.stopBroadcast();
     }
 }
