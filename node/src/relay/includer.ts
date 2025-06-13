@@ -131,6 +131,7 @@ async function processTask(
     // sign tx using encrypted keystore
     const txSerializable = await signViaEncryptedKeystore(
       txRequest,
+      targetConfig.chain!.id,
       keystoreAccount.ksPath!,
       keystoreAccount.ksPw!
     );
@@ -153,6 +154,7 @@ async function processTask(
     // sign tx using encrypted keystore
     const txSerializable = await signViaEncryptedKeystore(
       txRequest,
+      targetConfig.chain!.id,
       keystoreAccount.ksPath!,
       keystoreAccount.ksPw!
     );

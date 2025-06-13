@@ -29,10 +29,15 @@ abstract contract ITSConfig is ITSUtils {
     address constant MAINNET_GATEWAY = 0x4F4495243837681061C4743b74B3eEdf548D56A5;
     address constant MAINNET_TEL = 0x467Bccd9d29f223BcE8043b84E8C8B282827790F;
     uint256 constant SEPOLIA_CHAINID = 11155111;
+    string constant DEVNET_TN_CHAIN_NAME = "telcoin";
+    bytes32 constant DEVNET_TN_CHAINNAMEHASH = keccak256(bytes(DEVNET_TN_CHAIN_NAME));
+    bytes32 constant DEVNET_INTERCHAIN_TOKENID = 0x09f3c6e8754c8e269060f138d8b55526b0058b0fa258f90ae3197ee4808d23b6;
     string constant DEVNET_SEPOLIA_CHAIN_NAME = "eth-sepolia";
     bytes32 constant DEVNET_SEPOLIA_CHAINNAMEHASH = 0x24f78f6b35533491ef3d467d5e8306033cca94049b9b76db747dfc786df43f86;
     address constant DEVNET_SEPOLIA_ITS = 0x2269B93c8D8D4AfcE9786d2940F5Fcd4386Db7ff;
     address constant DEVNET_SEPOLIA_GATEWAY = 0xF128c84c3326727c3e155168daAa4C0156B87AD1;
+    string constant TESTNET_TN_CHAIN_NAME = "telcoin-testnet";
+    bytes32 constant TESTNET_TN_CHAINNAMEHASH = keccak256(bytes(TESTNET_TN_CHAIN_NAME));
     string constant TESTNET_SEPOLIA_CHAIN_NAME = "ethereum-sepolia";
     bytes32 constant TESTNET_SEPOLIA_CHAINNAMEHASH = 0x564ccaf7594d66b1eaaea24fe01f0585bf52ee70852af4eac0cc4b04711cd0e2;
     address constant TESTNET_SEPOLIA_ITS = 0xB5FB4BE02232B1bBA4dC8f81dc24C26980dE9e3C;
@@ -65,7 +70,7 @@ abstract contract ITSConfig is ITSUtils {
     }
 
     function _setUpDevnetConfig(address admin, address devnetTEL, address wtel, address itel) internal virtual {
-        // devnet uses adminas linker and single verifier running tofnd + ampd
+        // devnet uses admin as linker and single verifier running tofnd + ampd
         linker = admin;
         address ampdVerifier = 0xCc9Cc353B765Fee36669Af494bDcdc8660402d32;
 
@@ -91,7 +96,7 @@ abstract contract ITSConfig is ITSUtils {
 
         // AxelarGasService
         gasCollector = admin;
-        gasValue = 30_000_000;
+        gasValue = 0.001 ether;
         gsOwner = admin;
         gsSetupParams = ""; // note: unused
 
@@ -127,5 +132,9 @@ abstract contract ITSConfig is ITSUtils {
 
         // stored for asserts
         abiEncodedWeightedSigners = abi.encode(weightedSigners);
+    }
+
+    function _setUpTestnetConfig(address admin, address testnetTEL, address wtel, address itel) internal virtual {
+        _setUpDevnetConfig(admin, testnetTEL, wtel, itel);
     }
 }

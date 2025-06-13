@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Telcoin Contracts",
   "type": "module",
+  "module": "ESNext",
   "main": "index.js",
   "directories": {
     "test": "test"
@@ -12,6 +13,12 @@
     "start": "node node/dist/subscriber.js",
     "subscriber": "npm run build && node node/dist/relay/subscriber.js",
     "includer": "npm run build && node node/dist/relay/includer.js",
+    "initiate": "npm run build && node node/dist/relay/devnet/initiate.js",
+    "verify": "npm run build && node node/dist/relay/devnet/verify.js",
+    "route": "npm run build && node node/dist/relay/devnet/route.js",
+    "construct-proof": "npm run build && node node/dist/relay/devnet/proof.js",
+    "approve": "npm run build && node node/dist/relay/devnet/approve.js",
+    "execute": "npm run build && node node/dist/relay/devnet/execute.js",
     "build-and-start": "npm run build && npm run start",
     "clean": "rm -rf node/dist",
     "watch": "tsc --watch",
@@ -46,11 +53,13 @@
     "dotenv": "^16.4.5",
     "forge-std": "github:foundry-rs/forge-std",
     "safe-contracts": "github:safe-global/safe-contracts#v1.4.1-3",
+    "js-yaml": "^4.1.0",
     "solady": "^0.0.227",
     "telcoin-contracts": "1.0.0",
     "viem": "^2.21.43"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.14.11",
     "mermaid": "^11.4.0",
     "ts-node": "^10.9.2",

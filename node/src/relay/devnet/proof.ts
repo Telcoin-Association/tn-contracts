@@ -1,12 +1,19 @@
-import { exec } from "child_process";
-import { GMPMessage } from "../utils.js";
+import {
+  axelarConfig,
+  axelardTxExecute,
+  GMPMessage,
+  setAxelarEnv,
+} from "../utils.js";
+import * as dotenv from "dotenv";
+dotenv.config();
 
 /**
  * @dev Can be used via CLI or within the TypeScript runtime when imported by another TypeScript file.
  * @dev Usage example for constructing proofs on a destination chain's multisig prover:
  *
  * `npm run construct-proof -- \
- *    --source-chain <source_chain> --tx-hash <tx_hash> --log-index <log_index>`
+ *    --env <env> --source-chain <source_chain> --tx-hash <tx_hash> --log-index <log_index>
+ *    --destination-chain-multisig-prover <destination_chain_multisig_prover>`
  */
 
 // when migrating beyond devnet these can be initialized via CLI flag
@@ -24,35 +31,22 @@ export async function constructProof({
     `Instructing destination chain's multisig prover ${destinationChainMultisigProver} to construct GMP message proof`
   );
 
-  // Construct the axelard command
-  const axelardCommand = `axelard tx wasm execute ${destinationChainMultisigProver} \
-    '{
-        "construct_proof":
-          [
-            {
-              "source_chain":"${sourceChain}",
-              "message_id":"${txHash}-${logIndex}"
-            }
-          ]
-    }' \
-    --from ${axelarWallet} \
-    --keyring-backend file \
-    --node ${rpc} \
-    --chain-id ${axelarChainId} \
-    --gas-prices 0.00005uamplifier \
-    --gas auto --gas-adjustment 1.5`;
-
-  exec(axelardCommand, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Error executing command: ${error.message}`);
-      return;
-    }
-    if (stderr) {
-      console.error(`Error in command output: ${stderr}`);
-      return;
-    }
-    console.log(`Command output: ${stdout}`);
+  const jsonPayload = JSON.stringify({
+    construct_proof: [
+      {
+        source_chain: `${sourceChain}`,
+        message_id: `${txHash}-${logIndex}`,
+      },
+    ],
   });
+
+  await axelardTxExecute(
+    destinationChainMultisigProver!,
+    jsonPayload,
+    rpc,
+    axelarWallet,
+    axelarChainId
+  );
 }
 
 // returns values for `constructProof()`; only used if invoked via command line
@@ -60,7 +54,6 @@ function processConstructProofCLIArgs(args: string[]) {
   let sourceChain: string | undefined;
   let txHash: `0x${string}` | undefined;
   let logIndex: number | undefined;
-  let destinationChainMultisigProver: string | undefined;
 
   args.forEach((arg, index) => {
     const valueIndex = index + 1;
@@ -74,21 +67,20 @@ function processConstructProofCLIArgs(args: string[]) {
       case "--log-index":
         logIndex = parseInt(args[valueIndex], 10);
         break;
-      case "--destination-chain-multisig-prover":
-        destinationChainMultisigProver = args[valueIndex];
+      case "--env":
+        setAxelarEnv(args[valueIndex], "prover");
         break;
     }
   });
 
+  const destinationChainMultisigProver = axelarConfig.contract;
   if (
     !sourceChain ||
     !txHash ||
     logIndex === undefined ||
     !destinationChainMultisigProver
   ) {
-    throw new Error(
-      "Must set --source-chain, --tx-hash, --log-indexm --destination-chain-multisig-prover"
-    );
+    throw new Error("Must set --source-chain, --tx-hash, --log-index --env");
   }
 
   return {
@@ -105,6 +97,6 @@ function main() {
 }
 
 // supports CLI invocation by checking if being run directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }

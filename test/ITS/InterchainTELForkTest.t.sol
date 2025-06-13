@@ -198,8 +198,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
 
     /// @notice Test TN genesis precompiles iTEL and iTELTokenManager match Ethereum ITS's origin addresses
     /// by simulating `linkToken()` to Telcoin Network (obviated by Telcoin-Network genesis)
-    /// @notice Ensures precompiles for InterchainTEL + its TokenManager match those expected (& otherwise produced) by
-    /// ITS
+    /// @notice Ensures precompiles for InterchainTEL + its TokenManager match those expected by ITS
     function test_e2eDevnet_linkToken_InterchainTEL() public {
         vm.selectFork(sepoliaFork);
         setUp_sepoliaFork_devnetConfig(

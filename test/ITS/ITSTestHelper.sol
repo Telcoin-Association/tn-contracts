@@ -58,7 +58,7 @@ abstract contract ITSTestHelper is Test, ITSGenesis {
         linker = linker_;
         vm.deal(linker, 1 ether);
         tmOperator = AddressBytes.toBytes(linker);
-        gasValue = 30_000_000;
+        gasValue = 0.001 ether;
         sepoliaTEL = IERC20(sepoliaTel);
         sepoliaITS = InterchainTokenService(sepoliaIts);
         sepoliaITF = InterchainTokenFactory(sepoliaItf);

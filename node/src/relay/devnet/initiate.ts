@@ -26,7 +26,7 @@ const privateKey: Address = validateEnvVar("PK") as `0x${string}`;
  * `npm run initiate -- \
  *    --target-chain <target_chain> --target-contract <target_contract>`
  *    --amount <amount> --destination-chain <destination_chain>
- *    --destination-address <destination-address> --payload <payload>
+ *    --destination-contract <destination-address> --payload <payload>
  */
 
 async function initiate({
@@ -65,7 +65,7 @@ async function initiate({
     const txHash = await walletClient.sendTransaction({
       account: account,
       chain: targetConfig.chain,
-      to: targetConfig.contract!,
+      to: targetConfig.contract,
       value: amount,
       data: calldata,
     });
@@ -121,6 +121,6 @@ function main() {
   initiate(processInitiateCLIArgs(args));
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }

@@ -1,24 +1,29 @@
 import { exec } from "child_process";
 import {
+  axelarConfig,
   getKeystoreAccount,
   GMPMessage,
   keystoreAccount,
   processTargetCLIArgs,
+  Proof,
+  setAxelarEnv,
   targetConfig,
   transactViaEncryptedKeystore,
 } from "../utils.js";
 import { promisify } from "util";
+import yaml from "js-yaml";
+import * as dotenv from "dotenv";
+import { Chain } from "viem";
+dotenv.config();
 
 /**
  * @dev Can be used via CLI or within the TypeScript runtime when imported by another TypeScript file.
  * @dev Usage example for fetching and settling proofs from a destination chain's multisig prover
  *
- * `npm run get-proof -- \
- *    --multisig-session-id <multisig_session_id>`
+ * `npm run approve -- \
+ * --target-chain <target_chain> --target-contract <target_contract> \
+ * --multisig-session-id <multisig_session_id> --env <env> \`
  */
-
-// when migrating beyond devnet these can be initialized via CLI flag
-let rpc: string = "http://devnet-amplifier.axelar.dev:26657";
 
 const execAsync = promisify(exec);
 
@@ -29,18 +34,26 @@ export async function approve({
 }: GMPMessage) {
   getKeystoreAccount();
 
-  const gmpMessage = await getProofAsync({
+  const output = await getProofAsync({
     multisigSessionId,
     destinationChainMultisigProver,
   });
+  const parsedOutput = yaml.load(output) as Proof;
+  const gmpMessage = parsedOutput.data.status.completed
+    .execute_data as `0x${string}`;
+
+  console.log("Submitting gateway approval as EVM transaction with proof data");
+
   // deliver proof data as GMP message in an EVM transaction
+  const targetChain = targetConfig.chain as Chain;
+  const targetContract = targetConfig.contract as `0x${string}`;
   await transactViaEncryptedKeystore(
-    targetConfig.chain!,
+    targetChain,
     targetConfig.rpcUrl!,
     keystoreAccount.account!,
-    targetConfig.contract!,
+    targetContract,
     amount!,
-    gmpMessage,
+    `0x${gmpMessage}`,
     keystoreAccount.ksPath!,
     keystoreAccount.ksPw!
   );
@@ -60,11 +73,11 @@ export async function getProofAsync({
     const { stdout } =
       await execAsync(`axelard q wasm contract-state smart ${destinationChainMultisigProver} \
           '{
-              "get_proof":{
+              "proof":{
                   "multisig_session_id":"${multisigSessionId}"
               }
           }' \
-          --node ${rpc}`);
+          --node ${axelarConfig.rpcUrl}`);
 
     console.log(`Proof data retrieved: ${stdout}`);
 
@@ -89,11 +102,11 @@ export async function getProof({
   // Construct the axelard command
   const axelardCommand = `axelard q wasm contract-state smart ${destinationChainMultisigProver} \
       '{
-          "get_proof":{
+          "proof":{
               "multisig_session_id":"${multisigSessionId}"
           }
       }' \
-      --node ${rpc}`;
+      --node ${axelarConfig.rpcUrl}`;
 
   exec(axelardCommand, (error, stdout, stderr) => {
     if (error) {
@@ -113,7 +126,6 @@ function processApproveCLIArgs(args: string[]): GMPMessage {
   processTargetCLIArgs(args);
 
   let multisigSessionId: string | undefined;
-  let destinationChainMultisigProver: string | undefined;
 
   args.forEach((arg, index) => {
     const valueIndex = index + 1;
@@ -121,16 +133,15 @@ function processApproveCLIArgs(args: string[]): GMPMessage {
       case "--multisig-session-id":
         multisigSessionId = args[valueIndex];
         break;
-      case "--destination-chain-multisig-prover":
-        destinationChainMultisigProver = args[valueIndex];
+      case "--env":
+        setAxelarEnv(args[valueIndex], "prover");
         break;
     }
   });
 
+  const destinationChainMultisigProver = axelarConfig.contract;
   if (!multisigSessionId || !destinationChainMultisigProver) {
-    throw new Error(
-      "Must set --multisig-session-id and --destination-chain-multisig-prover"
-    );
+    throw new Error("Must set --multisig-session-id and --env");
   }
 
   return {
@@ -145,6 +156,6 @@ async function main() {
 }
 
 // supports CLI invocation by checking if being run directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   await main();
 }
