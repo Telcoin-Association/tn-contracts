@@ -148,7 +148,7 @@ abstract contract ITSTestHelper is Test, ITSGenesis {
         vm.deal(linker, 1 ether);
 
         // first set target genesis addresses in state (not yet deployed) for use with recording
-        address payable governancePlaceholder = payable(admin);
+        address payable governancePlaceholder = payable(admin); // governance safe not used in devnet
         _setGenesisTargets(
             genesisITSTargets,
             payable(wtel),

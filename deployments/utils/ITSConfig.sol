@@ -71,6 +71,16 @@ abstract contract ITSConfig is ITSUtils {
         precalculatedInterchainTEL = create3Deploy.deployedAddress("", sender, salts.itelSalt);
     }
 
+    function _setGovernanceSafeConfig() internal virtual {
+        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
+        safeOwners.push(0x84B0fc1Bb26212a1BfFb48F03B010FDA4aDCe3c9);
+        safeOwners.push(0x707856C0089Fd59d9e686A47784d5DAd7c0784c4);
+        safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
+        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
+        safeOwners.push(0xd7e88D492Dc992127384215b8555C9305C218299);
+        safeThreshold = 3;
+    }
+
     function _setUpDevnetConfig(address admin, address devnetTEL, address wtel, address itel) internal virtual {
         // devnet uses admin as linker and single verifier running tofnd + ampd
         linker = admin;
@@ -132,6 +142,9 @@ abstract contract ITSConfig is ITSUtils {
         tokenAddress = itel;
         params = abi.encode(tmOperator, tokenAddress);
 
+        // not used in devnet, but required to avoid reverts
+        _setGovernanceSafeConfig();
+
         // stored for asserts
         abiEncodedWeightedSigners = abi.encode(weightedSigners);
     }
@@ -150,12 +163,6 @@ abstract contract ITSConfig is ITSUtils {
         tmOperator = AddressBytes.toBytes(owner_);
         params = abi.encode(tmOperator, tokenAddress);
 
-        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
-        safeOwners.push(0x84B0fc1Bb26212a1BfFb48F03B010FDA4aDCe3c9);
-        safeOwners.push(0x707856C0089Fd59d9e686A47784d5DAd7c0784c4);
-        safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
-        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
-        safeOwners.push(0xd7e88D492Dc992127384215b8555C9305C218299);
-        safeThreshold = 3;
+        _setGovernanceSafeConfig();
     }
 }
