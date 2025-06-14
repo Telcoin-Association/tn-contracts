@@ -95,7 +95,7 @@ abstract contract GenesisPrecompiler is Test {
 
         // Convert genesisTarget to hex string (20 bytes, i.e. address) and write
         string memory targetKey = LibString.toHexString(uint256(uint160(genesisTarget)), 20);
-        vm.writeLine(dest, string.concat(targetKey, ":"));
+        vm.writeLine(dest, string.concat('"', targetKey, '":'));
 
         // Write the genesisAccount entry with nonce, balance, and code
         vm.writeLine(dest, string.concat("  nonce: ", LibString.toString(nonce)));
