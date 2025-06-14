@@ -27,11 +27,11 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
     address public validator5 = _addressFromSeed(5);
     bytes public validator5BlsPubkey = _createRandomBlsPubkey(5);
 
-    uint256 public telMaxSupply = 100_000_000_000 ether;
-    uint256 public stakeAmount_ = 1_000_000 ether;
-    uint256 public minWithdrawAmount_ = 1000 ether;
-    uint256 public epochIssuance_ = 714_285_714_285_714_285_714_285;
-    uint32 public epochDuration_ = 25 hours;
+    uint256 public telMaxSupply = 100_000_000_000e18;
+    uint256 public stakeAmount_ = 1_000_000e18;
+    uint256 public minWithdrawAmount_ = 1000e18;
+    uint256 public epochIssuance_ = 25_806e18;
+    uint32 public epochDuration_ = 24 hours;
     // `OZ::ERC721Upgradeable::mint()` supports up to ~14_300 fuzzed mint iterations
     uint256 public MAX_MINTABLE = 14_000;
 
