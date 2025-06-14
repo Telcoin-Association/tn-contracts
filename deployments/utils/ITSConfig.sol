@@ -60,6 +60,8 @@ abstract contract ITSConfig is ITSUtils {
     AxelarAmplifierGateway sepoliaGateway;
 
     uint256 public constant telTotalSupply = 100_000_000_000e18;
+    /// @dev TEL genesis allocation to the governance safe for gas used to relay initial ITS bridging
+    uint256 public constant governanceInitialBalance = 10e18;
 
     /// @dev Create3 deployment of ITS requires some deterministic addresses before deployment
     /// @dev Prefetch target addrs for constructor args is also helpful for the config setups
@@ -69,13 +71,23 @@ abstract contract ITSConfig is ITSUtils {
         precalculatedInterchainTEL = create3Deploy.deployedAddress("", sender, salts.itelSalt);
     }
 
+    function _setGovernanceSafeConfig() internal virtual {
+        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
+        safeOwners.push(0x84B0fc1Bb26212a1BfFb48F03B010FDA4aDCe3c9);
+        safeOwners.push(0x707856C0089Fd59d9e686A47784d5DAd7c0784c4);
+        safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
+        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
+        safeOwners.push(0xd7e88D492Dc992127384215b8555C9305C218299);
+        safeThreshold = 3;
+    }
+
     function _setUpDevnetConfig(address admin, address devnetTEL, address wtel, address itel) internal virtual {
-        // devnet uses adminas linker and single verifier running tofnd + ampd
+        // devnet uses admin as linker and single verifier running tofnd + ampd
         linker = admin;
         address ampdVerifier = 0xCc9Cc353B765Fee36669Af494bDcdc8660402d32;
 
         // AxelarAmplifierGateway
-        axelarId = TN_CHAIN_NAME;
+        axelarId = DEVNET_TN_CHAIN_NAME;
         routerAddress = ITS_HUB_ROUTER_ADDR;
         telChainId = 0x7e1;
         domainSeparator = keccak256(abi.encodePacked(axelarId, routerAddress, telChainId));
@@ -103,10 +115,10 @@ abstract contract ITSConfig is ITSUtils {
         // InterchainTokenService
         itsOwner = admin;
         itsOperator = admin;
-        chainName_ = TN_CHAIN_NAME;
+        chainName_ = DEVNET_TN_CHAIN_NAME;
         trustedChainNames.push(ITS_HUB_CHAIN_NAME); // leverage ITS hub to support remote chains
         trustedChainNames.push(DEVNET_SEPOLIA_CHAIN_NAME);
-        trustedChainNames.push(TN_CHAIN_NAME);
+        trustedChainNames.push(DEVNET_TN_CHAIN_NAME);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
         trustedAddresses.push(ITS_HUB_ROUTING_IDENTIFIER);
@@ -121,16 +133,36 @@ abstract contract ITSConfig is ITSUtils {
         symbol_ = "iTEL";
         name_ = "Interchain Telcoin";
         recoverableWindow_ = 60; // 1 minute for devnet
-        governanceAddress_ = admin;
+        owner_ = admin;
         maxToClean = uint16(300);
         baseERC20_ = wtel; 
 
         // iTELTokenManager config
-        tmOperator = AddressBytes.toBytes(governanceAddress_);
+        tmOperator = AddressBytes.toBytes(owner_);
         tokenAddress = itel;
         params = abi.encode(tmOperator, tokenAddress);
 
+        // not used in devnet, but required to avoid reverts
+        _setGovernanceSafeConfig();
+
         // stored for asserts
         abiEncodedWeightedSigners = abi.encode(weightedSigners);
+    }
+
+    function _setUpTestnetConfig(address governanceSafe, address admin, address testnetTEL, address wtel, address itel) internal virtual {
+        _setUpDevnetConfig(admin, testnetTEL, wtel, itel);
+
+        // overwrite select devnet configurations
+        axelarId = TESTNET_TN_CHAIN_NAME;
+        gatewayOwner = governanceSafe;
+        itsOwner = governanceSafe;
+        itfOwner = governanceSafe;
+        originChainName_ = TESTNET_SEPOLIA_CHAIN_NAME;
+        recoverableWindow_ = 600; // 10 minutes for testnet
+        owner_ = governanceSafe;
+        tmOperator = AddressBytes.toBytes(owner_);
+        params = abi.encode(tmOperator, tokenAddress);
+
+        _setGovernanceSafeConfig();
     }
 }

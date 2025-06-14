@@ -31,7 +31,8 @@ import { AxelarGasService } from "@axelar-network/axelar-cgp-solidity/contracts/
 import { AxelarGasServiceProxy } from "../../external/axelar-cgp-solidity/AxelarGasServiceProxy.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
+import { Safe } from "safe-contracts/contracts/Safe.sol";
+import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { WTEL } from "../../src/WTEL.sol";
@@ -67,7 +68,9 @@ abstract contract ITSUtils is Create3Utils {
     // Telcoin Network contracts
     WTEL wTEL;
     InterchainTEL iTEL;
-    address itelOwner; // note: devnet only
+    Safe safeImpl;
+    SafeProxyFactory safeProxyFactory;
+    Safe governanceSafe;
 
     // AxelarAmplifierGateway config
     string axelarId;
@@ -108,7 +111,7 @@ abstract contract ITSUtils is Create3Utils {
     string symbol_;
     string name_;
     uint256 recoverableWindow_;
-    address governanceAddress_;
+    address owner_;
     address baseERC20_; // wTEL
     uint16 maxToClean;
 
@@ -117,6 +120,10 @@ abstract contract ITSUtils is Create3Utils {
     address tokenAddress;
     bytes tmOperator;
     bytes params;
+
+    // governance safe config
+    address[] safeOwners;
+    uint256 safeThreshold;
 
     // stored for assertion
     bytes abiEncodedWeightedSigners;
@@ -307,7 +314,7 @@ abstract contract ITSUtils is Create3Utils {
             name_,
             symbol_,
             recoverableWindow_,
-            governanceAddress_,
+            owner_,
             baseERC20_,
             maxToClean
         );

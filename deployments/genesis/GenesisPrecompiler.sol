@@ -85,6 +85,7 @@ abstract contract GenesisPrecompiler is Test {
     /// @param simulatedDeployment The simulated contract deployment whose config to copy onto `genesisTarget`
     /// @param genesisTarget The target precompile address to write to at genesis
     function yamlAppendGenesisAccount(string memory dest, address simulatedDeployment, address genesisTarget, uint64 nonce, uint256 balance) public virtual returns (bool hasStorage) {
+        require(simulatedDeployment != address(0) && genesisTarget != address(0), "Invalid deployment or target address");
         GenesisAccount storage account = genesisAccounts[simulatedDeployment];
         require(account.code.length == 0, "Precompile already processed");
         account.nonce = nonce;

@@ -63,7 +63,6 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         vm.deal(linker, 1 ether);
 
         // add or overwrite configs outside of devnet setup in test context
-        itelOwner = admin;
         chainName_ = MAINNET_CHAIN_NAME;
         originChainName_ = MAINNET_CHAIN_NAME;
         itsSetupParams = abi.encode(itsOperator, chainName_, trustedChainNames, trustedAddresses);
@@ -169,7 +168,7 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         assertEq(iTEL.name(), name_);
         assertEq(iTEL.symbol(), symbol_);
         assertEq(iTEL.recoverableWindow(), recoverableWindow_);
-        assertEq(iTEL.owner(), governanceAddress_);
+        assertEq(iTEL.owner(), owner_);
         assertEq(iTEL.baseToken(), address(wTEL));
         assertEq(iTEL.decimals(), wTEL.decimals());
         // note that iTEL ITS salt and tokenId are based on originTEL
@@ -185,7 +184,7 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         vm.startPrank(linker);
         (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
         eth_registerCustomTokenAndLinkToken(
-            originTEL, admin, TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
+            originTEL, admin, DEVNET_TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
         );
         vm.stopPrank();
 
@@ -242,7 +241,7 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         assertEq(returnedTELTokenManager.interchainTokenId(), tmDeploySaltIsTELInterchainTokenId);
         assertEq(returnedTELTokenManager.implementationType(), uint256(ITokenManagerType.TokenManagerType.LOCK_UNLOCK));
         assertEq(returnedTELTokenManager.tokenAddress(), address(originTEL));
-        assertEq(returnedTELTokenManager.isOperator(governanceAddress_), true);
+        assertEq(returnedTELTokenManager.isOperator(owner_), true);
         assertEq(returnedTELTokenManager.isOperator(address(its)), true);
         assertEq(returnedTELTokenManager.isFlowLimiter(address(its)), true);
         assertEq(returnedTELTokenManager.flowLimit(), 0); // set by ITS
@@ -267,12 +266,12 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         // Register origin TEL metadata with Axelar chain's ITS hub, this step requires gas prepayment
         vm.startPrank(linker);
         (, bytes32 returnedInterchainTokenId,) = eth_registerCustomTokenAndLinkToken(
-            originTEL, admin, TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
+            originTEL, admin, DEVNET_TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
         );
         vm.stopPrank();
 
         // note that TN must have been added as a trusted chain to the Ethereum ITS contract
-        string memory destinationChain = TN_CHAIN_NAME;
+        string memory destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.prank(itsOwner);
         its.setTrustedAddress(destinationChain, ITS_HUB_ROUTING_IDENTIFIER);
 
@@ -290,12 +289,12 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         // Register origin TEL metadata with Axelar chain's ITS hub, this step requires gas prepayment
         vm.startPrank(linker);
         (, bytes32 returnedInterchainTokenId,) = eth_registerCustomTokenAndLinkToken(
-            originTEL, admin, TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
+            originTEL, admin, DEVNET_TN_CHAIN_NAME, address(iTEL), originTMType, admin, gasValue, itFactory
         );
         vm.stopPrank();
 
         // note that TN must have been added as a trusted chain to the Ethereum ITS contract
-        string memory destinationChain = TN_CHAIN_NAME;
+        string memory destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.prank(itsOwner);
         its.setTrustedAddress(destinationChain, ITS_HUB_ROUTING_IDENTIFIER);
 

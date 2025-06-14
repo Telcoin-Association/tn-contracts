@@ -66,13 +66,13 @@ abstract contract ITSTestHelper is Test, ITSGenesis {
         // etch InterchainTEL impl bytecode for fetching origin linkedTokenId
         originTEL = address(sepoliaTEL);
         originChainName_ = DEVNET_SEPOLIA_CHAIN_NAME;
-        governanceAddress_ = address(linker);
+        owner_ = address(linker);
         create3 = new Create3Deployer{ salt: salts.Create3DeployerSalt }();
         customLinkedTokenId = ITSUtils.instantiateInterchainTEL(sepoliaIts).interchainTokenId();
 
         // note that TN must be added as a trusted chain to the Ethereum ITS contract
         vm.prank(sepoliaITS.owner());
-        sepoliaITS.setTrustedAddress(TN_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
+        sepoliaITS.setTrustedAddress(DEVNET_TN_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
     }
 
     /// @notice Test utility for deploying ITS architecture, including InterchainTEL and its TokenManager, via create3
@@ -148,7 +148,16 @@ abstract contract ITSTestHelper is Test, ITSGenesis {
         vm.deal(linker, 1 ether);
 
         // first set target genesis addresses in state (not yet deployed) for use with recording
-        _setGenesisTargets(genesisITSTargets, payable(wtel), payable(itel), itelTokenManager);
+        address payable governancePlaceholder = payable(admin); // governance safe not used in devnet
+        _setGenesisTargets(
+            genesisITSTargets,
+            payable(wtel),
+            payable(itel),
+            itelTokenManager,
+            governancePlaceholder,
+            governancePlaceholder,
+            governancePlaceholder
+        );
 
         // instantiate deployer for state diff recording and set up config vars for devnet
         create3 = new Create3Deployer{ salt: salts.Create3DeployerSalt }();

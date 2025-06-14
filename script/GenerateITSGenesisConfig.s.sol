@@ -47,6 +47,9 @@ import { Deployments, ITS } from "../deployments/Deployments.sol";
 import { ITSConfig } from "../deployments/utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "../deployments/genesis/GenesisPrecompiler.sol";
 import { ITSGenesis } from "../deployments/genesis/ITSGenesis.sol";
+import { Safe } from "safe-contracts/contracts/Safe.sol";
+import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
+import { SafeProxy } from "safe-contracts/contracts/proxies/SafeProxy.sol";
 
 /// @title Interchain Token Service Genesis Config Generator
 /// @notice Generates a yaml file comprising the storage slots and their values
@@ -61,8 +64,8 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
 
     uint64 sharedNonce = 0;
     uint256 sharedBalance = 0;
-    // will be decremented at genesis by protocol based on initial validators stake
-    uint256 iTELBalance = 100_000_000_000 ether;
+    // will be further decremented at genesis by protocol, based on initial validators stake
+    uint256 iTELBalance = telTotalSupply - governanceInitialBalance;
 
     function setUp() public {
         root = vm.projectRoot();
@@ -72,17 +75,17 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        address admin = deployments.admin;
-        itelOwner = admin;
-
         /// @dev For testnet and mainnet genesis configs, use corresponding function
-        _setUpDevnetConfig(admin, deployments.sepoliaTEL, deployments.wTEL, deployments.its.InterchainTEL);
+        _setUpDevnetConfig(deployments.admin, deployments.sepoliaTEL, deployments.wTEL, deployments.its.InterchainTEL);
 
         _setGenesisTargets(
             deployments.its,
             payable(deployments.wTEL),
             payable(deployments.its.InterchainTEL),
-            deployments.its.InterchainTELTokenManager
+            deployments.its.InterchainTELTokenManager,
+            payable(deployments.SafeImpl),
+            deployments.SafeProxyFactory,
+            payable(deployments.Safe)
         );
 
         // create3 contract only used for simulation; will not be instantiated at genesis
@@ -213,7 +216,7 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
             )
         );
 
-        // itel token manager
+        // itel token manager (has storage)
         address simulatedInterchainTELTokenManager =
             address(instantiateInterchainTELTokenManager(deployments.its.InterchainTokenService, customLinkedTokenId));
         assertTrue(
@@ -225,6 +228,24 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
                 sharedBalance
             )
         );
+
+        // safe impl (has storage)
+        address simulatedSafeImpl = address(instantiateSafeImpl());
+        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafeImpl, deployments.SafeImpl, sharedNonce, sharedBalance));
+
+        // safe proxy factory (no storage)
+        address simulatedSafeFactory = address(instantiateSafeProxyFactory());
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeFactory, deployments.SafeProxyFactory, sharedNonce, sharedBalance
+            )
+        );
+        // governance safe (has storage)
+        address simulatedSafe = address(instantiateGovernanceSafe());
+        assertTrue(
+            yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceInitialBalance)
+        );
+
         vm.stopBroadcast();
     }
 }
