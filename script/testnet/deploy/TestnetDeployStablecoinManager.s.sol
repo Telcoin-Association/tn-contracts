@@ -23,7 +23,7 @@ contract TestnetDeployStablecoinManager is Script {
 
     bytes32 stablecoinManagerSalt; // used for both impl and proxy
     // true: enable $TEL and all `stables` | false: enable $TEL only
-    bool enableAllXYZs = false;
+    bool enableAllXYZs = true;
     address[] stables;
     uint256 maxLimit;
     uint256 minLimit;
@@ -124,6 +124,8 @@ contract TestnetDeployStablecoinManager is Script {
 
             if (!enableAllXYZs && stablecoinManager.isEnabledXYZ(stables[i])) {
                 stablecoinManager.UpdateXYZ(stables[i], false, maxLimit, minLimit);
+            } else if (enableAllXYZs && !stablecoinManager.isEnabledXYZ(stables[i])) {
+                stablecoinManager.UpdateXYZ(stables[i], true, maxLimit, minLimit);
             }
         }
 
@@ -131,8 +133,8 @@ contract TestnetDeployStablecoinManager is Script {
 
         // asserts
         assert(stablecoinManager.isEnabledXYZ(address(0x0)));
-        assert(stablecoinManager.getEnabledXYZs().length == 0);
-        assert(stablecoinManager.getEnabledXYZsWithMetadata().length == 0);
+        assert(stablecoinManager.getEnabledXYZs().length == 23);
+        assert(stablecoinManager.getEnabledXYZsWithMetadata().length == 23);
         assert(minterRole == Stablecoin(stables[0]).MINTER_ROLE());
         for (uint256 i; i < stables.length; ++i) {
             assert(Stablecoin(stables[i]).hasRole(minterRole, address(stablecoinManager)));
