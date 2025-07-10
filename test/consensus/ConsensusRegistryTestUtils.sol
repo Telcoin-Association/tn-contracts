@@ -4,8 +4,10 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
+import { Issuance } from "src/consensus/Issuance.sol";
+import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
 
-contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
+contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler {
     ConsensusRegistry public consensusRegistry;
 
     address public crOwner = address(0xc0ffee);
@@ -41,7 +43,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
             _populateInitialValidators(),
             crOwner
         )
-    { }
+    {
+        vm.etch(issuance, type(Issuance).runtimeCode);
+    }
 
     function _populateInitialValidators() internal returns (ValidatorInfo[] memory) {
         // provide initial validator set as the network will launch with at least four validators
