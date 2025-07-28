@@ -258,7 +258,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         delegations[validatorAddress] =
-            Delegation(blsPubkeyHash, msg.sender, validatorAddress, validatorVersion, nonce + 1);
+            Delegation(blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce + 1);
         _recordStaked(blsPubkey, validatorAddress, true, validatorVersion, stakeAmt);
     }
 
