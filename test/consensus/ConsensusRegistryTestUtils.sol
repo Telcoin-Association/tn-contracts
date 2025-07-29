@@ -4,15 +4,19 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
+import { BlsG1 } from "src/consensus/BlsG1.sol";
+import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
 
-contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
+contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
+    using BlsG1 for bytes;
+
     ConsensusRegistry public consensusRegistry;
 
     address public crOwner = address(0xc0ffee);
-    address public validator1 = _addressFromSeed(1);
-    address public validator2 = _addressFromSeed(2);
-    address public validator3 = _addressFromSeed(3);
-    address public validator4 = _addressFromSeed(4);
+    address public validator1 = _addressFromPrivateKey(1);
+    address public validator2 = _addressFromPrivateKey(2);
+    address public validator3 = _addressFromPrivateKey(3);
+    address public validator4 = _addressFromPrivateKey(4);
 
     ValidatorInfo validatorInfo1;
     ValidatorInfo validatorInfo2;
@@ -20,12 +24,14 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
     ValidatorInfo validatorInfo4;
 
     ValidatorInfo[] initialValidators; // contains validatorInfo1-4
+    BlsG1.ProofOfPossession[] initialBLSPops;
 
     address public sysAddress;
 
     // non-genesis validator for testing
-    address public validator5 = _addressFromSeed(5);
-    bytes public validator5BlsPubkey = _createRandomBlsPubkey(5);
+    uint256 public validator5Secret = 5;
+    address public validator5 = _addressFromPrivateKey(validator5Secret);
+    bytes public validator5BlsPubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(validator5Secret));
 
     uint256 public telMaxSupply = 100_000_000_000e18;
     uint256 public stakeAmount_ = 1_000_000e18;
@@ -39,23 +45,53 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         ConsensusRegistry(
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_),
             _populateInitialValidators(),
+            _populateinitialBLSPops(),
             crOwner
         )
     { }
 
+    // convenience fn for constructor
     function _populateInitialValidators() internal returns (ValidatorInfo[] memory) {
         // provide initial validator set as the network will launch with at least four validators
         validatorInfo1 = ValidatorInfo(
-            _createRandomBlsPubkey(1), validator1, uint32(0), uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+            _blsDummyPubkeyFromSecret(1),
+            validator1,
+            uint32(0),
+            uint32(0),
+            ValidatorStatus.Active,
+            false,
+            false,
+            uint8(0)
         );
         validatorInfo2 = ValidatorInfo(
-            _createRandomBlsPubkey(2), validator2, uint32(0), uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+            _blsDummyPubkeyFromSecret(2),
+            validator2,
+            uint32(0),
+            uint32(0),
+            ValidatorStatus.Active,
+            false,
+            false,
+            uint8(0)
         );
         validatorInfo3 = ValidatorInfo(
-            _createRandomBlsPubkey(3), validator3, uint32(0), uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+            _blsDummyPubkeyFromSecret(3),
+            validator3,
+            uint32(0),
+            uint32(0),
+            ValidatorStatus.Active,
+            false,
+            false,
+            uint8(0)
         );
         validatorInfo4 = ValidatorInfo(
-            _createRandomBlsPubkey(4), validator4, uint32(0), uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+            _blsDummyPubkeyFromSecret(4),
+            validator4,
+            uint32(0),
+            uint32(0),
+            ValidatorStatus.Active,
+            false,
+            false,
+            uint8(0)
         );
         initialValidators.push(validatorInfo1);
         initialValidators.push(validatorInfo2);
@@ -63,6 +99,21 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         initialValidators.push(validatorInfo4);
 
         return initialValidators;
+    }
+
+    // convenience fn for constructor
+    function _populateinitialBLSPops() internal returns (BlsG1.ProofOfPossession[] memory) {
+        for (uint256 i; i < initialValidators.length; ++i) {
+            uint256 secretI = i + 1;
+            address validatorI = initialValidators[i].validatorAddress;
+            bytes memory pubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(secretI));
+            bytes memory messageI = proofOfPossessionMessage(pubkey, validatorI);
+            bytes memory signature = eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(secretI, messageI));
+
+            initialBLSPops.push(BlsG1.ProofOfPossession(pubkey, signature));
+        }
+
+        return initialBLSPops;
     }
 
     function _sortAddresses(address[] memory arr) internal pure {
@@ -78,20 +129,16 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         }
     }
 
-    function _addressFromSeed(uint256 seed) internal pure returns (address) {
-        return address(uint160(uint256(keccak256(abi.encode(seed)))));
-    }
-
-    function _createRandomBlsPubkey(uint256 seed) internal pure returns (bytes memory) {
-        bytes32 seedHash = keccak256(abi.encode(seed));
-        return abi.encodePacked(seedHash, seedHash, seedHash);
+    /// @notice Never do this onchain in production!! Only for testing
+    function _addressFromPrivateKey(uint256 pk) internal pure returns (address) {
+        return vm.addr(pk);
     }
 
     function _fuzz_mint(uint24 numValidators) internal {
         for (uint256 i; i < numValidators; ++i) {
             // account for initial validators
             uint256 tokenId = i + 5;
-            address newValidator = _addressFromSeed(tokenId);
+            address newValidator = _addressFromPrivateKey(tokenId);
 
             // deal `stakeAmount` funds and prank governance NFT mint to `newValidator`
             vm.deal(newValidator, stakeAmount_);
@@ -126,7 +173,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         uint256 counter;
         for (uint256 i; i < numValidators; ++i) {
             uint256 tokenId = tokenIds[i];
-            address validatorToBurn = _addressFromSeed(tokenId);
+            address validatorToBurn = _addressFromPrivateKey(tokenId);
 
             // skip burning two committee members
             if (validatorToBurn == skipper || validatorToBurn == skippy) {
@@ -150,16 +197,21 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
     function _fuzz_stake(uint24 numValidators, uint256 amount) internal {
         for (uint256 i; i < numValidators; ++i) {
             // recreate `newValidator`, accounting for initial validators
-            uint256 tokenId = i + 5;
-            address newValidator = _addressFromSeed(tokenId);
+            uint256 secret = i + 5;
+            address newValidator = _addressFromPrivateKey(secret);
 
-            // create random new validator keys
-            bytes memory newBLSPubkey = _createRandomBlsPubkey(tokenId);
+            // generate new validator keys & signatures
+            bytes memory newBLSPubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(secret));
+            bytes memory message = proofOfPossessionMessage(newBLSPubkey, newValidator);
+            bytes memory blsSignature = eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(secret, message));
 
             // stake and activate
             vm.deal(newValidator, amount);
-            vm.prank(newValidator);
-            consensusRegistry.stake{ value: amount }(newBLSPubkey);
+            vm.startPrank(newValidator);
+            consensusRegistry.stake{ value: amount }(
+                _blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(newBLSPubkey, blsSignature)
+            );
+            vm.stopPrank();
         }
     }
 
@@ -167,7 +219,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         for (uint256 i; i < numValidators; ++i) {
             // recreate `newValidator`, accounting for initial validators
             uint256 tokenId = i + 5;
-            address newValidator = _addressFromSeed(tokenId);
+            address newValidator = _addressFromPrivateKey(tokenId);
 
             vm.prank(newValidator);
             consensusRegistry.activate();
@@ -212,7 +264,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         index = index > nonOverflowIndex ? nonOverflowIndex : index;
         while (committeeCounter < futureCommittee.length) {
             // recreate `validator` address with ConsensusNFT in `setUp()` loop
-            address validator = _addressFromSeed(index);
+            address validator = _addressFromPrivateKey(index);
             futureCommittee[committeeCounter] = validator;
             committeeCounter++;
             index++;
@@ -243,7 +295,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, Test {
         RewardInfo[] memory rewardInfos = new RewardInfo[](numRewardees);
         uint256 totalWeight;
         for (uint256 i; i < numRewardees; ++i) {
-            address rewardee = _addressFromSeed(i + 1);
+            address rewardee = _addressFromPrivateKey(i + 1);
             // 0-10000 is reasonable range of consensus blocks leaders can authorize per epoch
             uint256 uniqueSeed = i + numRewardees;
             uint256 consensusHeaderCount = uint256(uint256(keccak256(abi.encode(uniqueSeed))) % 10_000);
