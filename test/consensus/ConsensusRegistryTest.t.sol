@@ -315,20 +315,22 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             )
         );
         uint256 activeAfterExit = numActive - 1;
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeAfterExit));
-        vm.stopPrank();
+        address[] memory afterExitCommittee = _createTokenIdCommittee(activeAfterExit);
+        consensusRegistry.concludeEpoch(afterExitCommittee);
 
         uint256 initialBalance = validator1.balance;
         assertEq(initialBalance, 0);
 
-        // Check event emission
+        // conclude one additional epoch to reach unstake eligibility epoch
+        consensusRegistry.concludeEpoch(afterExitCommittee);
+        vm.stopPrank();
+
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_);
-        // Unstake
         vm.prank(validator1);
         consensusRegistry.unstake(validator1);
 
-        // 4 epochs rewards split between 4 validators
+        // validator1 earned 4 epochs' rewards, split between 4 validators
         uint256 finalBalance = validator1.balance;
         assertEq(finalBalance, stakeAmount_);
     }
@@ -379,7 +381,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.activate();
 
         // Attempt to unstake without exiting
-        vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.PendingActivation));
+        bytes memory err = abi.encodeWithSelector(
+            IneligibleUnstake.selector,
+            ValidatorInfo(validator5BlsPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0)
+        );
+        vm.expectRevert(err);
         consensusRegistry.unstake(validator5);
 
         vm.stopPrank();

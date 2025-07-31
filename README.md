@@ -60,9 +60,9 @@ Below, we follow the general lifecycle of a new validator in roughly chronologic
 
 5. **Exit Requests**: Active validators may choose to retire by calling the `exit()` function, which places them in the exit queue where they remain active and eligible for selection in voter committees until their exit is finalized.
 
-6. - **Protocol-Determined Exit**: The protocol manages exit finalization. A validator is fully exited after being excluded from voter committees for two consecutive epochs.
+6. - **Protocol-Determined Exit**: The protocol manages exit finalization. A validator is fully exited after being excluded from voter committees for two consecutive epochs handled at the epoch boundary during the `concludeEpoch()` system call. This is a permissioned transition of the validator from `PendingExit` to `Exited` status, at which point the validator becomes eligible for unstaking after waiting one additional epoch.
 
-7. **Unstaking**: Validators or their delegators must call the `unstake()` function in the `Exited` state to reclaim the original stake and any accrued rewards. This process burns the `ConsensusNFT`, releasing the stake and rewards. Once unstaked, the validator's address enters an `UNSTAKED` state, making the retirement irreversible. To rejoin the network, a new `ConsensusNFT` must be obtained, and a new validator address must be used.
+7. **Unstaking**: Validators that have elapsed one full epoch in the `Exited` state (or their delegators) may call the `unstake()` function to reclaim the original stake and any accrued rewards. This process burns the `ConsensusNFT`, releasing the stake and rewards. Once unstaked, the validator's address enters an `UNSTAKED` state, making the retirement irreversible. To rejoin the network, a new `ConsensusNFT` must be obtained, and a new validator address must be used.
 
 This detailed lifecycle ensures that validators are properly integrated into the Telcoin Network, maintaining the integrity and reliability of the network's consensus mechanism. For further technical details, refer to the [consensus/design.md](./design.md) file.
 
