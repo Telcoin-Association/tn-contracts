@@ -15,6 +15,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function setUp() public {
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
         consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, crOwner);
+        registryGenesisBal = stakeAmount_ * initialValidators.length;
+        vm.deal(address(consensusRegistry), registryGenesisBal);
 
         sysAddress = consensusRegistry.SYSTEM_ADDRESS();
 
@@ -134,6 +136,16 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validators[0].isDelegated, true);
         assertEq(validators[0].stakeVersion, uint8(0));
         assertEq(uint8(validators[0].currentStatus), uint8(ValidatorStatus.Staked));
+    }
+
+    function test_burnValidatorBeforeStake() public {
+        vm.startPrank(crOwner);
+        consensusRegistry.mint(validator5);
+        // validator5 AFKs after being whitelisted and never stakes + activates, so burn
+        consensusRegistry.burn(validator5);
+        vm.stopPrank();
+
+        assertEq(address(consensusRegistry).balance, registryGenesisBal);
     }
 
     function test_activate() public {

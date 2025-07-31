@@ -357,7 +357,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // require validatorAddress is whitelisted, having been issued a ConsensusNFT by governance
         _checkConsensusNFTOwner(validatorAddress);
 
-        _consensusBurn(validatorAddress);
+        if (validators[validatorAddress].currentStatus == ValidatorStatus.Undefined) {
+            // immediately remove validators that were whitelisted but never staked (without setting epochs)
+            _retire(validators[validatorAddress]);
+            _burn(_getTokenId(validatorAddress));
+        } else {
+            // validators that have staked are exited, retired, and then unstaked
+            _consensusBurn(validatorAddress);
+        }
     }
 
     /// @inheritdoc StakeManager

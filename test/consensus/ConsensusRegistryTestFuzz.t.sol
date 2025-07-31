@@ -16,6 +16,8 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
     function setUp() public {
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
         consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, crOwner);
+        registryGenesisBal = stakeAmount_ * initialValidators.length;
+        vm.deal(address(consensusRegistry), registryGenesisBal);
 
         sysAddress = consensusRegistry.SYSTEM_ADDRESS();
 
