@@ -320,12 +320,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         address recipient = _getRecipient(validatorAddress);
         if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
 
-        // stake originator can only reclaim stake pre-activation or after exiting
-        ValidatorStatus status = validators[validatorAddress].currentStatus;
-        if (status != ValidatorStatus.Staked && status != ValidatorStatus.Exited) revert InvalidStatus(status);
+        ValidatorInfo storage validator = validators[validatorAddress];
+        // stake originator can only reclaim stake pre-activation or one epoch after exiting
+        if (!_eligibleForUnstake(validator)) revert IneligibleUnstake(validator);
 
         // permanently retire the validator and burn the ConsensusNFT
-        ValidatorInfo storage validator = validators[validatorAddress];
         _retire(validator);
 
         // return stake and send any outstanding rewards
@@ -635,6 +634,19 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             status == ValidatorStatus.Active || status == ValidatorStatus.PendingExit
                 || status == ValidatorStatus.PendingActivation
         );
+    }
+
+    /// @dev Returns true for `Staked` or `Exited` validators that have elapsed one full epoch since exit
+    function _eligibleForUnstake(ValidatorInfo storage validator) internal view returns (bool) {
+        ValidatorStatus status = validator.currentStatus;
+        if (status == ValidatorStatus.Staked) return true;
+
+        uint32 eligibleEpoch = validator.exitEpoch + 1;
+        if (status == ValidatorStatus.Exited && currentEpoch >= eligibleEpoch) {
+            return true;
+        }
+
+        return false;
     }
 
     /// @notice `Active` queries also include validators pending activation or exit
