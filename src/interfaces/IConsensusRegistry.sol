@@ -44,6 +44,7 @@ interface IConsensusRegistry {
     error InvalidStatus(ValidatorStatus status);
     error InvalidEpoch(uint32 epoch);
     error InvalidDuration(uint32 duration);
+    error IneligibleUnstake(ValidatorInfo validator);
 
     event ValidatorStaked(ValidatorInfo validator);
     event ValidatorPendingActivation(ValidatorInfo validator);
