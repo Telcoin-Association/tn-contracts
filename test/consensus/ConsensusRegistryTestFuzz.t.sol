@@ -10,12 +10,15 @@ import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Slash, RewardInfo, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { InterchainTEL } from "src/InterchainTEL.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
+import { WTEL } from "src/WTEL.sol";
 
 /// @dev Fuzz test module separated into new file with extra setup to avoid `OutOfGas`
 contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
     function setUp() public {
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        wtel = new WTEL();
+        consensusRegistry =
+            new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner, address(wtel));
         registryGenesisBal = stakeAmount_ * initialValidators.length;
         vm.deal(address(consensusRegistry), registryGenesisBal);
 
@@ -183,9 +186,9 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
             // check balance after claiming
             if (willRevert) {
-                assertEq(validator.balance, initialBalance);
+                assertEq(wtel.balanceOf(validator), initialBalance);
             } else {
-                assertEq(validator.balance, initialBalance + expectedReward);
+                assertEq(wtel.balanceOf(validator), initialBalance + expectedReward);
             }
         }
     }

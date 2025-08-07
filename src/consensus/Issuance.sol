@@ -16,14 +16,17 @@ contract Issuance {
 
     /// @dev ConsensusRegistry system precompile assigned by protocol to a constant address
     address private immutable stakeManager;
+    /// @dev Wrapped TEL contract, used to enable unrevertable TEL sends
+    address private immutable wTEL;
 
     modifier onlyStakeManager() {
         if (msg.sender != stakeManager) revert OnlyStakeManager(stakeManager);
         _;
     }
 
-    constructor(address stakeManager_) {
+    constructor(address stakeManager_, address wTEL_) {
         stakeManager = stakeManager_;
+        wTEL = wTEL_;
     }
 
     /// @notice May only be called by StakeManager as part of claim, unstake or burn flow
@@ -35,12 +38,21 @@ contract Issuance {
             revert InsufficientBalance(bal, totalAmount);
         }
 
-        (bool res,) = recipient.call{ value: totalAmount }("");
-        if (!res) revert RewardDistributionFailure(recipient);
+        (bool r,) = wTEL.call{ value: totalAmount }("");
+        bytes memory transferData = abi.encodeCall(WTEL.transfer, (recipient, totalAmount));
+        (bool res, bytes memory ret) = wTEL.call(transferData);
+        bool success = abi.decode(ret, (bool));
+        if (!r || !res || !success) revert RewardDistributionFailure(recipient);
     }
 
     /// @notice Received TEL cannot be recovered; it is effectively burned cryptographically
     /// The only way received TEL can be re-minted is as staking issuance rewards
     /// @notice Only governance may burn TEL in this manner
     receive() external payable onlyStakeManager { }
+}
+
+/// @dev Minimal interface for WTEL to enable unrevertable transfers of TEL (via ERC20)
+/// while optimizing for small bytecode size
+interface WTEL {
+    function transfer(address to, uint256 amount) external returns (bool);
 }

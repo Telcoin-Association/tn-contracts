@@ -11,11 +11,14 @@ import { Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { InterchainTEL } from "src/InterchainTEL.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
+import { WTEL } from "src/WTEL.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function setUp() public {
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        wtel = new WTEL();
+        consensusRegistry =
+            new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner, address(wtel));
         registryGenesisBal = stakeAmount_ * initialValidators.length;
         vm.deal(address(consensusRegistry), registryGenesisBal);
 
@@ -356,7 +359,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeAfterExit));
         vm.stopPrank();
 
-        uint256 initialBalance = validator1.balance;
+        uint256 initialBalance = wtel.balanceOf(validator1);
         assertEq(initialBalance, 0);
 
         // Check event emission
@@ -367,7 +370,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.unstake(validator1);
 
         // 4 epochs rewards split between 4 validators
-        uint256 finalBalance = validator1.balance;
+        uint256 finalBalance = wtel.balanceOf(validator1);
         assertEq(finalBalance, stakeAmount_);
     }
 
@@ -386,7 +389,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             _blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
         );
 
-        uint256 initialBalance = validator5.balance;
+        uint256 initialBalance = wtel.balanceOf(validator5);
         assertEq(initialBalance, 0);
 
         // unstake to abort activation
@@ -397,7 +400,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.stopPrank();
 
         // validator5 should have reclaimed their stake
-        uint256 finalBalance = validator5.balance;
+        uint256 finalBalance = wtel.balanceOf(validator5);
         assertEq(finalBalance, stakeAmount_);
     }
 
