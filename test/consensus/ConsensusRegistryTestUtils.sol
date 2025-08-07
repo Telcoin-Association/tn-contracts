@@ -34,6 +34,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
     bytes public validator5BlsPubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(validator5Secret));
 
     uint256 public telMaxSupply = 100_000_000_000e18;
+    uint256 public registryGenesisBal;
     uint256 public stakeAmount_ = 1_000_000e18;
     uint256 public minWithdrawAmount_ = 1000e18;
     uint256 public epochIssuance_ = 25_806e18;
