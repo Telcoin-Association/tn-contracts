@@ -10,6 +10,7 @@ import { StakeManager } from "./StakeManager.sol";
 import { IConsensusRegistry } from "../interfaces/IConsensusRegistry.sol";
 import { SystemCallable } from "./SystemCallable.sol";
 import { Issuance } from "./Issuance.sol";
+import { BlsG1 } from "./BlsG1.sol";
 
 /**
  * @title ConsensusRegistry
@@ -20,6 +21,8 @@ import { Issuance } from "./Issuance.sol";
  * @dev This contract should be deployed to a predefined system address for use with system calls
  */
 contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, SystemCallable, IConsensusRegistry {
+    using BlsG1 for bytes;
+
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
     EpochInfo[4] public epochInfo;
@@ -29,6 +32,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
+
+    /// @notice Fixed prefixes inserted by rust protocol; see `proofOfPossessionMessage()`
+    /// @dev The proof of possession message prefix, used by the protocol to differentiate BLS proof intents
+    bytes5 constant POP_INTENT_PREFIX = 0x000000d501;
+    /// @dev The proof of possession's validator address length prefix, signifying 20 byte length encoding
+    bytes1 constant ADDRESS_LEN_PREFIX = 0x14;
 
     /**
      *
@@ -202,6 +211,21 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         return _hashTypedData(structHash);
     }
 
+    /// @inheritdoc IConsensusRegistry
+    function proofOfPossessionMessage(
+        bytes memory blsPubkeyUncompressed,
+        address validatorAddress
+    )
+        public
+        view
+        returns (bytes memory)
+    {
+        bytes memory blsPubkeyEIP2537 = BlsG1.encodeG2PointForEIP2537(blsPubkeyUncompressed);
+        if (!BlsG1.validatePointG2(blsPubkeyEIP2537)) revert BlsG1.InvalidBLSPubkey();
+
+        return bytes.concat(POP_INTENT_PREFIX, blsPubkeyUncompressed, ADDRESS_LEN_PREFIX, bytes20(validatorAddress));
+    }
+
     /**
      *
      *   validators
@@ -209,8 +233,26 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
      */
 
     /// @inheritdoc StakeManager
-    function stake(bytes calldata blsPubkey) external payable override whenNotPaused {
-        if (blsPubkey.length != 96) revert InvalidBLSPubkey();
+    function stake(
+        bytes calldata blsPubkey,
+        BlsG1.ProofOfPossession memory proofOfPossession
+    )
+        external
+        payable
+        override
+        whenNotPaused
+    {
+        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
+        // verify the BLS signature proves ownership of the BLS secret key
+        bytes memory message = proofOfPossessionMessage(proofOfPossession.uncompressedPubkey, msg.sender);
+        bytes memory blsPubkeyEIP2537 = BlsG1.encodeG2PointForEIP2537(proofOfPossession.uncompressedPubkey);
+        bytes memory popEIP2537 = BlsG1.encodeG1PointForEIP2537(proofOfPossession.uncompressedSignature);
+        if (!BlsG1.verifyProofOfPossessionG1(blsPubkeyEIP2537, popEIP2537, message)) {
+            revert InvalidProofOfPossession(
+                BlsG1.ProofOfPossession(proofOfPossession.uncompressedPubkey, proofOfPossession.uncompressedSignature),
+                message
+            );
+        }
 
         // require caller is known & whitelisted, having been issued a ConsensusNFT by governance
         uint8 validatorVersion = getCurrentEpochInfo().stakeVersion;
@@ -226,17 +268,28 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function delegateStake(
         bytes calldata blsPubkey,
+        BlsG1.ProofOfPossession memory proofOfPossession,
         address validatorAddress,
-        bytes calldata validatorSig
+        bytes calldata validatorEIP712Signature
     )
         external
         payable
         override
         whenNotPaused
     {
-        if (blsPubkey.length != 96) revert InvalidBLSPubkey();
+        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
+        // verify the delegate has obtained validator's BLS signature proving ownership of the BLS secret key
+        bytes memory message = proofOfPossessionMessage(proofOfPossession.uncompressedPubkey, validatorAddress);
+        bytes memory blsPubkeyEIP2537 = BlsG1.encodeG2PointForEIP2537(proofOfPossession.uncompressedPubkey);
+        bytes memory popEIP2537 = BlsG1.encodeG1PointForEIP2537(proofOfPossession.uncompressedSignature);
+        if (!BlsG1.verifyProofOfPossessionG1(blsPubkeyEIP2537, popEIP2537, message)) {
+            revert InvalidProofOfPossession(
+                BlsG1.ProofOfPossession(proofOfPossession.uncompressedPubkey, proofOfPossession.uncompressedSignature),
+                message
+            );
+        }
 
-        // require caller is known & whitelisted, having been issued a ConsensusNFT by governance
+        // require `validatorAddress` is known & whitelisted, having been issued a ConsensusNFT by governance
         uint8 validatorVersion = getCurrentEpochInfo().stakeVersion;
         uint256 stakeAmt = _checkStakeValue(msg.value, validatorVersion);
         _checkConsensusNFTOwner(validatorAddress);
@@ -252,7 +305,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce)
             );
             bytes32 digest = _hashTypedData(structHash);
-            if (!SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, validatorSig)) {
+            if (!SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, validatorEIP712Signature)) {
                 revert NotValidator(validatorAddress);
             }
         }
@@ -717,12 +770,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     constructor(
         StakeConfig memory genesisConfig_,
         ValidatorInfo[] memory initialValidators_,
+        BlsG1.ProofOfPossession[] memory proofsOfPossession,
         address owner_
     )
         Ownable(owner_)
         StakeManager("ConsensusNFT", "CNFT")
     {
-        if (initialValidators_.length == 0 || initialValidators_.length > type(uint24).max) {
+        if (initialValidators_.length == 0 || initialValidators_.length != proofsOfPossession.length) {
             revert GenesisArityMismatch();
         }
 
@@ -740,8 +794,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             ValidatorInfo memory currentValidator = initialValidators_[i];
 
             // assert `validatorIndex` struct members match expected value
-            if (currentValidator.blsPubkey.length != 96) {
-                revert InvalidBLSPubkey();
+            bytes memory currentMsg =
+                proofOfPossessionMessage(proofsOfPossession[i].uncompressedPubkey, currentValidator.validatorAddress);
+            bytes memory eip2537Pubkey = BlsG1.encodeG2PointForEIP2537(proofsOfPossession[i].uncompressedPubkey);
+            bytes memory eip2537Signature = BlsG1.encodeG1PointForEIP2537(proofsOfPossession[i].uncompressedSignature);
+            if (!BlsG1.verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, currentMsg)) {
+                revert BlsG1.InvalidBLSPubkey();
             }
             if (currentValidator.validatorAddress == address(0x0)) {
                 revert InvalidValidatorAddress();
