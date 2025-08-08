@@ -6,12 +6,14 @@ import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
 import { BlsG1 } from "src/consensus/BlsG1.sol";
 import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
+import { WTEL } from "src/WTEL.sol";
 
 contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
     using BlsG1 for bytes;
 
     ConsensusRegistry public consensusRegistry;
 
+    WTEL public wtel;
     address public crOwner = address(0xc0ffee);
     address public validator1 = _addressFromPrivateKey(1);
     address public validator2 = _addressFromPrivateKey(2);
@@ -47,7 +49,8 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_),
             _populateInitialValidators(),
             _populateinitialBLSPops(),
-            crOwner
+            crOwner,
+            address(0x0) // this utility isn't intended for use with a WTEL contract
         )
     { }
 

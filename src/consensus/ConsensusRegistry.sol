@@ -771,7 +771,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         StakeConfig memory genesisConfig_,
         ValidatorInfo[] memory initialValidators_,
         BlsG1.ProofOfPossession[] memory proofsOfPossession,
-        address owner_
+        address owner_,
+        address wTEL_
     )
         Ownable(owner_)
         StakeManager("ConsensusNFT", "CNFT")
@@ -781,7 +782,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // deploy Issuance contract and set stake storage configs
-        issuance = payable(new Issuance(address(this)));
+        issuance = payable(new Issuance(address(this), wTEL_));
         versions[0] = genesisConfig_;
 
         for (uint256 j; j <= 2; ++j) {
