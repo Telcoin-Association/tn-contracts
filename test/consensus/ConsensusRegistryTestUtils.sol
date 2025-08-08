@@ -4,10 +4,12 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
+import { Issuance } from "src/consensus/Issuance.sol";
+import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
 import { BlsG1 } from "src/consensus/BlsG1.sol";
 import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
 
-contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
+contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, BlsG1Harness {
     using BlsG1 for bytes;
 
     ConsensusRegistry public consensusRegistry;
@@ -49,7 +51,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, Test {
             _populateinitialBLSPops(),
             crOwner
         )
-    { }
+    {
+        vm.etch(issuance, type(Issuance).runtimeCode);
+    }
 
     // convenience fn for constructor
     function _populateInitialValidators() internal returns (ValidatorInfo[] memory) {
