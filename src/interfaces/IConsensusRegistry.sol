@@ -14,7 +14,7 @@ import { RewardInfo, Slash } from "./IStakeManager.sol";
 interface IConsensusRegistry {
     /// @dev Packed struct storing each validator's onchain info
     struct ValidatorInfo {
-        bytes blsPubkey; // using uncompressed 96 byte BLS public keys
+        bytes blsPubkey; // using uncompressed BLS public keys in EIP2537 256-byte form
         address validatorAddress;
         uint32 activationEpoch;
         uint32 exitEpoch;
@@ -34,10 +34,7 @@ interface IConsensusRegistry {
         uint8 stakeVersion;
     }
 
-    error LowLevelCallFailure();
-    error InvalidBLSPubkey();
     error InvalidValidatorAddress();
-    error InvalidProof();
     error GenesisArityMismatch();
     error DuplicateBLSPubkey();
     error InvalidCommitteeSize(uint256 minCommitteeSize, uint256 providedCommitteeSize);
@@ -132,4 +129,14 @@ interface IConsensusRegistry {
     /// @dev Returns whether a validator is exited && unstaked, ie "retired"
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
+
+    /// @dev Returns the BLS12-381 proof of possession message for given params
+    /// @param blsPubkeyUncompressed Must provide the 192-byte uncompressed bls pubkey
+    function proofOfPossessionMessage(
+        bytes calldata blsPubkeyUncompressed,
+        address validatorAddress
+    )
+        external
+        view
+        returns (bytes memory);
 }

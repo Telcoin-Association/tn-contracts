@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
+import { BlsG1 } from "../consensus/BlsG1.sol";
+
 /**
  * @title IStakeManager
  * @author Telcoin Association
@@ -43,6 +45,7 @@ interface IStakeManager {
         uint64 nonce;
     }
 
+    error InvalidProofOfPossession(BlsG1.ProofOfPossession proof, bytes message);
     error InvalidTokenId(uint256 tokenId);
     error InvalidStakeAmount(uint256 stakeAmount);
     error InsufficientRewards(uint256 withdrawAmount);
@@ -53,12 +56,19 @@ interface IStakeManager {
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance
-    function stake(bytes calldata blsPubkey) external payable;
+    /// @notice Ensuring `uncompressedPubkey` corresponds to `ValidatorInfo::blsPubkey` is better
+    /// performed externally in Rust by the protocol due to EIP2537 precompile & EVM limitations
+    /// so this contract does not perform any (un)compression checks
+    function stake(bytes calldata blsPubkey, BlsG1.ProofOfPossession calldata proofOfPossession) external payable;
 
     /// @dev Accepts delegated stake from a non-validator caller authorized by a validator's EIP712 signature
     /// @notice `validatorAddress` must be a validator already in possession of a `ConsensusNFT`
+    /// @notice Ensuring `uncompressedPubkey` corresponds to `ValidatorInfo::blsPubkey` is better
+    /// performed externally in Rust by the protocol due to EIP2537 precompile & EVM limitations
+    /// so this contract does not perform any (un)compression checks
     function delegateStake(
         bytes calldata blsPubkey,
+        BlsG1.ProofOfPossession calldata proofOfPossession,
         address validatorAddress,
         bytes calldata validatorSig
     )
