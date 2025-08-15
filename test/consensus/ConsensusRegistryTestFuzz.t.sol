@@ -31,7 +31,6 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         numValidators = uint24(bound(uint256(numValidators), 1, 700));
 
         _fuzz_mint(numValidators);
-        vm.deal(address(consensusRegistry), stakeAmount_ * (numValidators + 5)); // provide funds
         uint256 supplyBefore = consensusRegistry.totalSupply();
 
         // leave enough validators for the committee to stay intact
@@ -57,23 +56,49 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             consensusRegistry.ownerOf(tokenId);
             vm.expectRevert();
             consensusRegistry.getValidator(burned);
+            // remint can't be done with same addresses
+            vm.expectRevert();
+            consensusRegistry.mint(burned);
         }
+    }
 
-        // remint can't be done with same addresses
-        vm.expectRevert();
-        consensusRegistry.mint(_addressFromPrivateKey(1));
+    function testFuzz_mintStakeBurn(uint24 numValidators) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 400));
 
-        // remint with new addresses
-        for (uint256 i; i < numValidators; ++i) {
-            // account for initial validators
-            uint256 tokenId = i + 5;
-            uint256 uniqueSeed = tokenId + numValidators;
-            address newValidator = _addressFromPrivateKey(uniqueSeed);
+        uint256 issuanceBalanceBefore = consensusRegistry.issuance().balance;
 
-            // deal `stakeAmount` funds and prank governance NFT mint to `newValidator`
-            vm.deal(newValidator, stakeAmount_);
-            vm.prank(crOwner);
-            consensusRegistry.mint(newValidator);
+        _fuzz_mint(numValidators);
+        uint256 supplyBefore = consensusRegistry.totalSupply();
+
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+
+        // leave enough validators for the committee to stay intact
+        uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
+        address[] memory currentCommittee = consensusRegistry.getEpochInfo(currentEpoch).committee;
+        uint256[] memory burnedIds = _fuzz_burn(numValidators, currentCommittee);
+
+        // asserts
+        assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
+        uint256 numActiveAfter = numActive >= burnedIds.length ? numActive - burnedIds.length : 2;
+        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveAfter);
+        assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActiveAfter);
+        uint256 expectedIssuanceBalanceAfter = issuanceBalanceBefore + stakeAmount_ * burnedIds.length;
+        assertEq(consensusRegistry.issuance().balance, expectedIssuanceBalanceAfter);
+        for (uint256 i; i < burnedIds.length; ++i) {
+            uint256 tokenId = burnedIds[i];
+
+            // recreate validator
+            address burned = _addressFromPrivateKey(tokenId);
+
+            assertTrue(consensusRegistry.isRetired(burned));
+            assertEq(consensusRegistry.balanceOf(burned), 0);
+
+            vm.expectRevert();
+            consensusRegistry.ownerOf(tokenId);
+            vm.expectRevert();
+            consensusRegistry.getValidator(burned);
         }
     }
 

@@ -67,9 +67,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function getRewards(address validatorAddress) public view virtual returns (uint256);
 
     /// @inheritdoc IStakeManager
-    function getBalance(address validatorAddress) public view virtual returns (uint256) {
-        return balances[validatorAddress];
-    }
+    function getBalanceBreakdown(address validatorAddress) public view virtual returns (uint256, uint256, uint256);
 
     /// @inheritdoc IStakeManager
     function stakeConfig(uint8 version) public view virtual returns (StakeConfig memory) {
@@ -176,25 +174,16 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         return rewards;
     }
 
-    function _unstake(
-        address validatorAddress,
-        address recipient,
-        uint8 validatorVersion
-    )
-        internal
-        virtual
-        returns (uint256)
-    {
-        uint256 stakeAmt = versions[validatorVersion].stakeAmount;
-        uint256 rewards = _getRewards(validatorAddress, stakeAmt);
-
-        // wipe existing balance and burn the token
-        uint256 bal = balances[validatorAddress];
-        balances[validatorAddress] = 0;
+    function _unstake(address validatorAddress, address recipient) internal virtual returns (uint256) {
         _burn(_getTokenId(validatorAddress));
         if (totalSupply() == 0) revert InvalidSupply();
 
-        // forward outstanding stake balance to recipient through Issuance
+        (uint256 bal, uint256 stakeAmt, uint256 rewards) = getBalanceBreakdown(validatorAddress);
+        // zero outstanding balance implies burn context, no further action needed- ledgers are already settled
+        if (bal == 0) return bal;
+
+        // otherwise wipe existing balance & identify the amount of stake due to recipient
+        balances[validatorAddress] = 0;
         uint256 unstakeAmt;
         if (bal >= stakeAmt) {
             // recipient is entitled to full initial stake amount and any outstanding rewards
@@ -202,12 +191,12 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         } else {
             // recipient has been slashed below initial stake; only outstanding bal will be sent
             unstakeAmt = bal;
-            // consolidate remainder on the Issuance contract
+            // consolidate slashed stake remainder on the Issuance contract, repurposed for future rewards
             (bool r,) = issuance.call{ value: stakeAmt - bal }("");
             r;
         }
 
-        // send `bal` if `rewards == 0`, or `stakeAmt` with nonzero `rewards` added from Issuance's balance
+        // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
         Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards);
 
         return unstakeAmt + rewards;

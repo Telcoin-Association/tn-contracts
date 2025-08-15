@@ -102,7 +102,7 @@ interface IStakeManager {
     function issuance() external view returns (address payable);
 
     /// @dev Returns staking information for the given address
-    function getBalance(address validatorAddress) external view returns (uint256);
+    function getBalanceBreakdown(address validatorAddress) external view returns (uint256, uint256, uint256);
 
     /// @dev Returns the current version
     function getCurrentStakeVersion() external view returns (uint8);

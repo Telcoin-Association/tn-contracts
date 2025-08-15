@@ -190,6 +190,16 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         return _getRewards(validatorAddress, initialStake);
     }
 
+    /// @inheritdoc StakeManager
+    function getBalanceBreakdown(address validatorAddress) public view override returns (uint256, uint256, uint256) {
+        uint8 validatorVersion = validators[validatorAddress].stakeVersion;
+        uint256 initialStakeAmount = versions[validatorVersion].stakeAmount;
+        uint256 rewards = _getRewards(validatorAddress, initialStakeAmount);
+        uint256 outstandingBalance = balances[validatorAddress];
+
+        return (outstandingBalance, initialStakeAmount, rewards);
+    }
+
     /// @inheritdoc IStakeManager
     function delegationDigest(
         bytes memory blsPubkey,
@@ -382,7 +392,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _retire(validator);
 
         // return stake and send any outstanding rewards
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, validator.stakeVersion);
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }
@@ -577,9 +587,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         return false;
     }
 
+    /// @dev Invoked either as part of a governance-initiated burn or a validator's final slash to 0
+    /// @notice Burns or final slashes confiscate the validator's remaining stake held by this contract
+    /// by sending it to the Issuance contract to be repurposed for future reward distribution
     function _consensusBurn(address validatorAddress) internal {
-        balances[validatorAddress] = 0;
-
         ValidatorInfo storage validator = validators[validatorAddress];
         ValidatorStatus status = validator.currentStatus;
         // reverts if decremented committee size after ejection reaches 0, preventing network halt
@@ -590,11 +601,21 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
         _ejectFromCommittees(validatorAddress, numEligible);
 
+        // settle ledgers
+        (uint256 outstandingBalance, uint256 initialStakeAmt,) = getBalanceBreakdown(validatorAddress);
+        // rewards are already held on Issuance contract, so wiping registry's balance ledger effectively confiscates
+        // them
+        balances[validatorAddress] = 0;
+        // confiscate outstanding stake balance by consolidating it on the Issuance contract
+        uint256 confiscatedStake = outstandingBalance < initialStakeAmt ? outstandingBalance : initialStakeAmt;
+        (bool r,) = issuance.call{ value: confiscatedStake }("");
+        require(r, "Impossible condition");
+
         // exit, retire, and unstake + burn validator immediately
         _exit(validator, currentEpoch);
         _retire(validator);
         address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient, validator.stakeVersion);
+        _unstake(validatorAddress, recipient);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch
