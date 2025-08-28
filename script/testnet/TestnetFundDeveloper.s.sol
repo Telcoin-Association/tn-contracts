@@ -29,8 +29,8 @@ contract TestnetFundDeveloper is Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        telAmount = 10_000e18;
-        wTelAmount = 1_000_000e18; // wTel.decimals() == 18
+        telAmount = 1_000_000_000e18;
+        wTelAmount = 1_000_000_000e18; // wTel.decimals() == 18
         stablecoinAmount = 1_000_000_000e6; // stablecoin.decimals() == 6
 
         wTEL = WTEL(payable(deployments.wTEL));
