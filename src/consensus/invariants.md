@@ -18,6 +18,7 @@
 - pending activation and pending exit validators are also considered active since exit queue is updated before checking committee size
 - exit from the pending exit queue is determined solely by the protocol, which determines a queued validator may exit by excluding it from the committee across 3 epochs
 - unless forcibly burned, only Exited or Staked validators can unstake, ie: Exited to Retired, or Staked to Any (unstaking pre-activation bypasses activation)
+- after reaching Exited status requirement, validators must wait an additional epoch to unstake
 - retired validator addresses can never rejoin
 - validators are only eligible for rewards at the completion of their first full epoch
 - unvariant: validator storage vector can eventually grow to exceed gas limits but this will be a good problem to have and storage can be optimized
