@@ -20,11 +20,13 @@ import { BlsG1 } from "./BlsG1.sol";
  * @dev Designed for inheritance by the ConsensusRegistry
  */
 abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
-    address payable public issuance;
     uint8 internal stakeVersion;
     mapping(uint8 => StakeConfig) internal versions;
     mapping(address => uint256) internal balances;
     mapping(address => Delegation) internal delegations;
+
+    /// @dev Instantiated by the protocol as a precompile
+    address payable public constant issuance = payable(0x07A07A07A07A07a07A07A07a07a07A07a07a07A0);
 
     /// @dev EIP-712 typed struct hash used to enable delegated proof of stake
     bytes32 constant DELEGATION_TYPEHASH = keccak256(

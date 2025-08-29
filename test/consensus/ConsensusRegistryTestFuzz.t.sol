@@ -14,11 +14,20 @@ import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 /// @dev Fuzz test module separated into new file with extra setup to avoid `OutOfGas`
 contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
     function setUp() public {
+        // target
+        consensusRegistry = ConsensusRegistry(0x07E17e17E17e17E17e17E17E17E17e17e17E17e1);
+
+        vm.startStateDiffRecording();
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
+        bytes32[] memory slots = saveWrittenSlots(address(tempRegistry), records);
+        copyContractState(address(tempRegistry), address(consensusRegistry), slots);
+
+        // simulate protocol allocation of validators' initial stake
         registryGenesisBal = stakeAmount_ * initialValidators.length;
         vm.deal(address(consensusRegistry), registryGenesisBal);
-
+        // set protocol system address
         sysAddress = consensusRegistry.SYSTEM_ADDRESS();
 
         // deal issuance contract max TEL supply to test reward distribution

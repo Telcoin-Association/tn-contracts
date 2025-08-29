@@ -813,8 +813,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             revert GenesisArityMismatch();
         }
 
-        // deploy Issuance contract and set stake storage configs
-        issuance = payable(new Issuance(address(this)));
+        // set stake storage configs
         versions[0] = genesisConfig_;
 
         for (uint256 j; j <= 2; ++j) {
