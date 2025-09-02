@@ -19,6 +19,7 @@ import { Safe } from "safe-contracts/contracts/Safe.sol";
 import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
+import { RecordsDequeLib } from "../../src/recoverable-wrapper/RecordUtil.sol";
 import { ITS } from "../Deployments.sol";
 import { ITSConfig } from "../utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "./GenesisPrecompiler.sol";
@@ -53,6 +54,7 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         itFactory = InterchainTokenFactory(genesisITSTargets.InterchainTokenFactory);
         wTEL = WTEL(wtel);
         iTEL = InterchainTEL(itel);
+        recordsDequeLib = address(RecordsDequeLib);
         iTELTokenManager = TokenManager(itelTokenManager);
         safeImpl = Safe(safeSingleton);
         safeProxyFactory = SafeProxyFactory(safeFactory);
@@ -231,6 +233,9 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
 
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), itelRecords);
         copyContractState(address(simulatedDeployment), address(iTEL), slots);
+
+        // once iTEL's bytecode and storage has been copied to its target address, sanity check RecordsDequeLib inclusion
+        require(verifyLinkedLibrary(address(iTEL).code, recordsDequeLib), "Linked library not found");
     }
 
     function instantiateInterchainTELTokenManager(address its_, bytes32 customLinkedTokenId) public virtual override returns (TokenManager simulatedDeployment) {
@@ -274,5 +279,29 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
         copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
+    }
+
+    /// @notice Sanity checks `expectedLibrary` appears at least once within `contractBytecode` 
+    /// Given 2^160 possible addresses, probability of a random bytecode collision occurring with linked library's
+    /// address is probabilistically negligible, even for SpuriousDragon max bytecode size
+    function verifyLinkedLibrary(bytes memory contractBytecode, address expectedLibrary) internal view returns (bool) {
+        require(expectedLibrary.code.length != 0, "Linked library not deployed");
+        
+        // search for the 20-byte address in the bytecode, returning early if found
+        bytes memory libAddrBytes = abi.encodePacked(expectedLibrary);
+        for (uint256 i; i <= contractBytecode.length - 20; i++) {
+            bool linked = true;
+            for (uint j; j < 20; j++) {
+                if (contractBytecode[i + j] != libAddrBytes[j]) {
+                    linked = false;
+                    break;
+                }
+            }
+            if (linked) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

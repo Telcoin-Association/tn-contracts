@@ -37,6 +37,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
+import { RecordsDequeLib } from "../../src/recoverable-wrapper/RecordUtil.sol";
 import { Create3Utils, Salts, ImplSalts } from "./Create3Utils.sol";
 
 abstract contract ITSUtils is Create3Utils {
@@ -68,6 +69,7 @@ abstract contract ITSUtils is Create3Utils {
     // Telcoin Network contracts
     WTEL wTEL;
     InterchainTEL iTEL;
+    address recordsDequeLib;
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
     Safe governanceSafe;
