@@ -37,6 +37,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
+// import { Issuance } from "../../src/consensus/Issuance.sol"; //todo
 import { Create3Utils, Salts, ImplSalts } from "./Create3Utils.sol";
 
 abstract contract ITSUtils is Create3Utils {
@@ -71,6 +72,7 @@ abstract contract ITSUtils is Create3Utils {
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
     Safe governanceSafe;
+    Issuance issuance;
 
     // AxelarAmplifierGateway config
     string axelarId;
@@ -130,7 +132,7 @@ abstract contract ITSUtils is Create3Utils {
 
     /// @notice Instantiation functions
     /// @notice All ITSUtils default implementations use CREATE3 a la ITS
-    /// @dev Overrides such as the genesis impls in GenerateITSGenesisConfig may differ (eg cheat codes)
+    /// @dev Overrides such as the genesis impls in GenerateGenesisPrecompileConfig may differ (eg cheat codes)
 
     function instantiateAxelarAmplifierGatewayImpl()
         public virtual

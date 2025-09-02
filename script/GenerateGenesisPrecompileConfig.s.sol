@@ -46,7 +46,7 @@ import { Create3Utils, Salts, ImplSalts } from "../deployments/utils/Create3Util
 import { Deployments, ITS } from "../deployments/Deployments.sol";
 import { ITSConfig } from "../deployments/utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "../deployments/genesis/GenesisPrecompiler.sol";
-import { ITSGenesis } from "../deployments/genesis/ITSGenesis.sol";
+import { TNGenesis } from "../deployments/genesis/TNGenesis.sol";
 import { Safe } from "safe-contracts/contracts/Safe.sol";
 import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { SafeProxy } from "safe-contracts/contracts/proxies/SafeProxy.sol";
@@ -55,12 +55,12 @@ import { SafeProxy } from "safe-contracts/contracts/proxies/SafeProxy.sol";
 /// @notice Generates a yaml file comprising the storage slots and their values
 /// Used by Telcoin-Network protocol to instantiate the contracts with required configuration at genesis
 
-/// @dev Usage: `forge script script/GenerateITSGenesisConfig.s.sol -vvvv`
-contract GenerateITSGenesisConfig is ITSGenesis, Script {
+/// @dev Usage: `forge script script/GenerateGenesisPrecompileConfig.s.sol -vvvv`
+contract GenerateGenesisPrecompileConfig is TNGenesis, Script {
     Deployments deployments;
     string root;
     string dest;
-    string fileName = "/deployments/genesis/its-config.yaml";
+    string fileName = "/deployments/genesis/precompile-config.yaml";
 
     uint64 sharedNonce = 0;
     uint256 sharedBalance = 0;
@@ -245,6 +245,11 @@ contract GenerateITSGenesisConfig is ITSGenesis, Script {
         assertTrue(
             yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceInitialBalance)
         );
+
+        //todo
+        // // issuance contract (no storage, ConsensusRegistry precompile instantiation done by protocol)
+        // address simulatedIssuance = address(instantiateIssuance());
+        // assertFalse(yamlAppendGenesisAccount(dest, simulatedIssuance, deployments.Issuance, sharedNonce, sharedBalance));
 
         vm.stopBroadcast();
     }

@@ -19,14 +19,15 @@ import { Safe } from "safe-contracts/contracts/Safe.sol";
 import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
+// import { Issuance } from "../../src/consensus/Issuance.sol"; //todo
 import { ITS } from "../Deployments.sol";
 import { ITSConfig } from "../utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "./GenesisPrecompiler.sol";
 
-/// @title ITSGenesis utility providing TN genesis-specific overrides of ITSUtils default instantiation fns
+/// @title TNGenesis utility providing TN genesis-specific overrides of ITSUtils default instantiation fns
 /// @notice Genesis target addresses for ITS suite & InterchainTEL must first be stored via `_setGenesisTargets()`
 /// @dev All genesis fns return simulated deployments, copying state changes to genesis targets in storage
-abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
+abstract contract TNGenesis is ITSConfig, GenesisPrecompiler {
     /// @dev Sets this contract's state using ITS fetched from a `deployments.json` file
     function _setGenesisTargets(
         ITS memory genesisITSTargets, 
@@ -275,4 +276,11 @@ abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
         copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
     }
+
+    //todo
+    // function instantiateIssuance() public virtual returns (Issuance simulatedDeployment) {
+    //     simulatedDeployment = new Issuance();
+
+    //     copyContractState(address(simulatedDeployment), address(issuance), new bytes32[](0));
+    // }
 }
