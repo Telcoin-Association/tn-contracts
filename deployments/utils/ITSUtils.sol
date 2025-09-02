@@ -37,7 +37,6 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
-// import { Issuance } from "../../src/consensus/Issuance.sol"; //todo
 import { Create3Utils, Salts, ImplSalts } from "./Create3Utils.sol";
 
 abstract contract ITSUtils is Create3Utils {

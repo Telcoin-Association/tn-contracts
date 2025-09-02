@@ -246,11 +246,6 @@ contract GenerateGenesisPrecompileConfig is TNGenesis, Script {
             yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceInitialBalance)
         );
 
-        //todo
-        // // issuance contract (no storage, ConsensusRegistry precompile instantiation done by protocol)
-        // address simulatedIssuance = address(instantiateIssuance());
-        // assertFalse(yamlAppendGenesisAccount(dest, simulatedIssuance, deployments.Issuance, sharedNonce, sharedBalance));
-
         vm.stopBroadcast();
     }
 }

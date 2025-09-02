@@ -19,7 +19,6 @@ import { Safe } from "safe-contracts/contracts/Safe.sol";
 import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
-// import { Issuance } from "../../src/consensus/Issuance.sol"; //todo
 import { ITS } from "../Deployments.sol";
 import { ITSConfig } from "../utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "./GenesisPrecompiler.sol";
@@ -276,11 +275,4 @@ abstract contract TNGenesis is ITSConfig, GenesisPrecompiler {
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
         copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
     }
-
-    //todo
-    // function instantiateIssuance() public virtual returns (Issuance simulatedDeployment) {
-    //     simulatedDeployment = new Issuance();
-
-    //     copyContractState(address(simulatedDeployment), address(issuance), new bytes32[](0));
-    // }
 }
