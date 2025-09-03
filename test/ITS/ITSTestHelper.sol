@@ -42,9 +42,9 @@ import { IInterchainTEL } from "../../src/interfaces/IInterchainTEL.sol";
 import { Salts, ImplSalts } from "../../deployments/utils/Create3Utils.sol";
 import { ITSUtils } from "../../deployments/utils/ITSUtils.sol";
 import { ITS } from "../../deployments/Deployments.sol";
-import { ITSGenesis } from "../../deployments/genesis/ITSGenesis.sol";
+import { TNGenesis } from "../../deployments/genesis/TNGenesis.sol";
 
-abstract contract ITSTestHelper is Test, ITSGenesis {
+abstract contract ITSTestHelper is Test, TNGenesis {
     uint256 internal constant DECIMALS_CONVERTER = 1e16;
 
     function setUp_sepoliaFork_devnetConfig(

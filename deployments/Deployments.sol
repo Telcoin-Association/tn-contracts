@@ -7,6 +7,7 @@ struct Deployments {
     address ArachnidDeterministicDeployFactory;
     address ConsensusRegistry;
     address GitAttestationRegistry;
+    address Issuance;
     address Safe;
     address SafeImpl;
     address SafeProxyFactory;

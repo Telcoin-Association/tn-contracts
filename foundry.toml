@@ -14,7 +14,7 @@ test = "test"
 libs = ["node_modules"]
 fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/consensus-registry-config.yaml" },
-    { access = "read-write", path = "./deployments/genesis/its-config.yaml" },
+    { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
     { access = "read-write", path = "./deployments/deployments.json" },
     { access = "read", path = "./external/uniswap/precompiles" },
 ]

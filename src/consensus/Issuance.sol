@@ -15,15 +15,11 @@ contract Issuance {
     error OnlyStakeManager(address stakeManager);
 
     /// @dev ConsensusRegistry system precompile assigned by protocol to a constant address
-    address private immutable stakeManager;
+    address private constant stakeManager = 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1;
 
     modifier onlyStakeManager() {
         if (msg.sender != stakeManager) revert OnlyStakeManager(stakeManager);
         _;
-    }
-
-    constructor(address stakeManager_) {
-        stakeManager = stakeManager_;
     }
 
     /// @notice May only be called by StakeManager as part of claim, unstake or burn flow

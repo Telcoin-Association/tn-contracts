@@ -14,11 +14,20 @@ import { BlsG1 } from "../../src/consensus/BlsG1.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function setUp() public {
+        // target
+        consensusRegistry = ConsensusRegistry(0x07E17e17E17e17E17e17E17E17E17e17e17E17e1);
+
+        vm.startStateDiffRecording();
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        consensusRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
+        bytes32[] memory slots = saveWrittenSlots(address(tempRegistry), records);
+        copyContractState(address(tempRegistry), address(consensusRegistry), slots);
+
+        // simulate protocol allocation of validators' initial stake
         registryGenesisBal = stakeAmount_ * initialValidators.length;
         vm.deal(address(consensusRegistry), registryGenesisBal);
-
+        // set protocol system address
         sysAddress = consensusRegistry.SYSTEM_ADDRESS();
 
         vm.deal(validator5, stakeAmount_);
@@ -425,18 +434,19 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
             eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
 
         // stake and activate
         vm.startPrank(validator5);
         consensusRegistry.stake{ value: stakeAmount_ }(
-            _blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
+            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
         );
         consensusRegistry.activate();
 
         // Attempt to unstake without exiting
         bytes memory err = abi.encodeWithSelector(
             IneligibleUnstake.selector,
-            ValidatorInfo(validator5BlsPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0)
+            ValidatorInfo(dummyPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0)
         );
         vm.expectRevert(err);
         consensusRegistry.unstake(validator5);
