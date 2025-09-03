@@ -24,10 +24,10 @@ import { ITS } from "../Deployments.sol";
 import { ITSConfig } from "../utils/ITSConfig.sol";
 import { GenesisPrecompiler } from "./GenesisPrecompiler.sol";
 
-/// @title ITSGenesis utility providing TN genesis-specific overrides of ITSUtils default instantiation fns
+/// @title TNGenesis utility providing TN genesis-specific overrides of ITSUtils default instantiation fns
 /// @notice Genesis target addresses for ITS suite & InterchainTEL must first be stored via `_setGenesisTargets()`
 /// @dev All genesis fns return simulated deployments, copying state changes to genesis targets in storage
-abstract contract ITSGenesis is ITSConfig, GenesisPrecompiler {
+abstract contract TNGenesis is ITSConfig, GenesisPrecompiler {
     /// @dev Sets this contract's state using ITS fetched from a `deployments.json` file
     function _setGenesisTargets(
         ITS memory genesisITSTargets, 

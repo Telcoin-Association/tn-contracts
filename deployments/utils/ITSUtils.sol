@@ -132,7 +132,7 @@ abstract contract ITSUtils is Create3Utils {
 
     /// @notice Instantiation functions
     /// @notice All ITSUtils default implementations use CREATE3 a la ITS
-    /// @dev Overrides such as the genesis impls in GenerateITSGenesisConfig may differ (eg cheat codes)
+    /// @dev Overrides such as the genesis impls in GenerateGenesisPrecompileConfig may differ (eg cheat codes)
 
     function instantiateAxelarAmplifierGatewayImpl()
         public virtual
