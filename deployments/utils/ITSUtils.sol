@@ -71,7 +71,6 @@ abstract contract ITSUtils is Create3Utils {
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
     Safe governanceSafe;
-    Issuance issuance;
 
     // AxelarAmplifierGateway config
     string axelarId;

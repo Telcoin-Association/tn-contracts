@@ -671,9 +671,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         view
         returns (EpochInfo storage)
     {
-        // identify diff from pointer, preventing underflow by adding 4 (will be modulo'd away)
-        uint8 pointerDiff = uint8(4 + current - recent);
-        uint8 pointer = (currentPointer + pointerDiff) % 4;
+        // identify diff from pointer
+        uint8 pointerDiff = uint8(current - recent);
+        // prevent underflow by adding 4 (will be modulo'd away)
+        uint8 pointer = (4 + currentPointer - pointerDiff) % 4;
         return epochInfo[pointer];
     }
 
