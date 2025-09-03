@@ -8,6 +8,7 @@ struct Deployments {
     address ConsensusRegistry;
     address GitAttestationRegistry;
     address Issuance;
+    address RecordsDequeLib;
     address Safe;
     address SafeImpl;
     address SafeProxyFactory;
