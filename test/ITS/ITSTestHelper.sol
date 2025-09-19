@@ -71,8 +71,10 @@ abstract contract ITSTestHelper is Test, TNGenesis {
         customLinkedTokenId = ITSUtils.instantiateInterchainTEL(sepoliaIts).interchainTokenId();
 
         // note that TN must be added as a trusted chain to the Ethereum ITS contract
-        vm.prank(sepoliaITS.owner());
+        vm.startPrank(sepoliaITS.owner());
         sepoliaITS.setTrustedAddress(DEVNET_TN_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
+        sepoliaITS.setTrustedAddress(DEVNET_OPTIMISM_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
+        vm.stopPrank();
     }
 
     /// @notice Test utility for deploying ITS architecture, including InterchainTEL and its TokenManager, via create3
@@ -196,6 +198,31 @@ abstract contract ITSTestHelper is Test, TNGenesis {
         originTELTokenManager = TokenManager(iTEL.tokenManagerAddress());
         customLinkedTokenId = iTEL.interchainTokenId();
         instantiateInterchainTELTokenManager(address(its), customLinkedTokenId);
+    }
+
+    function setUp_optimismFork_devnetConfig(
+        address linker_,
+        address optimismTel,
+        address optimismIts,
+        address optimismItf
+    )
+        internal
+    {
+        linker = linker_;
+        vm.deal(linker, 1 ether);
+        tmOperator = AddressBytes.toBytes(linker);
+        gasValue = 0.001 ether;
+        optimismTEL = IERC20(optimismTel);
+        optimismITS = InterchainTokenService(optimismIts);
+        optimismITF = InterchainTokenFactory(optimismItf);
+        optimismGateway = AxelarAmplifierGateway(DEVNET_OPTIMISM_GATEWAY);
+        owner_ = address(linker); // will be used to set tmOperator
+
+        // note that origin chain must be added as a trusted chain to the destination ITS contract
+        vm.startPrank(optimismITS.owner());
+        optimismITS.setTrustedAddress(DEVNET_SEPOLIA_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
+        optimismITS.setTrustedAddress(ITS_HUB_CHAIN_NAME, ITS_HUB_ROUTING_IDENTIFIER);
+        vm.stopPrank();
     }
 
     /// @dev Assert correctness of origin ITS return values against TN contracts

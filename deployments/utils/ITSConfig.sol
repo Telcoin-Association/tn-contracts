@@ -31,7 +31,11 @@ abstract contract ITSConfig is ITSUtils {
     uint256 constant SEPOLIA_CHAINID = 11155111;
     string constant DEVNET_TN_CHAIN_NAME = "telcoin";
     bytes32 constant DEVNET_TN_CHAINNAMEHASH = keccak256(bytes(DEVNET_TN_CHAIN_NAME));
-    bytes32 constant DEVNET_INTERCHAIN_TOKENID = 0x09f3c6e8754c8e269060f138d8b55526b0058b0fa258f90ae3197ee4808d23b6;
+    bytes32 constant DEVNET_INTERCHAIN_TOKENID = 0x7da21a183d41d57607078acf0ae8c42a61f1613ab223509359da7d27b95bc1f5;
+    string constant DEVNET_OPTIMISM_CHAIN_NAME = "optimism-sepolia";
+    bytes32 constant DEVNET_OPTIMISM_CHAINNAMEHASH = keccak256(bytes(DEVNET_OPTIMISM_CHAIN_NAME));
+    address constant DEVNET_OPTIMISM_ITS = 0x2269B93c8D8D4AfcE9786d2940F5Fcd4386Db7ff;
+    address constant DEVNET_OPTIMISM_GATEWAY = 0xF128c84c3326727c3e155168daAa4C0156B87AD1;
     string constant DEVNET_SEPOLIA_CHAIN_NAME = "eth-sepolia";
     bytes32 constant DEVNET_SEPOLIA_CHAINNAMEHASH = 0x24f78f6b35533491ef3d467d5e8306033cca94049b9b76db747dfc786df43f86;
     address constant DEVNET_SEPOLIA_ITS = 0x2269B93c8D8D4AfcE9786d2940F5Fcd4386Db7ff;
@@ -58,6 +62,12 @@ abstract contract ITSConfig is ITSUtils {
     InterchainTokenService sepoliaITS;
     InterchainTokenFactory sepoliaITF;
     AxelarAmplifierGateway sepoliaGateway;
+    // Optimism Sepolia
+    IERC20 optimismTEL;
+    InterchainTokenService optimismITS;
+    InterchainTokenFactory optimismITF;
+    AxelarAmplifierGateway optimismGateway;
+    ITokenManagerType.TokenManagerType optimismTELTMType = ITokenManagerType.TokenManagerType.MINT_BURN;
 
     uint256 public constant telTotalSupply = 100_000_000_000e18;
     /// @dev TEL genesis allocation to the governance safe for gas used to relay initial ITS bridging

@@ -21,6 +21,7 @@ struct Deployments {
     address admin;
     EXYZs eXYZs;
     ITS its;
+    address optimismTEL;
     address sepoliaTEL;
     UniswapV2 uniswapV2;
     address wTEL;

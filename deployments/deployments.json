@@ -57,6 +57,7 @@
     "TokenManagerImpl": "0x5683C518fB0A39Cdc3EEBc0E03B968F108AC9916",
     "TokenManagerDeployer": "0x1Eb942ca2ADC970E43eBb40e94E0118eAA2EDC16"
   },
+  "optimismTEL": "0x8CFb42a80291737Cb62cEF7B665Fe1304D112Fee",
   "sepoliaTEL": "0x92bc9f0D42A3194Df2C5AB55c3bbDD82e6Fb2F92",
   "uniswapV2": {
     "UniswapV2Factory": "0x764eca68a03ff1eb710e7d1a02c2e7c008877f2f",
