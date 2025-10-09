@@ -127,6 +127,11 @@ interface IConsensusRegistry {
     /// @dev Fetches the `ValidatorInfo` for a given `validatorAddress == ConsensusNFT tokenId`
     function getValidator(address validatorAddress) external view returns (ValidatorInfo memory);
 
+    /// @dev Check if a BLS public key corresponds to an active validator
+    /// @param blsPubkey The compressed 96-byte BLS public key to check
+    /// @return bool True if the validator exists and is not retired, false otherwise
+    function isValidator(bytes calldata blsPubkey) external view returns (bool);
+
     /// @dev Returns whether a validator is exited && unstaked, ie "retired"
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
