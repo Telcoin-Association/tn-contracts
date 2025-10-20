@@ -28,6 +28,7 @@ import { InterchainToken } from
     "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
 import { TokenManagerDeployer } from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
 import { TokenManager } from "@axelar-network/interchain-token-service/contracts/token-manager/TokenManager.sol";
+import { ITokenManager } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManager.sol";
 import { ITokenManagerType } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManagerType.sol";
 import { IInterchainTokenService } from
     "@axelar-network/interchain-token-service/contracts/interfaces/IInterchainTokenService.sol";
@@ -53,8 +54,10 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
 
     string SEPOLIA_RPC_URL = vm.envString("SEPOLIA_RPC_URL");
     string TN_RPC_URL = vm.envString("TN_RPC_URL");
+    string OPTIMISM_RPC_URL = vm.envString("OPTIMISM_SEPOLIA_RPC_URL");
     uint256 sepoliaFork;
     uint256 tnFork;
+    uint256 optimismFork;
 
     address user;
     address recipient;
@@ -99,6 +102,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         IERC20(deployments.sepoliaTEL).transfer(address(deployments.its.InterchainTELTokenManager), interchainAmount);
 
         tnFork = vm.createFork(TN_RPC_URL);
+        optimismFork = vm.createFork(OPTIMISM_RPC_URL);
     }
 
     function test_tn_itelInterchainTransfer_InterchainTEL() public {
@@ -199,7 +203,12 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
     /// @notice Test TN genesis precompiles iTEL and iTELTokenManager match Ethereum ITS's origin addresses
     /// by simulating `linkToken()` to Telcoin Network (obviated by Telcoin-Network genesis)
     /// @notice Ensures precompiles for InterchainTEL + its TokenManager match those expected by ITS
-    function test_e2eDevnet_linkToken_InterchainTEL() public {
+    function test_e2eDevnet_linkToken_InterchainTEL(bool optimismTokenManagerType) public {
+        // fuzz param proves both MINT_BURN and LOCK_UNLOCK managers can be used on 3+ chains w/ custom linked tokenId
+        optimismTELTMType = optimismTokenManagerType
+            ? ITokenManagerType.TokenManagerType.MINT_BURN
+            : ITokenManagerType.TokenManagerType.LOCK_UNLOCK;
+
         vm.selectFork(sepoliaFork);
         setUp_sepoliaFork_devnetConfig(
             deployments.admin,
@@ -228,6 +237,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         assertEq(address(returnedTELTokenManager), deployments.its.InterchainTELTokenManager);
         bytes32 expectedTELTokenId = sepoliaITF.linkedTokenId(linker, salts.registerCustomTokenSalt);
         assertEq(expectedTELTokenId, sepoliaITS.interchainTokenId(address(0x0), returnedInterchainTokenSalt));
+        assertEq(returnedInterchainTokenId, DEVNET_INTERCHAIN_TOKENID);
 
         // sends remote deploy message to ITS hub for iTEL and its TokenManager on TN
         payload = abi.encode(
@@ -304,6 +314,87 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
             expectedTELTokenId, deployments.its.InterchainTELTokenManager, itelTMType, deployTMParams
         );
         its.execute(commandId, sourceChain, sourceAddressString, wrappedPayload);
+
+        /// @dev Repeat link steps for optimism to show that MINT_BURN/LOCK_RELEASE token managers can be used on 3 or
+        /// more chains
+
+        // link optimism TEL under `DEVNET_INTERCHAIN_TOKENID` from sepolia
+        vm.selectFork(sepoliaFork);
+        vm.prank(linker);
+        bytes32 linkedTokenId = sepoliaITF.linkToken{ value: gasValue }(
+            salts.registerCustomTokenSalt,
+            DEVNET_OPTIMISM_CHAIN_NAME,
+            AddressBytes.toBytes(deployments.optimismTEL),
+            itelTMType,
+            tmOperator,
+            gasValue
+        );
+        assertEq(linkedTokenId, DEVNET_INTERCHAIN_TOKENID);
+
+        // simulate link token message through ITS hub for optimismTEL to deploy its TokenManager on optimism
+        payload = abi.encode(
+            MESSAGE_TYPE_LINK_TOKEN,
+            linkedTokenId,
+            optimismTELTMType,
+            AddressBytes.toBytes(address(sepoliaTEL)),
+            AddressBytes.toBytes(deployments.optimismTEL),
+            tmOperator
+        );
+
+        // clear cached messages and prime for optimism settlement
+        vm.selectFork(optimismFork);
+        delete messages;
+        setUp_optimismFork_devnetConfig(
+            linker,
+            deployments.optimismTEL,
+            deployments.its.InterchainTokenService,
+            deployments.its.InterchainTokenFactory
+        );
+
+        /// @notice Incoming messages routed via ITS hub are in wrapped `RECEIVE_FROM_HUB` format
+        /// for interchain transfers, Message's `destinationAddress = its` and payload's `recipient = user`
+        wrappedPayload = abi.encode(MESSAGE_TYPE_RECEIVE_FROM_HUB, DEVNET_SEPOLIA_CHAIN_NAME, payload);
+        sourceChain = ITS_HUB_CHAIN_NAME;
+        sourceAddressString = ITS_HUB_ROUTING_IDENTIFIER;
+        destinationAddress = address(optimismITS);
+        messageId = "43";
+        Message memory optimismMessage =
+            _craftITSMessage(messageId, sourceChain, sourceAddressString, destinationAddress, wrappedPayload);
+        messages.push(optimismMessage);
+
+        // use gatewayOperator to overwrite devnet config verifier for tests
+        vm.startPrank(admin);
+        (WeightedSigners memory wSigners, bytes32 wSignersHash) = _overwriteWeightedSigners(gateway, mockVerifier.addr);
+        vm.stopPrank();
+
+        // Axelar gateway signer proofs are ECDSA signatures of bridge message `eth_sign` hash
+        bytes32 amHash =
+            gateway.messageHashToSign(wSignersHash, keccak256(abi.encode(CommandType.ApproveMessages, messages)));
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(mockVerifier.privateKey, amHash);
+        signatures[0] = abi.encodePacked(r2, s2, v2);
+        proof = Proof(wSigners, signatures);
+
+        commandId = gateway.messageToCommandId(sourceChain, messageId);
+        vm.expectEmit(true, true, true, true);
+        emit MessageApproved(
+            commandId, sourceChain, messageId, sourceAddressString, destinationAddress, keccak256(wrappedPayload)
+        );
+        gateway.approveMessages(messages, proof);
+
+        // optimism token manager should be congruent with expected ITS create3 address for linked token ID
+        address expectedOptimismTM = deployments.its.InterchainTELTokenManager;
+        assertTrue(expectedOptimismTM.code.length == 0);
+
+        bytes memory optimismDeployTMParams = abi.encode(tmOperator, address(optimismTEL));
+        vm.expectEmit();
+        emit IInterchainTokenService.TokenManagerDeployed(
+            linkedTokenId, expectedOptimismTM, optimismTELTMType, optimismDeployTMParams
+        );
+        optimismITS.execute(commandId, sourceChain, sourceAddressString, wrappedPayload);
+
+        // optimism token manager is now deployed and of type optimismTELTMType
+        assertTrue(expectedOptimismTM.code.length != 0);
+        assertEq(ITokenManager(expectedOptimismTM).implementationType(), uint256(optimismTELTMType));
     }
 
     function test_e2eDevnet_bridgeSimulation_toTN() public {
