@@ -38,31 +38,30 @@
   },
   "homepage": "https://github.com/Telcoin-Association/tn-contracts#readme",
   "engines": {
-    "node": "18.x"
+    "node": "22.x"
   },
   "dependencies": {
-    "@axelar-network/axelar-cgp-solidity": "^6.4.0",
-    "@axelar-network/axelar-gmp-sdk-solidity": "^6.0.5",
-    "@axelar-network/interchain-token-service": "^2.1.0",
-    "@ethersproject/experimental": "^5.8.0",
+    "@axelar-network/axelar-cgp-solidity": "~6.4.0",
+    "@axelar-network/axelar-gmp-sdk-solidity": "~6.0.6",
+    "@axelar-network/interchain-token-service": "~2.1.0",
     "@openzeppelin/contracts": "^5.2.0",
     "@openzeppelin/contracts-upgradeable": "^5.2.0",
     "@uniswap/v2-core": "^1.0.1",
     "@uniswap/v2-periphery": "^1.1.0-beta.0",
-    "axios": "^1.7.7",
-    "dotenv": "^16.4.5",
+    "axios": "~1.12.2",
+    "dotenv": "17.2.3",
     "forge-std": "github:foundry-rs/forge-std",
     "safe-contracts": "github:safe-global/safe-contracts#v1.4.1-3",
     "js-yaml": "^4.1.0",
-    "solady": "^0.0.227",
+    "solady": "~0.1.26",
     "telcoin-contracts": "1.0.0",
-    "viem": "^2.21.43"
+    "viem": "2.38.3"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
+    "@types/js-yaml": "4.0.9",
     "@types/node": "^20.14.11",
-    "mermaid": "^11.4.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.5.3"
+    "mermaid": "~11.12.0",
+    "ts-node": "~10.9.2",
+    "typescript": "~5.9.3"
   }
 }
