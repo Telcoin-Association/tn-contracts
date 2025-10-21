@@ -28,7 +28,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     EpochInfo[4] public epochInfo;
     EpochInfo[4] public futureEpochInfo;
     mapping(address => ValidatorInfo) public validators;
-    mapping(bytes32 => bool) private usedBLSPubkeys;
+    mapping(bytes32 => address) private blsPubkeyHashToValidator;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
@@ -170,6 +170,25 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function isValidator(bytes calldata blsPubkey) public view returns (bool) {
+        // validate bls pubkey format (must be 96 bytes)
+        if (blsPubkey.length != 96) return false;
+
+        // get the hash and check if this pubkey was ever used
+        bytes32 blsPubkeyHash = keccak256(blsPubkey);
+        address validatorAddress = blsPubkeyHashToValidator[blsPubkeyHash];
+
+        // if no validator address found, return false
+        if (validatorAddress == address(0)) return false;
+
+        // check if validator is retired
+        // this also checks if the nft still exists (not burned)
+        if (isRetired(validatorAddress)) return false;
+
+        return true;
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function isRetired(address validatorAddress) public view returns (bool) {
         if (_exists(_getTokenId(validatorAddress))) {
             // validator exists but has not yet retired
@@ -279,7 +298,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         whenNotPaused
     {
         // verify the delegate has obtained validator's BLS signature proving ownership of the BLS secret key
-        _verifyProofOfPossession(proofOfPossession, validatorAddress, blsPubkey);
+        bytes32 blsPubkeyHash = _verifyProofOfPossession(proofOfPossession, validatorAddress, blsPubkey);
 
         // require `validatorAddress` is known & whitelisted, having been issued a ConsensusNFT by governance
         uint8 validatorVersion = getCurrentEpochInfo().stakeVersion;
@@ -289,7 +308,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // require validator status is `Undefined`
         _checkValidatorStatus(validatorAddress, ValidatorStatus.Undefined);
         uint64 nonce = delegations[validatorAddress].nonce;
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
 
         // governance may utilize white-glove onboarding or offchain agreements
         if (msg.sender != owner()) {
@@ -445,14 +463,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // prevent duplicate compressed pubkeys
-        return _spendBLSPubkey(blsPubkey);
+        return _spendBLSPubkey(blsPubkey, validatorAddress);
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(bytes memory blsPubkey) private returns (bytes32 blsPubkeyHash) {
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
-        if (usedBLSPubkeys[blsPubkeyHash]) revert DuplicateBLSPubkey();
-        usedBLSPubkeys[blsPubkeyHash] = true;
+    function _spendBLSPubkey(
+        bytes memory blsPubkey,
+        address validatorAddress
+    )
+        private
+        returns (bytes32 blsPubkeyHash)
+    {
+        blsPubkeyHash = keccak256(blsPubkey);
+        if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
+        blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
 
         return blsPubkeyHash;
     }
@@ -579,7 +603,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         uint32 subsequentEpoch = current + 2;
         address[] storage subsequentCommittee =
-            _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
+        _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
         ejected = _eject(subsequentCommittee, validatorAddress);
         committeeSize = ejected ? subsequentCommittee.length - 1 : subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
@@ -711,7 +735,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
+    function _isCommitteeMember(
+        address validatorAddress,
+        address[] memory committee
+    )
+        internal
+        pure
+        returns (bool)
+    {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -724,10 +755,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @dev Active and pending activation/exit validators are eligible for committee service in next epoch
     function _eligibleForCommitteeNextEpoch(ValidatorStatus status) internal pure returns (bool) {
-        return (
-            status == ValidatorStatus.Active || status == ValidatorStatus.PendingExit
-                || status == ValidatorStatus.PendingActivation
-        );
+        return (status == ValidatorStatus.Active || status == ValidatorStatus.PendingExit
+                || status == ValidatorStatus.PendingActivation);
     }
 
     /// @dev Returns true for `Staked` or `Exited` validators that have elapsed one full epoch since exit
@@ -874,6 +903,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
             validators[currentValidator.validatorAddress] = currentValidator;
             balances[currentValidator.validatorAddress] = genesisConfig_.stakeAmount;
+            blsPubkeyHashToValidator[blsPubkeyHash] = currentValidator.validatorAddress;
             _mint(currentValidator.validatorAddress, _getTokenId(currentValidator.validatorAddress));
 
             emit ValidatorActivated(currentValidator);

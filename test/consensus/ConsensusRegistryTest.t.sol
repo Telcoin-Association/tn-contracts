@@ -48,6 +48,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 active[i].validatorAddress
             );
             assertFalse(consensusRegistry.isRetired(initialValidators[i].validatorAddress));
+            assertTrue(consensusRegistry.isValidator(initialValidators[i].blsPubkey));
 
             EpochInfo memory info = consensusRegistry.getEpochInfo(uint32(i));
             for (uint256 j; j < 4; ++j) {
@@ -56,6 +57,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 assertEq(balance, stakeAmount_);
             }
         }
+
+        address missing = consensusRegistry.SYSTEM_ADDRESS();
+        assertFalse(consensusRegistry.isRetired(missing));
 
         ValidatorInfo[] memory committee = consensusRegistry.getCommitteeValidators(0);
         for (uint256 i; i < committee.length; ++i) {
@@ -72,6 +76,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.mint(validator5);
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Staked).length, 0);
+
+        // assert not validator
+        assertFalse(consensusRegistry.isValidator(validator5BlsPubkey));
 
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
@@ -102,6 +109,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validators[0].isDelegated, false);
         assertEq(validators[0].stakeVersion, uint8(0));
         assertEq(uint8(validators[0].currentStatus), uint8(ValidatorStatus.Staked));
+
+        // assert is validator
+        assertTrue(consensusRegistry.isValidator(dummyPubkey));
     }
 
     function test_delegateStake() public {
