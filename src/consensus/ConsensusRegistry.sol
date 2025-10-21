@@ -28,7 +28,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     EpochInfo[4] public epochInfo;
     EpochInfo[4] public futureEpochInfo;
     mapping(address => ValidatorInfo) public validators;
-    mapping(bytes32 => bool) private usedBLSPubkeys;
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
@@ -464,14 +463,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // prevent duplicate compressed pubkeys
-        return _spendBLSPubkey(blsPubkey);
+        return _spendBLSPubkey(blsPubkey, validatorAddress);
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(bytes memory blsPubkey) private returns (bytes32 blsPubkeyHash) {
+    function _spendBLSPubkey(
+        bytes memory blsPubkey,
+        address validatorAddress
+    )
+        private
+        returns (bytes32 blsPubkeyHash)
+    {
         blsPubkeyHash = keccak256(blsPubkey);
-        if (usedBLSPubkeys[blsPubkeyHash]) revert DuplicateBLSPubkey();
-        usedBLSPubkeys[blsPubkeyHash] = true;
+        if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
+        blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
 
         return blsPubkeyHash;
     }
@@ -499,8 +504,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         );
         validators[validatorAddress] = newValidator;
         balances[validatorAddress] = stakeAmt;
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
-        blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
 
         emit ValidatorStaked(newValidator);
     }
@@ -600,7 +603,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         uint32 subsequentEpoch = current + 2;
         address[] storage subsequentCommittee =
-            _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
+        _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
         ejected = _eject(subsequentCommittee, validatorAddress);
         committeeSize = ejected ? subsequentCommittee.length - 1 : subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
@@ -732,7 +735,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
+    function _isCommitteeMember(
+        address validatorAddress,
+        address[] memory committee
+    )
+        internal
+        pure
+        returns (bool)
+    {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -745,10 +755,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @dev Active and pending activation/exit validators are eligible for committee service in next epoch
     function _eligibleForCommitteeNextEpoch(ValidatorStatus status) internal pure returns (bool) {
-        return (
-            status == ValidatorStatus.Active || status == ValidatorStatus.PendingExit
-                || status == ValidatorStatus.PendingActivation
-        );
+        return (status == ValidatorStatus.Active || status == ValidatorStatus.PendingExit
+                || status == ValidatorStatus.PendingActivation);
     }
 
     /// @dev Returns true for `Staked` or `Exited` validators that have elapsed one full epoch since exit
