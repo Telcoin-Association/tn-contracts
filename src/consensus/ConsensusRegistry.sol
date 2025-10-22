@@ -25,10 +25,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
-    EpochInfo[4] public epochInfo;
-    EpochInfo[4] public futureEpochInfo;
+    uint8 internal nextCommitteeSize;
     mapping(address => ValidatorInfo) public validators;
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
+    EpochInfo[4] public epochInfo;
+    EpochInfo[4] public futureEpochInfo;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;

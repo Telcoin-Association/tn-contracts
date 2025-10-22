@@ -20,10 +20,10 @@ import { BlsG1 } from "./BlsG1.sol";
  * @dev Designed for inheritance by the ConsensusRegistry
  */
 abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
-    uint8 internal stakeVersion;
     mapping(uint8 => StakeConfig) internal versions;
     mapping(address => uint256) internal balances;
     mapping(address => Delegation) internal delegations;
+    uint8 internal stakeVersion;
 
     /// @dev Instantiated by the protocol as a precompile
     address payable public constant issuance = payable(0x07A07A07A07A07a07A07A07a07a07A07a07a07A0);
@@ -122,12 +122,28 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     }
 
     /// @notice Wouldn't do anything because transfers are disabled but explicitly disallow anyway
-    function approve(address, /*to*/ uint256 /*tokenId*/ ) public virtual override(ERC721, IERC721) {
+    function approve(
+        address,
+        /*to*/
+        uint256 /*tokenId*/
+    )
+        public
+        virtual
+        override(ERC721, IERC721)
+    {
         revert NotTransferable();
     }
 
     /// @notice Wouldn't do anything because transfers are disabled but explicitly disallow anyway
-    function setApprovalForAll(address, /*operator*/ bool /*approved*/ ) public virtual override(ERC721, IERC721) {
+    function setApprovalForAll(
+        address,
+        /*operator*/
+        bool /*approved*/
+    )
+        public
+        virtual
+        override(ERC721, IERC721)
+    {
         revert NotTransferable();
     }
 
