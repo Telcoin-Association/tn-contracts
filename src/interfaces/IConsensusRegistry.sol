@@ -55,6 +55,7 @@ interface IConsensusRegistry {
     event ValidatorSlashed(Slash slash);
     event NewEpoch(EpochInfo epoch);
     event RewardsClaimed(address claimant, uint256 rewards);
+    event NextCommitteeSizeUpdated(uint16 oldSize, uint16 newSize, uint256 numActiveValidators);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
     /// and thus eligible for committees. Queriable via `getValidators(Active)` status
@@ -104,6 +105,14 @@ interface IConsensusRegistry {
     /// @dev Issues an exit request for a validator to be retired from the `Active` validator set
     /// @notice Reverts if the exit queue is full, ie if active validator count would drop too low
     function beginExit() external;
+
+    /// @dev Set the internal value for the nextCommitteeSize.
+    /// @dev This is managed off-chain and read by the protocol to shuffle n-validators for `concludeEpoch` call.
+    /// @notice Reverts if the newSize is larger than the number of active/pending validators.
+    function setNextCommitteeSize(uint16 newSize) external;
+
+    /// @dev Returns the next committee size
+    function getNextCommitteeSize() external view returns (uint16);
 
     /// @dev Returns the current epoch
     function getCurrentEpoch() external view returns (uint32);

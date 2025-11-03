@@ -25,7 +25,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
-    uint8 internal nextCommitteeSize;
+    uint16 internal nextCommitteeSize;
     mapping(address => ValidatorInfo) public validators;
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
     EpochInfo[4] public epochInfo;
@@ -50,6 +50,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function concludeEpoch(address[] calldata futureCommittee) external override onlySystemCall {
         // ensure future committee is sorted
         _enforceSorting(futureCommittee);
+
+        // ensure future committee is the correct length
+        if (futureCommittee.length != nextCommitteeSize) {
+            revert InvalidCommitteeSize(nextCommitteeSize, futureCommittee.length);
+        }
 
         // update epoch ring buffer info, validator queue
         (uint32 newEpoch, uint256 issuance, uint32 duration, address[] memory newCommittee) =
@@ -113,6 +118,29 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
             emit ValidatorSlashed(slash);
         }
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function setNextCommitteeSize(uint16 newSize) external onlyOwner {
+        if (newSize == 0) {
+            revert InvalidCommitteeSize(epochInfo[epochPointer].committee.length, 0);
+        }
+
+        // Validate against current eligible validators
+        ValidatorInfo[] memory eligible = _getValidators(ValidatorStatus.Active);
+        if (newSize > eligible.length) {
+            revert InvalidCommitteeSize(eligible.length, uint256(newSize));
+        }
+
+        uint16 oldSize = nextCommitteeSize;
+        nextCommitteeSize = newSize;
+
+        emit NextCommitteeSizeUpdated(oldSize, newSize, eligible.length);
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function getNextCommitteeSize() external view returns (uint16) {
+        return nextCommitteeSize;
     }
 
     /// @inheritdoc IStakeManager
@@ -858,6 +886,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // set stake storage configs
         versions[0] = genesisConfig_;
+
+        // set nextCommitteeSize based on current committee
+        // NOTE: committees are expected to always be < 100
+        nextCommitteeSize = uint8(initialValidators_.length);
 
         for (uint256 j; j <= 2; ++j) {
             EpochInfo storage epoch = epochInfo[j];
