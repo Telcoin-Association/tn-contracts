@@ -518,6 +518,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint32 initialEpoch = consensusRegistry.getCurrentEpoch();
         assertEq(initialEpoch, 0);
 
+        // nextCommitteeSize should be 4 from constructor
+        assertEq(consensusRegistry.getNextCommitteeSize(), 4);
+
         // Call the function
         vm.startPrank(sysAddress);
         consensusRegistry.concludeEpoch(newCommittee);
@@ -540,5 +543,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function testRevert_concludeEpoch_OnlySystemCall() public {
         vm.expectRevert(abi.encodeWithSelector(SystemCallable.OnlySystemCall.selector, address(this)));
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+    }
+
+    function test_burnAutoAdjustsCommitteeSize() public {
+        // Setup: Set nextCommitteeSize to current active count
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActive));
+
+        // Burn a validator that's in committees
+        vm.expectEmit();
+        emit NextCommitteeSizeUpdated(uint16(numActive), uint16(numActive - 1), numActive - 1);
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+
+        // Verify nextCommitteeSize was auto-adjusted
+        assertEq(consensusRegistry.getNextCommitteeSize(), numActive - 1);
     }
 }

@@ -7,6 +7,10 @@
 - active validatort count and committee size must never reach 0 or more than the number of effectively active (active and pendingexit) validators in the new epoch.
 - four latest epochs (current and three in past) are correctly stored
 - future committees are stored up to two epochs into the future (next and subsequent)
+- `nextCommitteeSize` must always be less-than-or-equal-to the number of eligible validators at epoch conclusion
+- `nextCommitteeSize` must be automatically adjusted downward if validator ejections/burns reduce eligible validators below the configured size
+- `concludeEpoch` must validate that `futureCommittee.length == nextCommitteeSize` to ensure protocol and contract state consistency
+- governance enforces that maximum committee size is 32 (though `nextCommitteeSize` uses uint16 allowing theoretical max of 65_535)
 
 **validators**
 
@@ -44,5 +48,6 @@
 
 **protocol**
 
-- protocol dictates committee based on `getValidators(Active)` and Fisher-Yates shuffle
-- protocol enforces that maximum committee size is 32
+- protocol dictates committee based on `getValidators(Active)`, taking the first `nextCommitteeSize` validators after Fisher-Yates shuffle
+- protocol reads `nextCommitteeSize` from contract storage to determine committee size for the future committee passed to `concludeEpoch`
+- `nextCommitteeSize` serves as the source of truth for committee sizing, eliminating need for protocol hard forks to adjust committee sizes

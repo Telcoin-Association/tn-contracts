@@ -45,11 +45,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         // leave enough validators for the committee to stay intact
         uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
         address[] memory currentCommittee = consensusRegistry.getEpochInfo(currentEpoch).committee;
+        assertEq(consensusRegistry.getNextCommitteeSize(), currentCommittee.length);
         uint256[] memory burnedIds = _fuzz_burn(numValidators, currentCommittee);
 
         // asserts
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActive = numValidators >= burnedIds.length ? numValidators - burnedIds.length : 2;
+        assertLe(consensusRegistry.getNextCommitteeSize(), numActive);
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActive);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActive);
         for (uint256 i; i < burnedIds.length; ++i) {
@@ -86,11 +88,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         // leave enough validators for the committee to stay intact
         uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
         address[] memory currentCommittee = consensusRegistry.getEpochInfo(currentEpoch).committee;
+        assertEq(consensusRegistry.getNextCommitteeSize(), currentCommittee.length);
         uint256[] memory burnedIds = _fuzz_burn(numValidators, currentCommittee);
 
         // asserts
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActiveAfter = numActive >= burnedIds.length ? numActive - burnedIds.length : 2;
+        assertLe(consensusRegistry.getNextCommitteeSize(), numActiveAfter);
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveAfter);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActiveAfter);
         uint256 expectedIssuanceBalanceAfter = issuanceBalanceBefore + stakeAmount_ * burnedIds.length;
@@ -192,7 +196,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         // Now fix it and verify it works
         vm.prank(crOwner);
-        consensusRegistry.setNextCommitteeSize(uint8(wrongCommitteeSize));
+        consensusRegistry.setNextCommitteeSize(uint16(wrongCommitteeSize));
 
         vm.prank(sysAddress);
         consensusRegistry.concludeEpoch(wrongSizeCommittee);

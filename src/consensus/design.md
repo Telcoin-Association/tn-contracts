@@ -28,9 +28,15 @@ The Telcoin Network leverages Bullshark and Narwhal protocols, enabling nodes to
 
 At the epoch boundary, the protocol performs gasless system calls to the ConsensusRegistry to update its state with epoch, validator, and rewards information. System call logic is abstracted into the `SystemCallable` module.
 
-- **Epoch Conclusion (`concludeEpoch()`)**: Finalizes the previous epoch, updates the voting committee and validator set, and stores new epoch information. Validator committees are protocol-managed and stored historically and for future epochs using ring buffers.
+- **Epoch Conclusion (`concludeEpoch()`)**: Finalizes the previous epoch, updates the voting committee and validator set, and stores new epoch information. Validates that the provided `futureCommittee` length matches `nextCommitteeSize` to ensure protocol/registry consistency. Validator committees are protocol-managed and stored historically and for future epochs using ring buffers.
 - **Rewards Tracking (`applyIncentives()`)**: Increments staking rewards based on validator performance and stake. Must be called before slashing and epoch conclusion.
 - **Slashing (`applySlashes()`)**: Decrements validators' stakes as penalties. This is not live yet but has a preliminary implementation.
+
+### Committee Size Configuration
+
+- **Dynamic Committee Sizing**: The `nextCommitteeSize` variable allows governance to adjust committee sizes without protocol hard forks
+- **Protocol Integration**: The protocol reads `nextCommitteeSize` directly from contract storage to determine how many validators to include in future committees passed to `concludeEpoch`
+- **Safety Bounds**: Committee size is validated against the number of eligible validators to prevent invalid states
 
 ## Staking and Delegation
 

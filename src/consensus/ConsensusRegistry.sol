@@ -636,6 +636,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         ejected = _eject(subsequentCommittee, validatorAddress);
         committeeSize = ejected ? subsequentCommittee.length - 1 : subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
+
+        // only decrement the nextCommitteeSize if the number of eligible validators drops below
+        if (nextCommitteeSize > numEligible) {
+            uint16 oldSize = nextCommitteeSize;
+            nextCommitteeSize = uint16(numEligible);
+            emit NextCommitteeSizeUpdated(oldSize, nextCommitteeSize, numEligible);
+        }
     }
 
     function _eject(address[] storage committee, address validatorAddress) internal returns (bool) {
