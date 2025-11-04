@@ -896,7 +896,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // set nextCommitteeSize based on current committee
         // NOTE: committees are expected to always be < 100
-        nextCommitteeSize = uint8(initialValidators_.length);
+        nextCommitteeSize = uint16(initialValidators_.length);
 
         for (uint256 j; j <= 2; ++j) {
             EpochInfo storage epoch = epochInfo[j];
