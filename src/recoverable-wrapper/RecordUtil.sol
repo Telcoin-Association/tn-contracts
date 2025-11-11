@@ -55,11 +55,7 @@ library RecordsDequeLib {
      * @param amount Record amount
      * @param settlementTime of the Record
      */
-    function enqueue(
-        RecordsDeque storage rd,
-        uint128 amount,
-        uint256 settlementTime
-    )
+    function enqueue(RecordsDeque storage rd, uint128 amount, uint256 settlementTime)
         public
         returns (uint256 rawIndex)
     {

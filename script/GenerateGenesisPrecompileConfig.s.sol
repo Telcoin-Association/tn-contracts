@@ -4,13 +4,19 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { IAxelarGateway } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol";
-import { AxelarAmplifierGateway } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
-import { AxelarAmplifierGatewayProxy } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
-import { BaseAmplifierGateway } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/BaseAmplifierGateway.sol";
-import { Message, CommandType } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
+import {
+    AxelarAmplifierGateway
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
+import {
+    AxelarAmplifierGatewayProxy
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
+import {
+    BaseAmplifierGateway
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/BaseAmplifierGateway.sol";
+import {
+    Message,
+    CommandType
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
 import {
     WeightedSigner,
     WeightedSigners,
@@ -22,12 +28,16 @@ import { Create3AddressFixed } from "@axelar-network/interchain-token-service/co
 import { InterchainTokenService } from "@axelar-network/interchain-token-service/contracts/InterchainTokenService.sol";
 import { InterchainProxy } from "@axelar-network/interchain-token-service/contracts/proxies/InterchainProxy.sol";
 import { TokenManagerProxy } from "@axelar-network/interchain-token-service/contracts/proxies/TokenManagerProxy.sol";
-import { InterchainTokenDeployer } from
-    "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
+import {
+    InterchainTokenDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
 import { InterchainTokenFactory } from "@axelar-network/interchain-token-service/contracts/InterchainTokenFactory.sol";
-import { InterchainToken } from
-    "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
-import { TokenManagerDeployer } from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
+import {
+    InterchainToken
+} from "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
+import {
+    TokenManagerDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
 import { TokenManager } from "@axelar-network/interchain-token-service/contracts/token-manager/TokenManager.sol";
 import { ITokenManager } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManager.sol";
 import { ITokenManagerType } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManagerType.sol";

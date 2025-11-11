@@ -99,14 +99,7 @@ contract BlsG1Harness {
     }
 
     /// @notice Never do this onchain in production!! Only for testing
-    function _blsEIP2537SignatureFromSecret(
-        uint256 secret,
-        bytes memory message
-    )
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _blsEIP2537SignatureFromSecret(uint256 secret, bytes memory message) internal view returns (bytes memory) {
         bytes memory g1MsgHash = message.hashToG1();
         return mulG1(g1MsgHash, secret);
     }
