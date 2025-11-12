@@ -45,11 +45,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         // leave enough validators for the committee to stay intact
         uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
         address[] memory currentCommittee = consensusRegistry.getEpochInfo(currentEpoch).committee;
+        assertEq(consensusRegistry.getNextCommitteeSize(), currentCommittee.length);
         uint256[] memory burnedIds = _fuzz_burn(numValidators, currentCommittee);
 
         // asserts
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActive = numValidators >= burnedIds.length ? numValidators - burnedIds.length : 2;
+        assertLe(consensusRegistry.getNextCommitteeSize(), numActive);
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActive);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActive);
         for (uint256 i; i < burnedIds.length; ++i) {
@@ -86,11 +88,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         // leave enough validators for the committee to stay intact
         uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
         address[] memory currentCommittee = consensusRegistry.getEpochInfo(currentEpoch).committee;
+        assertEq(consensusRegistry.getNextCommitteeSize(), currentCommittee.length);
         uint256[] memory burnedIds = _fuzz_burn(numValidators, currentCommittee);
 
         // asserts
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActiveAfter = numActive >= burnedIds.length ? numActive - burnedIds.length : 2;
+        assertLe(consensusRegistry.getNextCommitteeSize(), numActiveAfter);
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveAfter);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActiveAfter);
         uint256 expectedIssuanceBalanceAfter = issuanceBalanceBefore + stakeAmount_ * burnedIds.length;
@@ -111,7 +115,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         }
     }
 
-    function testFuzz_concludeEpoch(uint24 numValidators) public {
+    function testFuzz_concludeEpoch_success(uint24 numValidators) public {
         numValidators = uint24(bound(uint256(numValidators), 1, 750));
 
         uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length + numValidators;
@@ -122,6 +126,11 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         // identify committee size, conclude an epoch to reach activation epoch, then create a committee
         uint256 committeeSize = _fuzz_computeCommitteeSize(numActive, numValidators);
+
+        // update nextCommitteeSize to match the next committee
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(committeeSize));
+
         // conclude epoch to reach activationEpoch for validators entered in stake & activate loop
         vm.startPrank(sysAddress);
         address[] memory tokenIdCommittee = _createTokenIdCommittee(committeeSize);
@@ -133,15 +142,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         uint32 newEpoch = consensusRegistry.getCurrentEpoch() + 1;
         address[] memory newCommittee = consensusRegistry.getEpochInfo(newEpoch).committee;
         vm.expectEmit(true, true, true, true);
-        emit IConsensusRegistry.NewEpoch(
-            IConsensusRegistry.EpochInfo(
+        emit IConsensusRegistry.NewEpoch(IConsensusRegistry.EpochInfo(
                 newCommittee,
                 epochInfo.epochIssuance,
                 uint64(block.number + 1),
                 epochInfo.epochDuration,
                 epochInfo.stakeVersion
-            )
-        );
+            ));
         consensusRegistry.concludeEpoch(futureCommittee);
 
         // asserts
@@ -161,6 +168,37 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         for (uint256 i; i < subsequentCommittee.length; ++i) {
             assertEq(subsequentCommittee[i], futureCommittee[i]);
         }
+    }
+
+    function testFuzz_concludeEpoch_invalidCommitteeSize(uint24 numValidators) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 750));
+
+        // read next committee size from state
+        uint16 nextCommitteeSize = consensusRegistry.getNextCommitteeSize();
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length + numValidators;
+        uint256 wrongCommitteeSize = _fuzz_computeCommitteeSize(numActive, numValidators);
+
+        // ensure wrongCommitteeSize is different from nextCommitteeSize
+        vm.assume(wrongCommitteeSize != nextCommitteeSize);
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        // Try to conclude epoch with wrong size (different from nextCommitteeSize)
+        address[] memory wrongSizeCommittee = _createTokenIdCommittee(wrongCommitteeSize);
+
+        // Should revert with InvalidCommitteeSize
+        vm.prank(sysAddress);
+        vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, nextCommitteeSize, wrongCommitteeSize));
+        consensusRegistry.concludeEpoch(wrongSizeCommittee);
+
+        // Now fix it and verify it works
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(wrongCommitteeSize));
+
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(wrongSizeCommittee);
     }
 
     function testFuzz_applyIncentives(uint24 numValidators, uint24 numRewardees) public {

@@ -22,7 +22,6 @@ import { Deployments } from "../../../deployments/Deployments.sol";
 // node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --rpc-url $TN_RPC_URL --verifier \
 // sourcify --compiler-version 0.8.26 --num-of-optimizations 200`
 contract TestnetDeployTokens is Script {
-
     Stablecoin stablecoinImpl;
 
     Deployments deployments;
@@ -110,7 +109,7 @@ contract TestnetDeployTokens is Script {
             bytes32 currentSalt = bytes32(bytes(metadatas[i].symbol));
             // leave ERC1967 initdata empty to properly set default admin role
             address stablecoin = address(new ERC1967Proxy{ salt: currentSalt }(address(stablecoinImpl), ""));
-            
+
             /// @dev for debugging
             // bytes memory bytecode = bytes.concat(type(ERC1967Proxy).creationCode, abi.encode(address(stablecoinImpl), ""));
             // address stablecoin = computeAddress(deployments.ArachnidDeterministicDeployFactory, currentSalt, bytecode);
@@ -158,15 +157,8 @@ contract TestnetDeployTokens is Script {
     }
 
     function computeAddress(address deployer, bytes32 salt, bytes memory bytecode) public pure returns (address) {
-        bytes32 addrHash = keccak256(
-            abi.encodePacked(
-                bytes1(0xff),
-                deployer,
-                salt,
-                keccak256(bytecode)
-            )
-        );
-     
+        bytes32 addrHash = keccak256(abi.encodePacked(bytes1(0xff), deployer, salt, keccak256(bytecode)));
+
         return address(uint160(uint256(addrHash)));
     }
 }

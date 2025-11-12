@@ -88,11 +88,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Check event emission
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.expectEmit(true, true, true, true);
-        emit ValidatorStaked(
-            ValidatorInfo(
+        emit ValidatorStaked(ValidatorInfo(
                 dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, false, uint8(0)
-            )
-        );
+            ));
         vm.prank(validator5);
         consensusRegistry.stake{ value: stakeAmount_ }(
             dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
@@ -137,11 +135,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Check event emission
         bool isDelegate = true;
         vm.expectEmit(true, true, true, true);
-        emit ValidatorStaked(
-            ValidatorInfo(
+        emit ValidatorStaked(ValidatorInfo(
                 dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, isDelegate, uint8(0)
-            )
-        );
+            ));
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{ value: stakeAmount_ }(
@@ -181,6 +177,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
 
+        // expect revert - not enough active validators
+        vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, 4, 5));
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(5);
+
         vm.prank(validator5);
         consensusRegistry.stake{ value: stakeAmount_ }(
             dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
@@ -195,15 +196,19 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(activeValidators.length, numActiveBefore + 1);
 
         uint32 activationEpoch = consensusRegistry.getCurrentEpoch() + 1;
+
+        // update committee size
+        vm.expectEmit();
+        emit NextCommitteeSizeUpdated(4, 5, 5);
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(activeValidators.length));
+
         vm.expectEmit(true, true, true, true);
-        emit ValidatorActivated(
-            ValidatorInfo(
+        emit ValidatorActivated(ValidatorInfo(
                 dummyPubkey, validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, false, uint8(0)
-            )
-        );
-        vm.startPrank(sysAddress);
+            ));
+        vm.prank(sysAddress);
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeValidators.length));
-        vm.stopPrank();
 
         // Check validator information
         assertEq(activeValidators[0].validatorAddress, validator1);
@@ -244,6 +249,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
 
+        // starting committee size
+        uint256 numActiveBefore = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
@@ -259,17 +267,26 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.activate();
 
         uint32 activationEpoch = consensusRegistry.getCurrentEpoch() + 1;
-        uint256 numActiveBefore = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
 
+        address[] memory nextCommittee = _createTokenIdCommittee(numActiveAfter);
+
+        // conclude epoch fails if nextCommitteeSize doesn't match arg length
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, numActiveBefore, numActiveAfter));
+        consensusRegistry.concludeEpoch(nextCommittee);
+
+        // update nextCommitteeSize and conclude epoch
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActiveAfter));
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(nextCommittee);
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.PendingExit).length, 0);
 
         // Check event emission
         vm.expectEmit(true, true, true, true);
-        emit ValidatorPendingExit(
-            ValidatorInfo(
+        emit ValidatorPendingExit(ValidatorInfo(
                 dummyPubkey,
                 validator5,
                 activationEpoch,
@@ -278,8 +295,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 false,
                 false,
                 uint8(0)
-            )
-        );
+            ));
         // begin exit
         vm.prank(validator5);
         consensusRegistry.beginExit();
@@ -290,14 +306,18 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(pendingExitValidators[0].validatorAddress, validator5);
         assertEq(uint8(pendingExitValidators[0].currentStatus), uint8(ValidatorStatus.PendingExit));
 
+        // set next committee back to 4
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActiveBefore));
+
         // Finalize epoch twice to reach exit epoch
         vm.startPrank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
         vm.stopPrank();
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.PendingExit).length, 0);
-        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, 4);
+        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveBefore);
 
         // Check validator information is exited
         ValidatorInfo[] memory exitValidators = consensusRegistry.getValidators(ValidatorStatus.Exited);
@@ -356,12 +376,17 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
         consensusRegistry.concludeEpoch(tokenIdCommittee);
         consensusRegistry.concludeEpoch(tokenIdCommittee);
+        vm.stopPrank();
+
+        // set nextCommitteeSize
+        uint256 activeAfterExit = numActive - 1;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(activeAfterExit));
 
         // exit occurs on third epoch without validator5 in committee
         uint32 expectedExitEpoch = uint32(consensusRegistry.getCurrentEpoch() + 1);
         vm.expectEmit(true, true, true, true);
-        emit ValidatorExited(
-            ValidatorInfo(
+        emit ValidatorExited(ValidatorInfo(
                 _blsDummyPubkeyFromSecret(1), // recreate validator1 blsPubkey
                 validator1,
                 uint32(0),
@@ -370,9 +395,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 false,
                 false,
                 uint8(0)
-            )
-        );
-        uint256 activeAfterExit = numActive - 1;
+            ));
+
+        vm.startPrank(sysAddress);
         address[] memory afterExitCommittee = _createTokenIdCommittee(activeAfterExit);
         consensusRegistry.concludeEpoch(afterExitCommittee);
 
@@ -493,6 +518,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint32 initialEpoch = consensusRegistry.getCurrentEpoch();
         assertEq(initialEpoch, 0);
 
+        // nextCommitteeSize should be 4 from constructor
+        assertEq(consensusRegistry.getNextCommitteeSize(), 4);
+
         // Call the function
         vm.startPrank(sysAddress);
         consensusRegistry.concludeEpoch(newCommittee);
@@ -515,5 +543,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function testRevert_concludeEpoch_OnlySystemCall() public {
         vm.expectRevert(abi.encodeWithSelector(SystemCallable.OnlySystemCall.selector, address(this)));
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+    }
+
+    function test_burnAutoAdjustsCommitteeSize() public {
+        // Setup: Set nextCommitteeSize to current active count
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActive));
+
+        // Burn a validator that's in committees
+        vm.expectEmit();
+        emit NextCommitteeSizeUpdated(uint16(numActive), uint16(numActive - 1), numActive - 1);
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+
+        // Verify nextCommitteeSize was auto-adjusted
+        assertEq(consensusRegistry.getNextCommitteeSize(), numActive - 1);
     }
 }

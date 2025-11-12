@@ -4,11 +4,16 @@ pragma solidity ^0.8.26;
 import { Test, console2 } from "forge-std/Test.sol";
 import { Create3Deployer } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/deploy/Create3Deployer.sol";
 import { Create3AddressFixed } from "@axelar-network/interchain-token-service/contracts/utils/Create3AddressFixed.sol";
-import { AxelarAmplifierGateway } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
-import { AxelarAmplifierGatewayProxy } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
-import { Message, CommandType } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
+import {
+    AxelarAmplifierGateway
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
+import {
+    AxelarAmplifierGatewayProxy
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
+import {
+    Message,
+    CommandType
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
 import {
     WeightedSigner,
     WeightedSigners,
@@ -18,12 +23,16 @@ import { AddressBytes } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/
 import { InterchainTokenService } from "@axelar-network/interchain-token-service/contracts/InterchainTokenService.sol";
 import { InterchainProxy } from "@axelar-network/interchain-token-service/contracts/proxies/InterchainProxy.sol";
 import { TokenManagerProxy } from "@axelar-network/interchain-token-service/contracts/proxies/TokenManagerProxy.sol";
-import { InterchainTokenDeployer } from
-    "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
+import {
+    InterchainTokenDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
 import { InterchainTokenFactory } from "@axelar-network/interchain-token-service/contracts/InterchainTokenFactory.sol";
-import { InterchainToken } from
-    "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
-import { TokenManagerDeployer } from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
+import {
+    InterchainToken
+} from "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
+import {
+    TokenManagerDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
 import { TokenManager } from "@axelar-network/interchain-token-service/contracts/token-manager/TokenManager.sol";
 import { ITokenManager } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManager.sol";
 import { ITokenManagerType } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManagerType.sol";
@@ -357,8 +366,9 @@ abstract contract ITSTestHelper is Test, TNGenesis {
         string[] memory commands = new string[](1);
         commands[0] = "approveContractCall";
         bytes[] memory approveParams = new bytes[](1);
-        approveParams[0] =
-            abi.encode(sourceChain, sourceAddressString, destinationAddress, keccak256(wrappedPayload), bytes32(0x0), 0);
+        approveParams[0] = abi.encode(
+            sourceChain, sourceAddressString, destinationAddress, keccak256(wrappedPayload), bytes32(0x0), 0
+        );
 
         bytes memory executeData = abi.encode(SEPOLIA_CHAINID, commandIds, commands, approveParams);
         bytes32 executeHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(executeData)));

@@ -4,13 +4,19 @@ pragma solidity ^0.8.20;
 import { Test, console2, Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IDeploy } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IDeploy.sol";
-import { AxelarAmplifierGateway } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
-import { AxelarAmplifierGatewayProxy } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
-import { BaseAmplifierGateway } from
-    "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/BaseAmplifierGateway.sol";
-import { Message, CommandType } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
+import {
+    AxelarAmplifierGateway
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGateway.sol";
+import {
+    AxelarAmplifierGatewayProxy
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/AxelarAmplifierGatewayProxy.sol";
+import {
+    BaseAmplifierGateway
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/gateway/BaseAmplifierGateway.sol";
+import {
+    Message,
+    CommandType
+} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/types/AmplifierGatewayTypes.sol";
 import {
     WeightedSigner,
     WeightedSigners,
@@ -21,17 +27,22 @@ import { AddressBytes } from "@axelar-network/axelar-gmp-sdk-solidity/contracts/
 import { InterchainTokenService } from "@axelar-network/interchain-token-service/contracts/InterchainTokenService.sol";
 import { InterchainProxy } from "@axelar-network/interchain-token-service/contracts/proxies/InterchainProxy.sol";
 import { TokenManagerProxy } from "@axelar-network/interchain-token-service/contracts/proxies/TokenManagerProxy.sol";
-import { InterchainTokenDeployer } from
-    "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
+import {
+    InterchainTokenDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/InterchainTokenDeployer.sol";
 import { InterchainTokenFactory } from "@axelar-network/interchain-token-service/contracts/InterchainTokenFactory.sol";
-import { InterchainToken } from
-    "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
-import { TokenManagerDeployer } from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
+import {
+    InterchainToken
+} from "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainToken.sol";
+import {
+    TokenManagerDeployer
+} from "@axelar-network/interchain-token-service/contracts/utils/TokenManagerDeployer.sol";
 import { TokenManager } from "@axelar-network/interchain-token-service/contracts/token-manager/TokenManager.sol";
 import { ITokenManager } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManager.sol";
 import { ITokenManagerType } from "@axelar-network/interchain-token-service/contracts/interfaces/ITokenManagerType.sol";
-import { IInterchainTokenService } from
-    "@axelar-network/interchain-token-service/contracts/interfaces/IInterchainTokenService.sol";
+import {
+    IInterchainTokenService
+} from "@axelar-network/interchain-token-service/contracts/interfaces/IInterchainTokenService.sol";
 import { TokenHandler } from "@axelar-network/interchain-token-service/contracts/TokenHandler.sol";
 import { GatewayCaller } from "@axelar-network/interchain-token-service/contracts/utils/GatewayCaller.sol";
 import { AxelarGasService } from "@axelar-network/axelar-cgp-solidity/contracts/gas-service/AxelarGasService.sol";
@@ -220,8 +231,11 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
         destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
-        (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
-        eth_registerCustomTokenAndLinkToken(
+        (
+            bytes32 returnedInterchainTokenSalt,
+            bytes32 returnedInterchainTokenId,
+            TokenManager returnedTELTokenManager
+        ) = eth_registerCustomTokenAndLinkToken(
             originTEL,
             linker,
             destinationChain,
@@ -409,8 +423,11 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         // Register origin TEL metadata and deploy origin TEL token manager on origin as linker
         destinationChain = DEVNET_TN_CHAIN_NAME;
         vm.startPrank(linker);
-        (bytes32 returnedInterchainTokenSalt, bytes32 returnedInterchainTokenId, TokenManager returnedTELTokenManager) =
-        eth_registerCustomTokenAndLinkToken(
+        (
+            bytes32 returnedInterchainTokenSalt,
+            bytes32 returnedInterchainTokenId,
+            TokenManager returnedTELTokenManager
+        ) = eth_registerCustomTokenAndLinkToken(
             originTEL,
             linker,
             destinationChain,

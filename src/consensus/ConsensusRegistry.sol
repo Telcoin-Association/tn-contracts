@@ -25,10 +25,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
-    EpochInfo[4] public epochInfo;
-    EpochInfo[4] public futureEpochInfo;
+    uint16 internal nextCommitteeSize;
     mapping(address => ValidatorInfo) public validators;
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
+    EpochInfo[4] public epochInfo;
+    EpochInfo[4] public futureEpochInfo;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
@@ -49,6 +50,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function concludeEpoch(address[] calldata futureCommittee) external override onlySystemCall {
         // ensure future committee is sorted
         _enforceSorting(futureCommittee);
+
+        // ensure future committee is the correct length
+        if (futureCommittee.length != nextCommitteeSize) {
+            revert InvalidCommitteeSize(nextCommitteeSize, futureCommittee.length);
+        }
 
         // update epoch ring buffer info, validator queue
         (uint32 newEpoch, uint256 issuance, uint32 duration, address[] memory newCommittee) =
@@ -112,6 +118,29 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
             emit ValidatorSlashed(slash);
         }
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function setNextCommitteeSize(uint16 newSize) external onlyOwner {
+        if (newSize == 0) {
+            revert InvalidCommitteeSize(epochInfo[epochPointer].committee.length, 0);
+        }
+
+        // Validate against current eligible validators
+        ValidatorInfo[] memory eligible = _getValidators(ValidatorStatus.Active);
+        if (newSize > eligible.length) {
+            revert InvalidCommitteeSize(eligible.length, uint256(newSize));
+        }
+
+        uint16 oldSize = nextCommitteeSize;
+        nextCommitteeSize = newSize;
+
+        emit NextCommitteeSizeUpdated(oldSize, newSize, eligible.length);
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function getNextCommitteeSize() external view returns (uint16) {
+        return nextCommitteeSize;
     }
 
     /// @inheritdoc IStakeManager
@@ -467,13 +496,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(
-        bytes memory blsPubkey,
-        address validatorAddress
-    )
-        private
-        returns (bytes32 blsPubkeyHash)
-    {
+    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -607,6 +630,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         ejected = _eject(subsequentCommittee, validatorAddress);
         committeeSize = ejected ? subsequentCommittee.length - 1 : subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
+
+        // only decrement the nextCommitteeSize if the number of eligible validators drops below
+        if (nextCommitteeSize > numEligible) {
+            uint16 oldSize = nextCommitteeSize;
+            nextCommitteeSize = uint16(numEligible);
+            emit NextCommitteeSizeUpdated(oldSize, nextCommitteeSize, numEligible);
+        }
     }
 
     function _eject(address[] storage committee, address validatorAddress) internal returns (bool) {
@@ -735,14 +765,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(
-        address validatorAddress,
-        address[] memory committee
-    )
-        internal
-        pure
-        returns (bool)
-    {
+    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -857,6 +880,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // set stake storage configs
         versions[0] = genesisConfig_;
+
+        // set nextCommitteeSize based on current committee
+        // NOTE: committees are expected to always be < 100
+        nextCommitteeSize = uint16(initialValidators_.length);
 
         for (uint256 j; j <= 2; ++j) {
             EpochInfo storage epoch = epochInfo[j];

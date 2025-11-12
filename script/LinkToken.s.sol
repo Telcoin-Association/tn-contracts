@@ -43,8 +43,7 @@ contract LinkToken is ITSConfig, Script {
 
         service.setTrustedAddress(destinationChain, ITS_HUB_ROUTING_IDENTIFIER);
 
-        (bytes32 linkedTokenSalt, bytes32 linkedTokenId, TokenManager telTokenManager) =
-        eth_registerCustomTokenAndLinkToken(
+        (bytes32 linkedTokenSalt, bytes32 linkedTokenId, TokenManager telTokenManager) = eth_registerCustomTokenAndLinkToken(
             originTEL,
             linker,
             destinationChain,

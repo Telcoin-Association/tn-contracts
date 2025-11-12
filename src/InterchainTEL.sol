@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity ^0.8.20;
 
-import { InterchainTokenStandard } from
-    "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainTokenStandard.sol";
+import {
+    InterchainTokenStandard
+} from "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainTokenStandard.sol";
 import { Create3AddressFixed } from "@axelar-network/interchain-token-service/contracts/utils/Create3AddressFixed.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
