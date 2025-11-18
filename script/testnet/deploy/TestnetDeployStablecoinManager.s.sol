@@ -12,7 +12,8 @@ import { WTEL } from "../../../src/WTEL.sol";
 import {
     Deployments,
     DETERMINISTIC_FIRST_FAUCET_IMPL_DATA,
-    DETERMINISTIC_FAUCET_PROXY_DATA
+    DETERMINISTIC_FAUCET_PROXY_SALT,
+    DETERMINISTIC_FAUCET_PROXY_ARGS
 } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
@@ -96,14 +97,12 @@ contract TestnetDeployStablecoinManager is Script {
 
         // deploy the deterministic faucet proxy's first implementation to prevent proxy revert on deployment
         (bool implRes,) = deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FIRST_FAUCET_IMPL_DATA);
-        require(implRes); // first implementation address: `0x857721c881fc26e4664a9685d8650c0505997672`
+        require(implRes); 
+        // first implementation address: `0x857721c881fc26e4664a9685d8650c0505997672`
+        address firstFaucetImpl = 0x857721c881fc26E4664a9685D8650c0505997672;
 
         // deploy the deterministic faucet proxy using first constructor args (impl, initializeData)
-        (bool proxyRes, bytes memory proxyRet) =
-            deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FAUCET_PROXY_DATA);
-        require(proxyRes);
-        address payable stablecoinManagerAddress = payable(address(bytes20(proxyRet)));
-        stablecoinManager = StablecoinManager(stablecoinManagerAddress);
+        stablecoinManager = StablecoinManager(payable(address(new ERC1967Proxy{salt: DETERMINISTIC_FAUCET_PROXY_SALT}(firstFaucetImpl, DETERMINISTIC_FAUCET_PROXY_ARGS))));
 
         // deploy latest faucet version
         stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
@@ -112,6 +111,12 @@ contract TestnetDeployStablecoinManager is Script {
         bytes memory setNativeDripAmountCall =
             abi.encodeWithSelector(StablecoinManager.setNativeDripAmount.selector, nativeDripAmount);
         stablecoinManager.upgradeToAndCall(address(stablecoinManagerImpl), setNativeDripAmountCall);
+
+        // deprecate initial enabled XYZs from deterministic tx
+        address[] memory deprecated = stablecoinManager.getEnabledXYZs();
+        for (uint256 i; i < deprecated.length; ++i) {
+            stablecoinManager.UpdateXYZ(deprecated[i], false, maxLimit, minLimit);
+        }
 
         stablecoinManager.setDripAmount(dripAmount);
         stablecoinManager.setLowBalanceThreshold(lowBalanceThreshold);
