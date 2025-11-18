@@ -9,11 +9,7 @@ import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/Stable
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
 import { StablecoinManager } from "../../../src/faucet/StablecoinManager.sol";
 import { WTEL } from "../../../src/WTEL.sol";
-import {
-    Deployments,
-    DETERMINISTIC_FIRST_FAUCET_IMPL_DATA,
-    DETERMINISTIC_FAUCET_PROXY_DATA
-} from "../../../deployments/Deployments.sol";
+import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
 /// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
@@ -94,28 +90,20 @@ contract TestnetDeployStablecoinManager is Script {
 
         vm.startBroadcast();
 
-        // deploy the deterministic faucet proxy's first implementation to prevent proxy revert on deployment
-        // (bool implRes,) = deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FIRST_FAUCET_IMPL_DATA);
-        // require(implRes); // first implementation address: `0x857721c881fc26e4664a9685d8650c0505997672`
+        // deploy the deterministic faucet proxy pointing to latest faucet version
+        stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
+        StablecoinManager.StablecoinManagerInitParams memory initParams = StablecoinManager.StablecoinManagerInitParams(
+            admin, admin, new address[](0), maxLimit, minLimit, new address[](0), dripAmount, nativeDripAmount
+        );
+        bytes memory initCall = abi.encodeWithSelector(StablecoinManager.initialize.selector, initParams);
+        stablecoinManager = StablecoinManager(
+            payable(address(new ERC1967Proxy{ salt: stablecoinManagerSalt }(address(stablecoinManagerImpl), initCall)))
+        );
 
-        // deploy the deterministic faucet proxy using first constructor args (impl, initializeData)
-        (bool proxyRes, bytes memory proxyRet) =
-            deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FAUCET_PROXY_DATA);
-        require(proxyRes);
-        address payable stablecoinManagerAddress = payable(address(bytes20(proxyRet)));
-        stablecoinManager = StablecoinManager(stablecoinManagerAddress);
-
-        // deploy latest faucet version
-        stablecoinManagerImpl = new StablecoinManager{ salt: bytes32(0) }();
-
-        // perform upgrade to current faucet version and set native drip amount since TEL is enabled by default
-        bytes memory setNativeDripAmountCall =
-            abi.encodeWithSelector(StablecoinManager.setNativeDripAmount.selector, nativeDripAmount);
-        stablecoinManager.upgradeToAndCall(address(stablecoinManagerImpl), setNativeDripAmountCall);
-
+        // set configs (TEL is enabled by default)
+        stablecoinManager.setNativeDripAmount(nativeDripAmount);
         stablecoinManager.setDripAmount(dripAmount);
         stablecoinManager.setLowBalanceThreshold(lowBalanceThreshold);
-        stablecoinManager.UpdateXYZ(stablecoinManager.NATIVE_TOKEN_POINTER(), true, maxLimit, minLimit);
 
         // grant minter role to StablecoinManager on all tokens and disables XYZs if `!enableAllXYZs`
         bytes32 minterRole = keccak256("MINTER_ROLE");
@@ -127,6 +115,11 @@ contract TestnetDeployStablecoinManager is Script {
             } else if (enableAllXYZs && !stablecoinManager.isEnabledXYZ(stables[i])) {
                 stablecoinManager.UpdateXYZ(stables[i], true, maxLimit, minLimit);
             }
+        }
+
+        bytes32 faucetRole = keccak256("FAUCET_ROLE");
+        for (uint256 i; i < faucets.length; ++i) {
+            stablecoinManager.grantRole(faucetRole, faucets[i]);
         }
 
         vm.stopBroadcast();

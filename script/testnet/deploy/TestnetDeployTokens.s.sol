@@ -101,8 +101,8 @@ contract TestnetDeployTokens is Script {
         stablecoinSalt = bytes32(bytes("Stablecoin"));
 
         /// @dev Configure as necessary for new / existing deployments
-        // stablecoinImpl = new Stablecoin{ salt: stablecoinSalt }();
-        stablecoinImpl = Stablecoin(deployments.StablecoinImpl);
+        stablecoinImpl = new Stablecoin{ salt: stablecoinSalt }();
+        // stablecoinImpl = Stablecoin(deployments.StablecoinImpl);
 
         address[] memory deployedTokens = new address[](numStables);
         for (uint256 i; i < numStables; ++i) {
