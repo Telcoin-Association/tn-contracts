@@ -95,8 +95,8 @@ contract TestnetDeployStablecoinManager is Script {
         vm.startBroadcast();
 
         // deploy the deterministic faucet proxy's first implementation to prevent proxy revert on deployment
-        (bool implRes,) = deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FIRST_FAUCET_IMPL_DATA);
-        require(implRes); // first implementation address: `0x857721c881fc26e4664a9685d8650c0505997672`
+        // (bool implRes,) = deployments.ArachnidDeterministicDeployFactory.call(DETERMINISTIC_FIRST_FAUCET_IMPL_DATA);
+        // require(implRes); // first implementation address: `0x857721c881fc26e4664a9685d8650c0505997672`
 
         // deploy the deterministic faucet proxy using first constructor args (impl, initializeData)
         (bool proxyRes, bytes memory proxyRet) =
@@ -106,7 +106,7 @@ contract TestnetDeployStablecoinManager is Script {
         stablecoinManager = StablecoinManager(stablecoinManagerAddress);
 
         // deploy latest faucet version
-        stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
+        stablecoinManagerImpl = new StablecoinManager{ salt: bytes32(0) }();
 
         // perform upgrade to current faucet version and set native drip amount since TEL is enabled by default
         bytes memory setNativeDripAmountCall =
