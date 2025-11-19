@@ -24,7 +24,7 @@ To run the smart contract tests, which will run for a bit to fuzz thoroughly, us
 
 `forge test`
 
-The fork tests will require you to add a Sepolia and Telcoin-Network RPC url to the .env file.
+The fork tests will require you to add a Sepolia, Optimism-Sepolia, and Telcoin-Network RPC url to the .env file.
 
 ## ConsensusRegistry Contract
 

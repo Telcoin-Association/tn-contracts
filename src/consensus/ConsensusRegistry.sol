@@ -615,20 +615,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 currentEpochPointer = epochPointer;
         address[] storage currentCommittee = _getRecentEpochInfo(current, current, currentEpochPointer).committee;
         bool ejected = _eject(currentCommittee, validatorAddress);
-        uint256 committeeSize = ejected ? currentCommittee.length - 1 : currentCommittee.length;
+        uint256 committeeSize = currentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 nextEpoch = current + 1;
         address[] storage nextCommittee = _getFutureEpochInfo(nextEpoch, current, currentEpochPointer).committee;
         ejected = _eject(nextCommittee, validatorAddress);
-        committeeSize = ejected ? nextCommittee.length - 1 : nextCommittee.length;
+        committeeSize = nextCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 subsequentEpoch = current + 2;
         address[] storage subsequentCommittee =
         _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
         ejected = _eject(subsequentCommittee, validatorAddress);
-        committeeSize = ejected ? subsequentCommittee.length - 1 : subsequentCommittee.length;
+        committeeSize = subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         // only decrement the nextCommitteeSize if the number of eligible validators drops below
