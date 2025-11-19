@@ -560,4 +560,61 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Verify nextCommitteeSize was auto-adjusted
         assertEq(consensusRegistry.getNextCommitteeSize(), numActive - 1);
     }
+
+    function test_ejectFromCommittees_doubleSubtractionBug() public {
+        // explicitly set committee size to match current active count
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(4);
+
+        // advance to establish the committees
+        vm.startPrank(sysAddress);
+        address[] memory committee4 = new address[](4);
+        committee4[0] = validator1;
+        committee4[1] = validator2;
+        committee4[2] = validator3;
+        committee4[3] = validator4;
+        _sortAddresses(committee4);
+
+        consensusRegistry.concludeEpoch(committee4);
+        consensusRegistry.concludeEpoch(committee4);
+        vm.stopPrank();
+
+        // burn validator1 who is in the current, next, and subsequent committees
+        // this will trigger _ejectFromCommittees where the validator is found and ejected
+
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+
+        // check the committee was actually modified
+        address[] memory currentCommittee = consensusRegistry.getCurrentEpochInfo().committee;
+
+        // committee should have 3 members after burning validator 1
+        assertEq(currentCommittee.length, 3);
+
+        // validator1 should not be in the committee
+        for (uint256 i = 0; i < currentCommittee.length; i++) {
+            assertTrue(currentCommittee[i] != validator1);
+        }
+    }
+
+    function test_slash_triggersEjection_correctSizeCheck() public {
+        // test that slashing to 0 balance (which triggers _consensusburn and _ejectfromcommittees)
+        // correctly handles committee size
+
+        // setup slash that reduces balance to 0
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, stakeAmount_ + 1); // slash more than balance
+
+        // this should trigger _consensusBurn -> _ejectFromCommittees
+        vm.prank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+
+        // verify validator was ejected and committee size adjusted
+        ValidatorInfo[] memory activeValidators = consensusRegistry.getValidators(ValidatorStatus.Active);
+        assertEq(activeValidators.length, 3); // 4 initial - 1 slashed
+        assertTrue(consensusRegistry.isRetired(validator1));
+
+        // committee size should auto-adjust
+        assertEq(consensusRegistry.getNextCommitteeSize(), 3);
+    }
 }
