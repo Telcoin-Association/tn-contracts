@@ -31,7 +31,7 @@ abstract contract ITSConfig is ITSUtils {
     uint256 constant SEPOLIA_CHAINID = 11155111;
     string constant DEVNET_TN_CHAIN_NAME = "telcoin";
     bytes32 constant DEVNET_TN_CHAINNAMEHASH = keccak256(bytes(DEVNET_TN_CHAIN_NAME));
-    bytes32 constant DEVNET_INTERCHAIN_TOKENID = 0x7da21a183d41d57607078acf0ae8c42a61f1613ab223509359da7d27b95bc1f5;
+    bytes32 constant DEVNET_INTERCHAIN_TOKENID = 0xc9a87005da4838a5eb2dbccdc5002ce69ddabb0f51968974294c1e1df2a32717;
     string constant DEVNET_OPTIMISM_CHAIN_NAME = "optimism-sepolia";
     bytes32 constant DEVNET_OPTIMISM_CHAINNAMEHASH = keccak256(bytes(DEVNET_OPTIMISM_CHAIN_NAME));
     address constant DEVNET_OPTIMISM_ITS = 0x2269B93c8D8D4AfcE9786d2940F5Fcd4386Db7ff;
