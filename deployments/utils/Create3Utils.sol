@@ -55,7 +55,7 @@ abstract contract Create3Utils {
         wtelSalt: keccak256("wrapped-telcoin"),
         itelSalt: keccak256("interchain-telcoin"),
         itelTMSalt: keccak256("itel-token-manager"),
-        registerCustomTokenSalt: keccak256("register-custom-token")
+        registerCustomTokenSalt: keccak256("telcoin-v3")
     });
 
     ImplSalts public implSalts = ImplSalts({
