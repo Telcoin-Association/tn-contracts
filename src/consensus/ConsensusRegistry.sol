@@ -193,9 +193,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IConsensusRegistry
     function getValidator(address validatorAddress) public view returns (ValidatorInfo memory) {
-        _checkConsensusNFTOwner(validatorAddress);
+        ValidatorInfo storage info = validators[validatorAddress];
+        // if the queried validator is retired it is confirmed to have existed
+        if (!info.isRetired) {
+            // else validate input
+            _checkConsensusNFTOwner(validatorAddress);
+        }
 
-        return validators[validatorAddress];
+        return info;
     }
 
     /// @inheritdoc IConsensusRegistry
