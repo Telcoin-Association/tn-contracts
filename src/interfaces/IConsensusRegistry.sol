@@ -30,6 +30,7 @@ interface IConsensusRegistry {
         address[] committee;
         uint256 epochIssuance;
         uint64 blockHeight;
+        uint32 epochId;
         uint32 epochDuration;
         uint8 stakeVersion;
     }
