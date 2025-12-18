@@ -68,7 +68,6 @@ abstract contract ITSUtils is Create3Utils {
     // Telcoin Network contracts
     WTEL wTEL;
     InterchainTEL iTEL;
-    address recordsDequeLib;
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
     Safe governanceSafe;

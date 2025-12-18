@@ -100,9 +100,6 @@ contract GenerateGenesisPrecompileConfig is TNGenesis, Script {
 
         // create3 contract only used for simulation; will not be instantiated at genesis
         create3 = new Create3Deployer{ salt: salts.Create3DeployerSalt }();
-
-        // write library address now known during runtime to deployments.json
-        vm.writeJson(LibString.toHexString(uint256(uint160(recordsDequeLib)), 20), path, ".RecordsDequeLib");
     }
 
     function run() public {
@@ -116,10 +113,6 @@ contract GenerateGenesisPrecompileConfig is TNGenesis, Script {
         address simulatedWTEL = address(payable(instantiateWTEL()));
         assertFalse(yamlAppendGenesisAccount(dest, simulatedWTEL, deployments.wTEL, sharedNonce, sharedBalance));
 
-        // RecordsDequeLib linked library required by iTEL
-        assertFalse(
-            yamlAppendGenesisAccount(dest, recordsDequeLib, deployments.RecordsDequeLib, sharedNonce, sharedBalance)
-        );
         // iTEL before ITS to fetch token id for TokenHandler::constructor
         address simulatedInterchainTEL = address(instantiateInterchainTEL(deployments.its.InterchainTokenService));
         assertTrue(
