@@ -18,7 +18,7 @@ contract TestnetDeployStablecoinManager is Script {
     StablecoinManager stablecoinManager;
 
     bytes32 stablecoinManagerSalt; // used for both impl and proxy
-    // true: enable $TEL and all `stables` | false: enable $TEL only
+        // true: enable $TEL and all `stables` | false: enable $TEL only
     bool enableAllXYZs = true;
     address[] stables;
     uint256 maxLimit;

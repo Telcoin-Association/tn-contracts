@@ -177,9 +177,8 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         assertTrue(address(iTEL).code.length > 0);
         assertEq(iTEL.name(), name_);
         assertEq(iTEL.symbol(), symbol_);
-        assertEq(iTEL.recoverableWindow(), recoverableWindow_);
         assertEq(iTEL.owner(), owner_);
-        assertEq(iTEL.baseToken(), address(wTEL));
+        assertEq(iTEL.WTEL(), address(wTEL));
         assertEq(iTEL.decimals(), wTEL.decimals());
         // note that iTEL ITS salt and tokenId are based on originTEL
         bytes32 itelDeploySalt = iTEL.linkedTokenDeploySalt();
@@ -293,9 +292,9 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         MockTEL(originTEL).approve(address(its), amount);
 
         bytes memory destinationAddress = AddressBytes.toBytes(address(0xbeef));
-        its.interchainTransfer{ value: gasValue }(
-            returnedInterchainTokenId, destinationChain, destinationAddress, amount, "", gasValue
-        );
+        its.interchainTransfer{
+            value: gasValue
+        }(returnedInterchainTokenId, destinationChain, destinationAddress, amount, "", gasValue);
     }
 
     function test_eth_transmitInterchainTransfer_TEL() public {
@@ -322,8 +321,8 @@ contract InterchainTokenServiceTest is ITSTestHelper {
         // note: direct calls to `ITS::transmitInterchainTransfer()` can only be called by the token
         // thus it is disabled on Ethereum since ethTEL doesn't have this function
         vm.expectRevert();
-        its.transmitInterchainTransfer{ value: gasValue }(
-            returnedInterchainTokenId, user, destinationChain, destinationAddress, amount, ""
-        );
+        its.transmitInterchainTransfer{
+            value: gasValue
+        }(returnedInterchainTokenId, user, destinationChain, destinationAddress, amount, "");
     }
 }

@@ -2,6 +2,5 @@ forge-std/=node_modules/forge-std/src/
 solady/=node_modules/solady/src/
 @openzeppelin/=node_modules/@openzeppelin/
 @axelar-cgp-solidity=node_modules/@axelar-network/axelar-cgp-solidity/
-recoverable-wrapper/contracts=node_modules/recoverable-wrapper/contracts/
 safe-contracts/=node_modules/safe-contracts/
 telcoin-contracts/=node_modules/telcoin-contracts/

@@ -14,14 +14,10 @@ A general overview of ITS system design can be found [in this design md](src/its
 - **Custom-Linked Token**: InterchainTEL is a custom-linked interchain token registered under Ethereum TEL's interchain ID. It inherits the `InterchainTokenStandard` and will be deployed to the ITS expected create3 address to ensure compliance with ITS requirements.
 - **Token Manager**: Utilizes a `MINT_BURN` `TokenManagerProxy` to manage mint and burn operations for inbound and outbound TEL transfers.
 
-### Security Features
-
-- **Recoverable Wrapper Utility**: Implements Circle Research's utility to enforce a timelock on outbound TEL bridging, ensuring security by only allowing settled balances to be bridged.
-
 ## Interchain Bridging
 
 - **Minting and Burning**: Native TEL is minted via the `mint()` function when TEL is locked on a remote chain, and outbound TEL is exported using the `burn()` function.
-- **Double-Wrapping for Security**: Outbound TEL must be double-wrapped to iTEL, ensuring that only settled `RecoverableWrapper` token balances that elapse the recoverable window are eligible for bridging. The wrapping can be done through wTEL or directly from native TEL.
+- **Double-Wrapping for Security**: Outbound TEL must be double-wrapped to iTEL, ensuring that only settled `iTEL` token balances are eligible for bridging. The wrapping can be done through wTEL or directly from native TEL.
 
 ## Native TEL at Genesis
 

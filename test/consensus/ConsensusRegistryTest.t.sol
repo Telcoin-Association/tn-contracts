@@ -92,9 +92,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, false, uint8(0)
             ));
         vm.prank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         // Check validator information
         ValidatorInfo[] memory validators = consensusRegistry.getValidators(ValidatorStatus.Staked);
@@ -140,9 +140,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             ));
 
         vm.prank(delegator);
-        consensusRegistry.delegateStake{ value: stakeAmount_ }(
-            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig
-        );
+        consensusRegistry.delegateStake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig);
 
         // Check validator information
         ValidatorInfo[] memory validators = consensusRegistry.getValidators(ValidatorStatus.Staked);
@@ -183,9 +183,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.setNextCommitteeSize(5);
 
         vm.prank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         // activate and conclude epoch to reach validator5 activationEpoch
         uint256 numActiveBefore = consensusRegistry.getValidators(ValidatorStatus.Active).length;
@@ -226,9 +226,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         // providing identity reverts with actual=256, expected=256
         vm.expectRevert(abi.encodeWithSelector(BlsG1.InvalidPoint.selector, 256, 256));
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(128))
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(128)));
     }
 
     // Test for incorrect stake amount
@@ -258,9 +258,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.prank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         // activate and conclude epoch to reach validator5 activationEpoch
         vm.prank(validator5);
@@ -346,9 +346,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         vm.startPrank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            _blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(_blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         // Attempt to exit without being active
         vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.Staked));
@@ -429,9 +429,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // stake stake but never activate
         vm.startPrank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            _blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(_blsDummyPubkeyFromSecret(validator5Secret), BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         uint256 initialBalance = validator5.balance;
         assertEq(initialBalance, 0);
@@ -473,9 +473,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // stake and activate
         vm.startPrank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(
-            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
-        );
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
         consensusRegistry.activate();
 
         // Attempt to unstake without exiting

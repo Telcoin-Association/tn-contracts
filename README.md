@@ -12,8 +12,6 @@ Requires Node version >= 22, which can be installed like so:
 
 `nvm install 22`
 
-And then install using `npm`, note that `yarn` will throw an error because the yarn package manager has removed Circle Research's `RecoverableWrapper`.
-
 `npm install`
 
 To build the smart contracts:
@@ -76,7 +74,6 @@ The InterchainTEL module is a crucial component of the Telcoin Network, facilita
 
 - **Axelar Interchain Token Service**: Utilizes Axelar's Interchain Token Service (ITS) to manage interchain conversions, integrated as system precompiles in the protocol.
 - **Custom Implementation**: The InterchainTEL token contract is a custom implementation that handles minting and burning of TEL as part of the interchain bridging process.
-- **Security Measures**: Implements Circle Research's recoverable wrapper utility to enforce a timelock on outbound TEL bridging, ensuring legitimate sourcing of TEL.
 
 ### Interchain Bridging Process
 

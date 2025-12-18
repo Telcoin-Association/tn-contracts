@@ -142,10 +142,8 @@ abstract contract ITSConfig is ITSUtils {
         originChainName_ = DEVNET_SEPOLIA_CHAIN_NAME;
         symbol_ = "iTEL";
         name_ = "Interchain Telcoin";
-        recoverableWindow_ = 60; // 1 minute for devnet
         owner_ = admin;
-        maxToClean = uint16(300);
-        baseERC20_ = wtel; 
+        wtel_ = wtel; 
 
         // iTELTokenManager config
         tmOperator = AddressBytes.toBytes(owner_);
@@ -168,7 +166,6 @@ abstract contract ITSConfig is ITSUtils {
         itsOwner = governanceSafe;
         itfOwner = governanceSafe;
         originChainName_ = TESTNET_SEPOLIA_CHAIN_NAME;
-        recoverableWindow_ = 600; // 10 minutes for testnet
         owner_ = governanceSafe;
         tmOperator = AddressBytes.toBytes(owner_);
         params = abi.encode(tmOperator, tokenAddress);

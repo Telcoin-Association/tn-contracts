@@ -72,7 +72,14 @@ abstract contract TNFaucet {
     }
 
     /// @dev Exposes the timestamp of the last fulfilled faucet drip for a given `token` and `recipient`
-    function getLastFulfilledDripTimestamp(address token, address recipient) public view returns (uint256 timestamp) {
+    function getLastFulfilledDripTimestamp(
+        address token,
+        address recipient
+    )
+        public
+        view
+        returns (uint256 timestamp)
+    {
         FaucetStorage storage $ = _faucetStorage();
         timestamp = $._lastDripTimestamp[recipient][token];
     }

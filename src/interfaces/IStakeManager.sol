@@ -59,7 +59,12 @@ interface IStakeManager {
     /// @notice Ensuring `uncompressedPubkey` corresponds to `ValidatorInfo::blsPubkey` is better
     /// performed externally in Rust by the protocol due to EIP2537 precompile & EVM limitations
     /// so this contract does not perform any (un)compression checks
-    function stake(bytes calldata blsPubkey, BlsG1.ProofOfPossession calldata proofOfPossession) external payable;
+    function stake(
+        bytes calldata blsPubkey,
+        BlsG1.ProofOfPossession calldata proofOfPossession
+    )
+        external
+        payable;
 
     /// @dev Accepts delegated stake from a non-validator caller authorized by a validator's EIP712 signature
     /// @notice `validatorAddress` must be a validator already in possession of a `ConsensusNFT`

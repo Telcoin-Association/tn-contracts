@@ -2,6 +2,8 @@
 pragma solidity ^0.8.20;
 
 interface IInterchainTEL {
+    event Wrap(address indexed to, uint256 indexed amount);
+    event Unwrap(address indexed src, address indexed to, uint256 amount);
     event Minted(address indexed to, uint256 indexed nativeAmount);
     event Burned(address indexed from, uint256 indexed nativeAmount);
     event RemainderTransferFailed(address indexed to, uint256 amount);
@@ -13,6 +15,16 @@ interface IInterchainTEL {
     error BurnFailed(address from, uint256 amount);
     error InvalidAmount(uint256 nativeAmount);
 
+    /// @notice Allows caller to wrap their own base tokens
+    /// @notice Caller must have already approved account on WTEL contract
+    function wrap(uint256 amount) external;
+
+    /// @notice Allows caller to unwrap iTEL tokens back to the base wrapped TEL
+    function unwrap(uint256 amount) external;
+
+    /// @notice First unwraps caller's tokens and then sends base token to another address
+    function unwrapTo(address to, uint256 amount) external;
+
     /// @notice Convenience function for users to wrap native TEL directly to iTEL in one tx
     /// @dev InterchainTEL performs WETH9 deposit on behalf of caller so they need not hold wTEL or make approval
     function doubleWrap() external payable;
@@ -20,7 +32,15 @@ interface IInterchainTEL {
     /// @notice Convenience function for users to wrap wTEL to iTEL in one tx without approval
     /// @dev Explicitly allows malleable signatures for optionality. Malleability is handled
     /// by abstracting signature reusability away via stateful nonce within the EIP-712 structhash
-    function permitWrap(address owner, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    function permitWrap(
+        address owner,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    )
+        external;
 
     /// @notice Returns the create3 salt used by ITS for TokenManager deployment
     /// @dev This salt is used to deploy/derive TokenManagers for both Ethereum and TN
@@ -46,7 +66,7 @@ interface IInterchainTEL {
     function mint(address to, uint256 originAmount) external;
 
     /// @notice InterchainTEL implementation for ITS Token Manager's burn API
-    /// @dev Burns InterchainTEL out of `from`'s settled (recoverable) balance, collecting the unwrapped native TEL
+    /// @dev Burns InterchainTEL out of `from`'s balance, collecting the unwrapped native TEL
     /// and forwarding unusable truncated remainders to the governance address before forwarding to Axelar
     /// @dev Axelar Hub destination chain decimal truncation can be found here:
     /// https://github.com/axelarnetwork/axelar-amplifier/blob/aa956eed0bb48b3b14d20fdc6b93deb129c02bea/contracts/interchain-token-service/src/contract/execute/interceptors.rs#L228

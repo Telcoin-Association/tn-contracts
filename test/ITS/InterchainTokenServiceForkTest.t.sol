@@ -240,9 +240,9 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         uint256 srcBalBefore = IERC20(originTEL).balanceOf(user);
         uint256 destBalBefore = IERC20(originTEL).balanceOf(address(returnedTELTokenManager));
         vm.prank(user);
-        sepoliaITS.interchainTransfer{ value: gasValue }(
-            returnedInterchainTokenId, destinationChain, destAddressBytes, amount, "", gasValue
-        );
+        sepoliaITS.interchainTransfer{
+            value: gasValue
+        }(returnedInterchainTokenId, destinationChain, destAddressBytes, amount, "", gasValue);
 
         assertEq(IERC20(originTEL).balanceOf(user), srcBalBefore - amount);
         assertEq(IERC20(originTEL).balanceOf(address(returnedTELTokenManager)), destBalBefore + amount);
@@ -290,9 +290,9 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
         // thus it is disabled on Ethereum since ethTEL doesn't have this function
         vm.prank(user);
         vm.expectRevert();
-        sepoliaITS.transmitInterchainTransfer{ value: gasValue }(
-            returnedInterchainTokenId, user, destinationChain, destAddressBytes, amount, ""
-        );
+        sepoliaITS.transmitInterchainTransfer{
+            value: gasValue
+        }(returnedInterchainTokenId, user, destinationChain, destAddressBytes, amount, "");
 
         assertEq(IERC20(originTEL).balanceOf(user), srcBalBefore);
         assertEq(IERC20(originTEL).balanceOf(address(returnedTELTokenManager)), destBalBefore);
@@ -525,29 +525,20 @@ contract InterchainTokenServiceForkTest is Test, ITSTestHelper {
 
         destinationChain = DEVNET_SEPOLIA_CHAIN_NAME;
         bytes memory destAddressBytes = AddressBytes.toBytes(user);
-        uint256 unsettledBal = IERC20(address(iTEL)).balanceOf(user);
+        uint256 srcBalBefore = IERC20(address(iTEL)).balanceOf(user);
         uint256 srcBalBeforeTEL = user.balance;
         uint256 itelBalBefore = address(iTEL).balance;
-        assertEq(unsettledBal, 0);
+        assertEq(srcBalBefore, amount);
         assertEq(srcBalBeforeTEL, gasValue);
         assertEq(itelBalBefore, telTotalSupply);
-
-        // attempt outbound transfer without elapsing recoverable window
-        vm.startPrank(user);
-        vm.expectRevert();
-        iTEL.interchainTransfer{ value: gasValue }(destinationChain, destAddressBytes, amount, "");
-
-        // outbound interchain bridge transfers *MUST* await recoverable window to settle InterchainTEL balance
-        uint256 recoverableEndBlock = block.timestamp + iTEL.recoverableWindow() + 1;
-        vm.warp(recoverableEndBlock);
-        uint256 settledBalBefore = IERC20(address(iTEL)).balanceOf(user);
-        assertEq(settledBalBefore, amount);
         assertEq(IERC20(address(iTEL)).totalSupply(), amount);
-        its.interchainTransfer{ value: gasValue }(
-            customLinkedTokenId, destinationChain, destAddressBytes, amount, "", gasValue
-        );
 
-        uint256 expectedUserBalTEL = settledBalBefore - amount;
+        vm.prank(user);
+        its.interchainTransfer{
+            value: gasValue
+        }(customLinkedTokenId, destinationChain, destAddressBytes, amount, "", gasValue);
+
+        uint256 expectedUserBalTEL = srcBalBefore - amount;
         uint256 expectedInterchainTELBal = itelBalBefore + amount;
         assertEq(IERC20(address(iTEL)).balanceOf(user), expectedUserBalTEL);
         assertEq(IERC20(address(iTEL)).totalSupply(), 0);

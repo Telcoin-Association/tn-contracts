@@ -39,7 +39,9 @@ contract InterchainTransfer is ITSConfig, Script {
     function run() public {
         vm.startBroadcast();
 
-        service.interchainTransfer{ value: gasValue }(
+        service.interchainTransfer{
+            value: gasValue
+        }(
             DEVNET_INTERCHAIN_TOKENID,
             destinationChain,
             AddressBytes.toBytes(destinationAddress),

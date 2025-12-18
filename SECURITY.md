@@ -40,7 +40,6 @@ The InterchainTEL executable contract communicates with the external gateway to 
 To bolster this contract's security posture, the contract enforces the expected ITS invariant as well as two main TN-specific invariant conditions:
 
 - Only its `TokenManager` can access the ITS `mint()` and `burn()` functions, during interchain transfers
-- A settlement period must be elapsed before each outbound interchain transfer: iTEL can only be burned after elapsing a timelock, currently 1 week. This is enforced by Circle Research's `RecoverableWrapper`
 - $TEL can only be minted (released) as a result of incoming bridge transactions validated by Axelar Network verifiers. This is enforced by a call to the Axelar external gateway which is pre-authorized using weighted verifier signatures
 
 For more information on InterchainTEL, refer to [this design document](./src/design.md)
@@ -92,12 +91,9 @@ For more information on the verifier client, refer to [the Telcoin-Network proto
 
 ### Other auditor notes:
 
-Two dependency contracts used required compiler version updates to be used namely:
+One dependency contracts used required compiler version updates to be used:
 
 - `external/axelar-cgp-solidity/AxelarGasServiceProxy.sol` from 0.8.9 to ^0.8.0
-- [RecoverableWrapper](https://github.com/Telcoin-Association/recoverable-wrapper) from 0.8.20 to ^0.8.20 [in this commit](https://github.com/Telcoin-Association/recoverable-wrapper/commit/ebc07d96c8665051c51c90d7fbd9ef2bd65abdf3)
-
-Circle's RecoverableWrapper also uses OpenZeppelin 4.6, whereas we use 5.0. To avoid forking the RecoverableWrapper's 4.6 ERC20 is included alongside OZ 5.0 for everything else.
 
 ConsensusRegistry validator vector in storage is structured around a relatively low count ~700 MNOs in the world, if we onboarded them all it would be a good problem to have. This can be optimized via eg SSTORE2 or merkleization so suggestions are welcome but not a priority atm
 
