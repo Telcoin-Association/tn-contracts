@@ -37,7 +37,6 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC20 } from "solady/tokens/ERC20.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
-import { RecordsDequeLib } from "../../src/recoverable-wrapper/RecordUtil.sol";
 import { Create3Utils, Salts, ImplSalts } from "./Create3Utils.sol";
 
 abstract contract ITSUtils is Create3Utils {
@@ -112,10 +111,8 @@ abstract contract ITSUtils is Create3Utils {
     string originChainName_;
     string symbol_;
     string name_;
-    uint256 recoverableWindow_;
     address owner_;
-    address baseERC20_; // wTEL
-    uint16 maxToClean;
+    address wtel_;
 
     // iTELTokenManager config
     ITokenManagerType.TokenManagerType itelTMType = ITokenManagerType.TokenManagerType.MINT_BURN;
@@ -315,10 +312,8 @@ abstract contract ITSUtils is Create3Utils {
             its_,
             name_,
             symbol_,
-            recoverableWindow_,
             owner_,
-            baseERC20_,
-            maxToClean
+            wtel_
         );
         impl = InterchainTEL(
             payable(create3Deploy(create3, type(InterchainTEL).creationCode, iTELConstructorArgs, salts.itelSalt))

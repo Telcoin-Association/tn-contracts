@@ -46,7 +46,6 @@ import {
 import { TokenHandler } from "@axelar-network/interchain-token-service/contracts/TokenHandler.sol";
 import { GatewayCaller } from "@axelar-network/interchain-token-service/contracts/utils/GatewayCaller.sol";
 import { AxelarGasService } from "@axelar-network/axelar-cgp-solidity/contracts/gas-service/AxelarGasService.sol";
-import { RecoverableWrapper } from "../../src/recoverable-wrapper/RecoverableWrapper.sol";
 import { AxelarGasServiceProxy } from "../../external/axelar-cgp-solidity/AxelarGasServiceProxy.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -134,29 +133,20 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         iTEL.doubleWrap{ value: nativeAmount }();
 
         destinationChain = DEVNET_SEPOLIA_CHAIN_NAME;
-        uint256 unsettledBal = IERC20(address(iTEL)).balanceOf(user);
+        uint256 userBalBefore = IERC20(address(iTEL)).balanceOf(user);
         uint256 srcBalBeforeTEL = user.balance;
         uint256 itelBalBefore = address(iTEL).balance;
-        assertEq(unsettledBal, 0);
+        assertEq(userBalBefore, nativeAmount);
         assertEq(srcBalBeforeTEL, gasValue);
         assertEq(itelBalBefore, telTotalSupply);
-
-        // attempt outbound transfer without elapsing recoverable window
-        vm.startPrank(user);
-        vm.expectRevert();
-        iTEL.interchainTransfer{ value: gasValue }(destinationChain, AddressBytes.toBytes(recipient), nativeAmount, "");
-
-        // outbound interchain bridge transfers *MUST* await recoverable window to settle InterchainTEL balance
-        uint256 recoverableEndBlock = block.timestamp + iTEL.recoverableWindow() + 1;
-        vm.warp(recoverableEndBlock);
-        uint256 settledBalBefore = IERC20(address(iTEL)).balanceOf(user);
-        assertEq(settledBalBefore, nativeAmount);
         assertEq(IERC20(address(iTEL)).totalSupply(), nativeAmount);
+
+        vm.prank(user);
         iTEL.interchainTransfer{ value: gasValue }(destinationChain, AddressBytes.toBytes(recipient), nativeAmount, "");
 
         vm.stopPrank();
 
-        uint256 expectedUserBalTEL = settledBalBefore - nativeAmount;
+        uint256 expectedUserBalTEL = userBalBefore - nativeAmount;
         uint256 expectedInterchainTELBal = itelBalBefore + nativeAmount;
         assertEq(IERC20(address(iTEL)).balanceOf(user), expectedUserBalTEL);
         assertEq(IERC20(address(iTEL)).totalSupply(), 0);
@@ -183,31 +173,20 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         vm.stopPrank();
 
         destinationChain = DEVNET_SEPOLIA_CHAIN_NAME;
-        uint256 unsettledBal = IERC20(address(iTEL)).balanceOf(user);
+        uint256 userBalBefore = IERC20(address(iTEL)).balanceOf(user);
         uint256 srcBalBeforeTEL = user.balance;
         uint256 itelBalBefore = address(iTEL).balance;
-        assertEq(unsettledBal, 0);
+        assertEq(userBalBefore, nativeAmount);
         assertEq(srcBalBeforeTEL, gasValue);
         assertEq(itelBalBefore, telTotalSupply);
-
-        // attempt outbound transfer without elapsing recoverable window
-        vm.expectRevert();
-        iTEL.interchainTransferFrom{ value: gasValue }(
-            user, destinationChain, AddressBytes.toBytes(recipient), nativeAmount, ""
-        );
-
-        // outbound interchain bridge transfers *MUST* await recoverable window to settle InterchainTEL balance
-        uint256 recoverableEndBlock = block.timestamp + iTEL.recoverableWindow() + 1;
-        vm.warp(recoverableEndBlock);
-        uint256 settledBalBefore = IERC20(address(iTEL)).balanceOf(user);
-        assertEq(settledBalBefore, nativeAmount);
         assertEq(IERC20(address(iTEL)).totalSupply(), nativeAmount);
-        iTEL.interchainTransferFrom{ value: gasValue }(
-            user, destinationChain, AddressBytes.toBytes(recipient), nativeAmount, ""
-        );
+
+        iTEL.interchainTransferFrom{
+            value: gasValue
+        }(user, destinationChain, AddressBytes.toBytes(recipient), nativeAmount, "");
 
         assertEq(IERC20(address(iTEL)).totalSupply(), 0);
-        assertEq(IERC20(address(iTEL)).balanceOf(user), settledBalBefore - nativeAmount);
+        assertEq(IERC20(address(iTEL)).balanceOf(user), userBalBefore - nativeAmount);
         assertEq(address(iTEL).balance, itelBalBefore + nativeAmount);
     }
 
@@ -335,7 +314,9 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         // link optimism TEL under `DEVNET_INTERCHAIN_TOKENID` from sepolia
         vm.selectFork(sepoliaFork);
         vm.prank(linker);
-        bytes32 linkedTokenId = sepoliaITF.linkToken{ value: gasValue }(
+        bytes32 linkedTokenId = sepoliaITF.linkToken{
+            value: gasValue
+        }(
             salts.registerCustomTokenSalt,
             DEVNET_OPTIMISM_CHAIN_NAME,
             AddressBytes.toBytes(deployments.optimismTEL),
@@ -471,9 +452,9 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
             originAddress, ITS_HUB_CHAIN_NAME, ITS_HUB_ROUTER_ADDR, keccak256(wrappedPayload), wrappedPayload
         );
 
-        sepoliaITS.interchainTransfer{ value: gasValue }(
-            returnedInterchainTokenId, destinationChain, AddressBytes.toBytes(recipient), interchainAmount, "", gasValue
-        );
+        sepoliaITS.interchainTransfer{
+            value: gasValue
+        }(returnedInterchainTokenId, destinationChain, AddressBytes.toBytes(recipient), interchainAmount, "", gasValue);
         vm.stopPrank();
 
         assertEq(IERC20(originTEL).balanceOf(user), srcBalBefore - interchainAmount);
@@ -592,18 +573,12 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         vm.prank(user);
         iTEL.doubleWrap{ value: nativeAmount }();
 
-        uint256 unsettledBal = IERC20(address(iTEL)).balanceOf(user);
+        uint256 balBefore = IERC20(address(iTEL)).balanceOf(user);
         uint256 srcBalBeforeTEL = user.balance;
         uint256 itelBalBefore = address(iTEL).balance;
-        assertEq(unsettledBal, 0);
+        assertEq(balBefore, nativeAmount);
         assertEq(srcBalBeforeTEL, startingNativeBal - nativeAmount);
         assertEq(itelBalBefore, telTotalSupply);
-
-        // outbound interchain bridge transfers *MUST* await recoverable window to settle InterchainTEL balance
-        uint256 recoverableEndBlock = block.timestamp + iTEL.recoverableWindow() + 1;
-        vm.warp(recoverableEndBlock);
-        uint256 settledBalBefore = IERC20(address(iTEL)).balanceOf(user);
-        assertEq(settledBalBefore, nativeAmount);
         assertEq(IERC20(address(iTEL)).totalSupply(), nativeAmount);
 
         destinationChain = DEVNET_SEPOLIA_CHAIN_NAME;
@@ -627,7 +602,7 @@ contract InterchainTELForkTest is Test, ITSTestHelper {
         vm.prank(user);
         iTEL.interchainTransfer{ value: gasValue }(destinationChain, AddressBytes.toBytes(recipient), nativeAmount, "");
 
-        uint256 expectedUserBalTEL = settledBalBefore - nativeAmount;
+        uint256 expectedUserBalTEL = balBefore - nativeAmount;
         uint256 expectedInterchainTELBal = itelBalBefore + nativeAmount;
         assertEq(IERC20(address(iTEL)).balanceOf(user), expectedUserBalTEL);
         assertEq(IERC20(address(iTEL)).totalSupply(), 0);
