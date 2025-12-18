@@ -256,6 +256,45 @@ contract GenerateGenesisPrecompileConfig is TNGenesis, Script {
             yamlAppendGenesisAccount(dest, simulatedSafe, deployments.Safe, sharedNonce, governanceInitialBalance)
         );
 
+        // EIP-2935 and EIP-4788 system contracts
+        instantiateEIP2935AndEIP4788();
+
         vm.stopBroadcast();
+    }
+
+    /// @dev Writes EIP-2935 and EIP-4788 system contracts configuration directly to the yaml
+    function instantiateEIP2935AndEIP4788() internal {
+        // EIP-2935: Historic Block Hashes
+        vm.writeLine(dest, '"0x0000F90827F1C53a10cb7A02335B175320002935": # historic block hashes');
+        vm.writeLine(dest, "  nonce: 0");
+        vm.writeLine(dest, "  balance: 0");
+        vm.writeLine(
+            dest,
+            "  code: 0x3373fffffffffffffffffffffffffffffffffffffffe14604657602036036042575f35600143038111604257611fff81430311604257611fff9006545f5260205ff35b5f5ffd5b5f35611fff60014303065500"
+        );
+
+        // EIP-4788: Beacon Block Roots
+        vm.writeLine(dest, '"0x000f3df6d732807ef1319fb7b8bb8522d0beac02": # consensus block roots');
+        vm.writeLine(dest, "  nonce: 0");
+        vm.writeLine(dest, "  balance: 0");
+        vm.writeLine(
+            dest,
+            "  code: 0x3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5ffd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd5b62001fff42064281555f359062001fff015500"
+        );
+
+        // Factory/Creator Nonces
+        vm.writeLine(
+            dest,
+            '"0x0B799C86a49DEeb90402691F1041aa3AF2d3C875": # use nonce 0 for creating 0x000f3df6d732807ef1319fb7b8bb8522d0beac02'
+        );
+        vm.writeLine(dest, "  nonce: 1");
+        vm.writeLine(dest, "  balance: 0");
+
+        vm.writeLine(
+            dest,
+            '"0x3462413Af4609098e1E27A490f554f260213D685": # use nonce 0 for creating 0x0000F90827F1C53a10cb7A02335B175320002935'
+        );
+        vm.writeLine(dest, "  nonce: 1");
+        vm.writeLine(dest, "  balance: 0");
     }
 }
