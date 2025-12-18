@@ -12,8 +12,6 @@ Requires Node version >= 22, which can be installed like so:
 
 `nvm install 22`
 
-And then install using `npm`, note that `yarn` will throw an error because the yarn package manager has removed Circle Research's `RecoverableWrapper`.
-
 `npm install`
 
 To build the smart contracts:

@@ -22,7 +22,15 @@ interface IInterchainTEL {
     /// @notice Convenience function for users to wrap wTEL to iTEL in one tx without approval
     /// @dev Explicitly allows malleable signatures for optionality. Malleability is handled
     /// by abstracting signature reusability away via stateful nonce within the EIP-712 structhash
-    function permitWrap(address owner, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
+    function permitWrap(
+        address owner,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    )
+        external;
 
     /// @notice Returns the create3 salt used by ITS for TokenManager deployment
     /// @dev This salt is used to deploy/derive TokenManagers for both Ethereum and TN

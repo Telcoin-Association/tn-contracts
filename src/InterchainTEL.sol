@@ -62,7 +62,8 @@ contract InterchainTEL is
         address owner_,
         address WTEL_
     )
-        ERC20(name_, symbol_) Ownable(owner_)
+        ERC20(name_, symbol_)
+        Ownable(owner_)
     {
         _interchainTokenService = interchainTokenService_;
         originTEL = originTEL_;
@@ -78,12 +79,12 @@ contract InterchainTEL is
      *   InterchainTEL Core
      *
      */
-    
+
     /// @inheritdoc IInterchainTEL
     function wrap(uint256 amount) external override whenNotPaused {
         _mint(msg.sender, amount);
         WETH(payable(WTEL)).transferFrom(msg.sender, address(this), amount);
-        
+
         emit Wrap(msg.sender, amount);
     }
 
