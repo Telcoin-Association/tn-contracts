@@ -74,7 +74,6 @@ The InterchainTEL module is a crucial component of the Telcoin Network, facilita
 
 - **Axelar Interchain Token Service**: Utilizes Axelar's Interchain Token Service (ITS) to manage interchain conversions, integrated as system precompiles in the protocol.
 - **Custom Implementation**: The InterchainTEL token contract is a custom implementation that handles minting and burning of TEL as part of the interchain bridging process.
-- **Security Measures**: Implements Circle Research's recoverable wrapper utility to enforce a timelock on outbound TEL bridging, ensuring legitimate sourcing of TEL.
 
 ### Interchain Bridging Process
 

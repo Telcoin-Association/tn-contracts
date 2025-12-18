@@ -12,11 +12,10 @@ import { WETH } from "solady/tokens/WETH.sol";
 import { SystemCallable } from "./consensus/SystemCallable.sol";
 import { IInterchainTEL } from "./interfaces/IInterchainTEL.sol";
 
-/// @title Recoverable Wrapped Telcoin
+/// @title Interchain Telcoin
 /// @notice The InterchainTEL module serves as an Axelar InterchainToken merging functionality of TEL
 /// both as ITS ERC20 token and as native gas currency for TN
 /// @dev Inbound ERC20 TEL from other networks is delivered as native TEL through custom mint logic
-/// whereas outbound native TEL must first be double-wrapped to iTEL & elapse the recoverable window
 /// @dev Pausability restricts all wrapping/unwrapping actions and execution of ITS bridge messages
 contract InterchainTEL is
     IInterchainTEL,
@@ -81,7 +80,7 @@ contract InterchainTEL is
      */
 
     /// @inheritdoc IInterchainTEL
-    function wrap(uint256 amount) external override whenNotPaused {
+    function wrap(uint256 amount) external virtual override whenNotPaused {
         _mint(msg.sender, amount);
         WETH(payable(WTEL)).transferFrom(msg.sender, address(this), amount);
 
@@ -89,7 +88,7 @@ contract InterchainTEL is
     }
 
     /// @inheritdoc IInterchainTEL
-    function unwrap(uint256 amount) external override whenNotPaused {
+    function unwrap(uint256 amount) external virtual override whenNotPaused {
         _burn(msg.sender, amount);
         WETH(payable(WTEL)).transfer(msg.sender, amount);
 
@@ -97,7 +96,7 @@ contract InterchainTEL is
     }
 
     /// @inheritdoc IInterchainTEL
-    function unwrapTo(address to, uint256 amount) external override whenNotPaused {
+    function unwrapTo(address to, uint256 amount) external virtual override whenNotPaused {
         _burn(msg.sender, amount);
         WETH(payable(WTEL)).transfer(to, amount);
 
