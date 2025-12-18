@@ -2,6 +2,8 @@
 pragma solidity ^0.8.20;
 
 interface IInterchainTEL {
+    event Wrap(address indexed to, uint256 indexed amount);
+    event Unwrap(address indexed src, address indexed to, uint256 amount);
     event Minted(address indexed to, uint256 indexed nativeAmount);
     event Burned(address indexed from, uint256 indexed nativeAmount);
     event RemainderTransferFailed(address indexed to, uint256 amount);
@@ -38,6 +40,16 @@ interface IInterchainTEL {
     /// @notice Required by Axelar ITS to complete interchain transfers during payload processing
     /// of `MESSAGE_TYPE_INTERCHAIN_TRANSFER` headers, which delegatecalls `TokenHandler::giveToken()`
     function isMinter(address addr) external view returns (bool);
+
+    /// @notice Allows caller to wrap their own base tokens
+    /// @notice Caller must have already approved account on WTEL contract
+    function wrap(uint256 amount) external;
+
+    /// @notice Allows caller to unwrap iTEL tokens back to the base wrapped TEL
+    function unwrap(uint256 amount) external;
+
+    /// @notice First unwraps caller's recoverable tokens and then sends base token to another address
+    function unwrapTo(address to, uint256 amount) external;
 
     /// @notice InterchainTEL implementation for ITS Token Manager's mint API
     /// @dev Mints native TEL to `to` using converted native amount handled by Axelar Hub

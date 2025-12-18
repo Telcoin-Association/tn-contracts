@@ -6,10 +6,9 @@ import {
 } from "@axelar-network/interchain-token-service/contracts/interchain-token/InterchainTokenStandard.sol";
 import { Create3AddressFixed } from "@axelar-network/interchain-token-service/contracts/utils/Create3AddressFixed.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { WETH } from "solady/tokens/WETH.sol";
-import { RecoverableWrapper } from "./recoverable-wrapper/RecoverableWrapper.sol";
-import { RecordsDeque, RecordsDequeLib } from "./recoverable-wrapper/RecordUtil.sol";
 import { SystemCallable } from "./consensus/SystemCallable.sol";
 import { IInterchainTEL } from "./interfaces/IInterchainTEL.sol";
 
@@ -21,18 +20,19 @@ import { IInterchainTEL } from "./interfaces/IInterchainTEL.sol";
 /// @dev Pausability restricts all wrapping/unwrapping actions and execution of ITS bridge messages
 contract InterchainTEL is
     IInterchainTEL,
-    RecoverableWrapper,
+    ERC20,
     InterchainTokenStandard,
     Create3AddressFixed,
     SystemCallable,
+    Ownable,
     Pausable
 {
-    using RecordsDequeLib for RecordsDeque;
-
     /// @dev The precompiled Axelar ITS TokenManager contract address for this token
     address private immutable tokenManager;
     /// @dev The precompiled Axelar ITS contract address for this chain
     address private immutable _interchainTokenService;
+    /// @dev The wrapped Telcoin contract address for this chain
+    address public immutable WTEL;
 
     /// @dev Constants for deriving the origin chain's ITS custom linked deploy salt, token id, and TokenManager address
     address private immutable originTEL;
@@ -51,9 +51,6 @@ contract InterchainTEL is
         _;
     }
 
-    /// @dev Required by `RecoverableWrapper` and `AxelarGMPExecutable` deps to write immutable vars to bytecode
-    /// @param name_ Not used; required for `RecoverableWrapper::constructor()` but is overridden
-    /// @param symbol_ Not used; required for `RecoverableWrapper::constructor()` but is overridden
     constructor(
         address originTEL_,
         address originLinker_,
@@ -62,12 +59,10 @@ contract InterchainTEL is
         address interchainTokenService_,
         string memory name_,
         string memory symbol_,
-        uint256 recoverableWindow_,
         address owner_,
-        address baseERC20_,
-        uint16 maxToClean
+        address WTEL_
     )
-        RecoverableWrapper(name_, symbol_, recoverableWindow_, owner_, baseERC20_, maxToClean)
+        ERC20(name_, symbol_) Ownable(owner_)
     {
         _interchainTokenService = interchainTokenService_;
         originTEL = originTEL_;
@@ -75,6 +70,7 @@ contract InterchainTEL is
         originSalt = originSalt_;
         originChainNameHash = keccak256(bytes(originChainName_));
         tokenManager = tokenManagerAddress();
+        WTEL = WTEL_;
     }
 
     /**
@@ -82,17 +78,41 @@ contract InterchainTEL is
      *   InterchainTEL Core
      *
      */
+    
+    /// @inheritdoc IInterchainTEL
+    function wrap(uint256 amount) external override whenNotPaused {
+        _mint(msg.sender, amount);
+        WETH(payable(WTEL)).transferFrom(msg.sender, address(this), amount);
+        
+        emit Wrap(msg.sender, amount);
+    }
 
     /// @inheritdoc IInterchainTEL
-    function doubleWrap() external payable virtual {
+    function unwrap(uint256 amount) external override whenNotPaused {
+        _burn(msg.sender, amount);
+        WETH(payable(WTEL)).transfer(msg.sender, amount);
+
+        emit Unwrap(msg.sender, msg.sender, amount);
+    }
+
+    /// @inheritdoc IInterchainTEL
+    function unwrapTo(address to, uint256 amount) external override whenNotPaused {
+        _burn(msg.sender, amount);
+        WETH(payable(WTEL)).transfer(to, amount);
+
+        emit Unwrap(msg.sender, to, amount);
+    }
+
+    /// @inheritdoc IInterchainTEL
+    function doubleWrap() external payable virtual whenNotPaused {
         address caller = msg.sender;
         uint256 amount = msg.value;
         if (amount == 0) revert MintFailed(caller, amount);
 
-        WETH wTEL = WETH(payable(address(baseERC20)));
+        WETH wTEL = WETH(payable(WTEL));
         wTEL.deposit{ value: amount }();
 
-        _mintUnsettled(caller, amount);
+        _mint(caller, amount);
         emit Wrap(caller, amount);
     }
 
@@ -107,16 +127,17 @@ contract InterchainTEL is
     )
         external
         virtual
+        whenNotPaused
     {
         if (amount == 0) revert MintFailed(owner, amount);
 
-        WETH wTEL = WETH(payable(address(baseERC20)));
+        WETH wTEL = WETH(payable(WTEL));
         wTEL.permit(owner, address(this), amount, deadline, v, r, s);
 
         bool success = wTEL.transferFrom(owner, address(this), amount);
         if (!success) revert PermitWrapFailed(owner, amount);
 
-        _mintUnsettled(owner, amount);
+        _mint(owner, amount);
         emit Wrap(owner, amount);
     }
 
@@ -135,13 +156,13 @@ contract InterchainTEL is
     }
 
     /// @inheritdoc IInterchainTEL
-    function burn(address from, uint256 nativeAmount) external virtual override onlyTokenManager {
+    function burn(address from, uint256 nativeAmount) external virtual override whenNotPaused onlyTokenManager {
         // cannot bridge an amount that will be less than 0 TEL on remote chains
         if (nativeAmount < DECIMALS_CONVERTER) revert InvalidAmount(nativeAmount);
         // burn from settled balance only, reverts if paused
-        _burnSettled(from, nativeAmount);
+        _burn(from, nativeAmount);
         // reclaim native TEL to maintain integrity of iTEL <> wTEL <> TEL ledgers
-        WETH(payable(address(baseERC20))).withdraw(nativeAmount);
+        WETH(payable(WTEL)).withdraw(nativeAmount);
 
         // pre-truncate before leaving TN even though Axelar Hub does it to avoid destroying remainder
         uint256 remainder = nativeAmount % DECIMALS_CONVERTER;
@@ -212,9 +233,6 @@ contract InterchainTEL is
         ERC20._spendAllowance(sender, spender, amount);
     }
 
-    /// @dev Invoked before any transfer, mint, or burn to enforce paused state
-    function _rwHook() internal virtual override whenNotPaused { }
-
     /**
      *
      *   permissioned
@@ -229,7 +247,6 @@ contract InterchainTEL is
     }
 
     receive() external payable {
-        address wTEL = address(baseERC20);
-        if (msg.sender != wTEL) revert OnlyBaseToken(wTEL);
+        if (msg.sender != WTEL) revert OnlyBaseToken(WTEL);
     }
 }
