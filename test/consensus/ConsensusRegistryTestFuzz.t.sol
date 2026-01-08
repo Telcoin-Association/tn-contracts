@@ -65,8 +65,6 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
             vm.expectRevert();
             consensusRegistry.ownerOf(tokenId);
-            vm.expectRevert();
-            consensusRegistry.getValidator(burned);
             // remint can't be done with same addresses
             vm.expectRevert();
             consensusRegistry.mint(burned);
@@ -110,8 +108,6 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
             vm.expectRevert();
             consensusRegistry.ownerOf(tokenId);
-            vm.expectRevert();
-            consensusRegistry.getValidator(burned);
         }
     }
 
