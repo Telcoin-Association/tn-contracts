@@ -147,6 +147,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
                 newCommittee,
                 epochInfo.epochIssuance,
                 uint64(block.number + 1),
+                newEpoch,
                 epochInfo.epochDuration,
                 epochInfo.stakeVersion
             ));

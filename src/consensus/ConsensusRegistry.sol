@@ -65,7 +65,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         ValidatorInfo[] memory newActive = _getValidators(ValidatorStatus.Active);
         _checkCommitteeSize(newActive.length, futureCommittee.length);
 
-        emit NewEpoch(EpochInfo(newCommittee, issuance, uint64(block.number + 1), duration, stakeVersion));
+        emit NewEpoch(EpochInfo(newCommittee, issuance, uint64(block.number + 1), newEpoch, duration, stakeVersion));
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -699,21 +699,23 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 newEpochPointer = (prevEpochPointer + 1) % 4;
 
         // update new current epoch info
+        epochPointer = newEpochPointer;
+        uint32 newEpoch = ++currentEpoch;
         address[] storage newCommittee = futureEpochInfo[newEpochPointer].committee;
         StakeConfig memory newStakeConfig = getCurrentStakeConfig();
         epochInfo[newEpochPointer] = EpochInfo(
             newCommittee,
             newStakeConfig.epochIssuance,
             uint64(block.number) + 1,
+            newEpoch,
             newStakeConfig.epochDuration,
             stakeVersion
         );
-        epochPointer = newEpochPointer;
-        uint32 newEpoch = ++currentEpoch;
 
         // update future epoch info
         uint8 twoEpochsInFuturePointer = (newEpochPointer + 2) % 4;
         futureEpochInfo[twoEpochsInFuturePointer].committee = futureCommittee;
+        futureEpochInfo[twoEpochsInFuturePointer].epochId = newEpoch + 2;
 
         return (newEpoch, newStakeConfig.epochIssuance, newStakeConfig.epochDuration, newCommittee);
     }
@@ -730,7 +732,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         returns (EpochInfo storage)
     {
         uint8 futurePointer = (uint8(future - current) + currentPointer) % 4;
-        return futureEpochInfo[futurePointer];
+        EpochInfo storage info = futureEpochInfo[futurePointer];
+        if (info.epochId != future) revert InvalidEpoch(future);
+
+        return info;
     }
 
     /// @dev Fetch info for a current or past epoch; four latest are stored (current and three in past)
@@ -747,7 +752,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 pointerDiff = uint8(current - recent);
         // prevent underflow by adding 4 (will be modulo'd away)
         uint8 pointer = (4 + currentPointer - pointerDiff) % 4;
-        return epochInfo[pointer];
+
+        EpochInfo storage info = epochInfo[pointer];
+        if (info.epochId != recent) revert InvalidEpoch(recent);
+
+        return info;
     }
 
     function _enforceSorting(address[] calldata futureCommittee) internal pure {
@@ -898,12 +907,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // NOTE: committees are expected to always be < 100
         nextCommitteeSize = uint16(initialValidators_.length);
 
+        // set first three epochs with genesis config
         for (uint256 j; j <= 2; ++j) {
             EpochInfo storage epoch = epochInfo[j];
+            epoch.epochId = uint32(j);
             epoch.epochDuration = genesisConfig_.epochDuration;
             epoch.epochIssuance = genesisConfig_.epochIssuance;
+
+            EpochInfo storage futureEpoch = futureEpochInfo[j]; //todo
+            futureEpoch.epochId = uint32(j);
+            futureEpoch.epochDuration = genesisConfig_.epochDuration;
+            futureEpoch.epochIssuance = genesisConfig_.epochIssuance;
         }
 
+        // set initial validators
         for (uint256 i; i < initialValidators_.length; ++i) {
             ValidatorInfo memory currentValidator = initialValidators_[i];
             bytes32 blsPubkeyHash = _verifyProofOfPossession(
