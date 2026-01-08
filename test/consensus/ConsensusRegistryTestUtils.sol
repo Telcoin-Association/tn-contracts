@@ -213,9 +213,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             // stake and activate
             vm.deal(newValidator, amount);
             vm.startPrank(newValidator);
-            consensusRegistry.stake{ value: amount }(
-                _blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(newBLSPubkey, blsSignature)
-            );
+            consensusRegistry.stake{
+                value: amount
+            }(_blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(newBLSPubkey, blsSignature));
             vm.stopPrank();
         }
     }
@@ -231,7 +231,10 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         }
     }
 
-    function _fuzz_computeCommitteeSize(uint256 numActive, uint256 numFuzzedValidators)
+    function _fuzz_computeCommitteeSize(
+        uint256 numActive,
+        uint256 numFuzzedValidators
+    )
         internal
         pure
         returns (uint256)

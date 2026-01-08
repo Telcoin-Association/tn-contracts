@@ -5,8 +5,6 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { IRecoverableWrapper } from "../../src/interfaces/IRecoverableWrapper.sol";
-import { RecoverableWrapper } from "../../src/recoverable-wrapper/RecoverableWrapper.sol";
 import { WTEL } from "../../src/WTEL.sol";
 import { InterchainTEL } from "../../src/InterchainTEL.sol";
 import { IInterchainTEL } from "../../src/interfaces/IInterchainTEL.sol";
@@ -37,8 +35,6 @@ contract InterchainTELTest is Test, ITSTestHelper {
         assertEq(rwName, "Interchain Telcoin");
         string memory rwSymbol = iTEL.symbol();
         assertEq(rwSymbol, "iTEL");
-        uint256 recoverableWindow = iTEL.recoverableWindow();
-        assertEq(recoverableWindow, recoverableWindow_);
         address owner = iTEL.owner();
         assertEq(owner, owner_);
     }
@@ -67,14 +63,13 @@ contract InterchainTELTest is Test, ITSTestHelper {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(zeroPK, permitDigest);
 
         vm.expectEmit(true, true, true, true);
-        emit IRecoverableWrapper.Wrap(testAddr, amount);
+        emit IInterchainTEL.Wrap(testAddr, amount);
 
         iTEL.permitWrap(testAddr, amount, deadline, v, r, s);
 
         assertEq(wTEL.balanceOf(testAddr), 0);
         assertEq(wTEL.balanceOf(address(iTEL)), amount);
-        assertEq(iTEL.balanceOf(testAddr), 0);
-        vm.warp(block.timestamp + recoverableWindow_);
+
         assertEq(iTEL.balanceOf(testAddr), amount);
         assertEq(iTEL.totalSupply(), amount);
     }
@@ -85,7 +80,7 @@ contract InterchainTELTest is Test, ITSTestHelper {
         vm.deal(address(this), amount);
 
         vm.expectEmit(true, true, true, true);
-        emit IRecoverableWrapper.Wrap(address(this), amount);
+        emit IInterchainTEL.Wrap(address(this), amount);
 
         uint256 wtelBalBefore = address(wTEL).balance;
 
@@ -93,15 +88,8 @@ contract InterchainTELTest is Test, ITSTestHelper {
 
         assertEq(address(wTEL).balance, wtelBalBefore + amount);
         assertEq(address(this).balance, 0);
-        assertEq(iTEL.balanceOf(address(this)), 0);
-        assertEq(iTEL.unsettledRecords(address(this)).length, 1);
-
-        vm.warp(block.timestamp + recoverableWindow_);
         assertEq(iTEL.balanceOf(address(this)), amount);
         assertEq(iTEL.totalSupply(), amount);
-
-        iTEL.transfer(address(user), 1);
-        assertEq(iTEL.unsettledRecords(address(this)).length, 0);
     }
 
     function testRevert_doubleWrap_mintFailed() public {
@@ -143,7 +131,6 @@ contract InterchainTELTest is Test, ITSTestHelper {
         vm.deal(user, nativeAmount);
         vm.prank(user);
         iTEL.doubleWrap{ value: nativeAmount }();
-        vm.warp(block.timestamp + recoverableWindow_);
 
         uint256 initialBal = iTEL.balanceOf(user);
         assertEq(initialBal, nativeAmount);
@@ -182,14 +169,14 @@ contract InterchainTELTest is Test, ITSTestHelper {
     }
 
     function test_transfer_zero() public {
-        // RecoverableWrapper allows zero amount transfers
+        // iTEL allows zero amount transfers
         iTEL.transfer(address(wTEL), 0);
     }
 
-    function testRevert_transfer_self(uint8 amount) public {
+    function test_transfer_self(uint8 amount) public {
         vm.assume(amount > 0);
         iTEL.doubleWrap{ value: amount }();
-        vm.expectRevert();
+        // iTEL allows self transfers
         iTEL.transfer(address(this), amount);
     }
 
