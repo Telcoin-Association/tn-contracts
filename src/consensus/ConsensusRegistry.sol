@@ -26,6 +26,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
     uint16 internal nextCommitteeSize;
+    uint256 public undistributedIssuance;
     mapping(address => ValidatorInfo) public validators;
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
     EpochInfo[4] public epochInfo;
@@ -92,13 +93,24 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         if (totalWeight == 0) return;
 
-        // derive and apply validator's weighted share of epoch issuance
+        // get epoch issuance amount and incorporate dust from the previous epoch
         uint256 epochIssuance = getCurrentEpochInfo().epochIssuance;
+        uint256 totalAvailableToDistribute = epochIssuance + undistributedIssuance;
+
+        // derive and apply validator's weighted share of epoch issuance
+        uint256 amountDistributed;
         for (uint256 i; i < rewardInfos.length; ++i) {
             // will be 0 if `epochIssuance` is too small or `totalWeight` too large (many validators and/or headers)
-            uint256 rewardAmount = (epochIssuance * weights[i]) / totalWeight;
-            balances[rewardInfos[i].validatorAddress] += rewardAmount;
+            uint256 rewardAmount = (totalAvailableToDistribute * weights[i]) / totalWeight;
+
+            if (rewardAmount > 0) {
+                balances[rewardInfos[i].validatorAddress] += rewardAmount;
+                amountDistributed += rewardAmount;
+            }
         }
+
+        // roll over any remaining dust to the next epoch
+        undistributedIssuance = totalAvailableToDistribute - amountDistributed;
     }
 
     /// @inheritdoc IConsensusRegistry
