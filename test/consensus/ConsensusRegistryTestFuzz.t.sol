@@ -219,6 +219,42 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         }
     }
 
+    function test_applyIncentives_dustRollover() public {
+        // arithmetic with 7 validators to guarantee a remainder
+        uint24 numValidators = 7;
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+
+        vm.startPrank(sysAddress);
+
+        (RewardInfo[] memory rewardInfos,) = _fuzz_createRewardInfos(numValidators);
+
+        // override randomness with 'consensusHeaderCount == 1` to ensure every validator has equal weight
+        for (uint256 i; i < rewardInfos.length; ++i) {
+            rewardInfos[i].consensusHeaderCount = 1;
+        }
+
+        // simulate 3 cycles to prove that dust is accumulating and clearing.
+        uint256 knownDust;
+        for (uint256 epoch = 1; epoch <= 3; ++epoch) {
+            uint256 totalAvailable = epochIssuance_ + knownDust;
+            uint256 expectedRewardPerValidator = totalAvailable / numValidators;
+            uint256 expectedRemainder = totalAvailable - (expectedRewardPerValidator * numValidators);
+
+            if (expectedRemainder == 0) {
+                revert("Test Setup Failed: Divisor produced zero remainder.");
+            }
+
+            consensusRegistry.applyIncentives(rewardInfos);
+            uint256 storedDust = consensusRegistry.undistributedIssuance();
+            assertEq(storedDust, expectedRemainder, "Undistributed issuance (dust) does not match expected remainder");
+
+            knownDust = storedDust;
+        }
+
+        vm.stopPrank();
+    }
+
     function testFuzz_claimStakeRewards(uint24 numValidators, uint24 numRewardees) public {
         numValidators = uint24(bound(uint256(numValidators), 1, 800));
         numRewardees = uint24(bound(uint256(numRewardees), 1, numValidators));
