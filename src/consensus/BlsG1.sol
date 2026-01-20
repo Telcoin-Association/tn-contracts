@@ -49,17 +49,19 @@ library BlsG1 {
 
     /// @dev Standard BLS12-381 Generator Points (EIP-2537 encoded)
     /// @notice These are the standard generators, useful for deriving public keys from secrets in tests
-    bytes public constant G1_GENERATOR = hex"0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
-    bytes public constant G2_GENERATOR = hex"00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
+    bytes public constant G1_GENERATOR =
+        hex"0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+    bytes public constant G2_GENERATOR =
+        hex"00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
 
     /// @dev Negation of the BLS12-381 `G2_GENERATOR` point, used for signature pairing checks in our PoP
     bytes public constant G2_GENERATOR_NEG =
         hex"00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000d1b3cc2c7027888be51d9ef691d77bcb679afda66c73f17f9ee3837a55024f78c71363275a75d75d86bab79f74782aa0000000000000000000000000000000013fa4d4a0ad8b1ce186ed5061789213d993923066dddaf1040bc3ff59f825c78df74f2d75467e25e0f55f8a00fa030ed";
-    
+
     /// @dev 381-bit base field prime modulus
     bytes public constant P =
         hex"1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
-    
+
     /// @dev The BLS12-381 identity elements (infinity/zero points) encoded to comply with EIP2537
     bytes public constant G1_IDENTITY = new bytes(EIP2537_G1_POINT_SIZE);
     bytes public constant G2_IDENTITY = new bytes(EIP2537_G2_POINT_SIZE);
@@ -117,7 +119,7 @@ library BlsG1 {
         }
 
         bytes memory uncompressed = new bytes(96);
-        
+
         // Extract X
         eip2537BytesToFieldElement(encodedPoint, 0, uncompressed, 0);
         // Extract Y
@@ -162,16 +164,16 @@ library BlsG1 {
         }
 
         bytes memory uncompressed = new bytes(192);
-        
+
         // x.c1 (bytes 0-48 in uncompressed) comes from 2nd element (bytes 64-128 in encoded)
         eip2537BytesToFieldElement(encodedPoint, 64, uncompressed, 0);
-        
+
         // x.c0 (bytes 48-96 in uncompressed) comes from 1st element (bytes 0-64 in encoded)
         eip2537BytesToFieldElement(encodedPoint, 0, uncompressed, 48);
 
         // y.c1 (bytes 96-144 in uncompressed) comes from 4th element (bytes 192-256 in encoded)
         eip2537BytesToFieldElement(encodedPoint, 192, uncompressed, 96);
-        
+
         // y.c0 (bytes 144-192 in uncompressed) comes from 3rd element (bytes 128-192 in encoded)
         eip2537BytesToFieldElement(encodedPoint, 128, uncompressed, 144);
 
@@ -219,8 +221,8 @@ library BlsG1 {
      * Validators must sign over `prefixA || BLS pubkey || prefixB || validatorAddress` to ensure possession
      * Where `prefixA = POP_INTENT_PREFIX && prefixB = ADDRESS_LEN_PREFIX` (constants inserted by rust protocol
      * encoding)
-
-    /**
+     *
+     **
      * @notice Verifies a Proof of Possession for a generic message using a custom DST
      * @param blsPubkey Using G2 group for public keys (256 bytes when EIP2537-encoded)
      * @param signature Using G1 group for signatures (128bytes when EIP2537-encoded)
@@ -497,9 +499,9 @@ library BlsG1 {
         uint256 paddedOffset,
         bytes memory dest,
         uint256 destOffset
-    ) 
-        public 
-        pure 
+    )
+        public
+        pure
     {
         if (paddedOffset + EIP2537_FIELD_ELEMENT_SIZE > paddedElement.length) {
             revert InvalidPoint(paddedElement.length, EIP2537_FIELD_ELEMENT_SIZE);
@@ -507,7 +509,7 @@ library BlsG1 {
 
         // Verify the first 16 bytes are zeros (required by EIP2537)
         for (uint256 i = 0; i < 16; i++) {
-            if(paddedElement[paddedOffset + i] != 0) revert InvalidPadding();
+            if (paddedElement[paddedOffset + i] != 0) revert InvalidPadding();
         }
 
         // Extract bytes 16-63 (the actual field element)
