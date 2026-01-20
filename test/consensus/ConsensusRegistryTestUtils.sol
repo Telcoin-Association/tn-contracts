@@ -33,7 +33,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     // non-genesis validator for testing
     uint256 public validator5Secret = 5;
     address public validator5 = _addressFromPrivateKey(validator5Secret);
-    bytes public validator5BlsPubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(validator5Secret));
+    bytes public validator5BlsPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(validator5Secret));
 
     uint256 public telMaxSupply = 100_000_000_000e18;
     uint256 public registryGenesisBal;
@@ -111,9 +111,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         for (uint256 i; i < initialValidators.length; ++i) {
             uint256 secretI = i + 1;
             address validatorI = initialValidators[i].validatorAddress;
-            bytes memory pubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(secretI));
+            bytes memory pubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secretI));
             bytes memory messageI = proofOfPossessionMessage(pubkey, validatorI);
-            bytes memory signature = eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(secretI, messageI));
+            bytes memory signature = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secretI, messageI));
 
             initialBLSPops.push(BlsG1.ProofOfPossession(pubkey, signature));
         }
@@ -206,9 +206,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             address newValidator = _addressFromPrivateKey(secret);
 
             // generate new validator keys & signatures
-            bytes memory newBLSPubkey = eip2537PointG2ToUncompressed(_blsEIP2537PubkeyFromSecret(secret));
+            bytes memory newBLSPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secret));
             bytes memory message = proofOfPossessionMessage(newBLSPubkey, newValidator);
-            bytes memory blsSignature = eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(secret, message));
+            bytes memory blsSignature = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secret, message));
 
             // stake and activate
             vm.deal(newValidator, amount);

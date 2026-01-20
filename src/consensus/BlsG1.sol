@@ -4,8 +4,9 @@ pragma solidity ^0.8.20;
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title BlsG1 Proof of Possession Library
-/// @notice Utility to perform singular proof of possessions for BLS12-381 using EIP2537
-/// @author Telcoin Association
+/// @notice Utility to perform proof of possessions for BLS12-381 using EIP2537
+/// @dev Implements the 'min-sig' variant (Signatures in G1, Public Keys in G2)
+/// @author Robriks 📯️📯️📯️.eth
 
 library BlsG1 {
     /// @dev Represents a field element in BLS12-381 base field Fp
@@ -26,6 +27,7 @@ library BlsG1 {
     }
 
     error InvalidPoint(uint256 actualLen, uint256 expectedLen);
+    error InvalidPadding();
     error InvalidBLSPubkey();
     error InvalidUncompressedBLSPubkey();
     error InvalidFpOffset();
@@ -39,23 +41,32 @@ library BlsG1 {
 
     /// @dev Relevant BLS12-381 precompiles
     address public constant G1_ADD = address(0x0B);
+    address public constant G1_MUL = address(0x0C);
     address public constant G2_ADD = address(0x0D);
+    address public constant G2_MUL = address(0x0E);
     address public constant PAIRING_CHECK = address(0x0F);
     address public constant MAP_FP_TO_G1 = address(0x10);
+
+    /// @dev Standard BLS12-381 Generator Points (EIP-2537 encoded)
+    /// @notice These are the standard generators, useful for deriving public keys from secrets in tests
+    bytes public constant G1_GENERATOR = hex"0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+    bytes public constant G2_GENERATOR = hex"00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
 
     /// @dev Negation of the BLS12-381 `G2_GENERATOR` point, used for signature pairing checks in our PoP
     bytes public constant G2_GENERATOR_NEG =
         hex"00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000d1b3cc2c7027888be51d9ef691d77bcb679afda66c73f17f9ee3837a55024f78c71363275a75d75d86bab79f74782aa0000000000000000000000000000000013fa4d4a0ad8b1ce186ed5061789213d993923066dddaf1040bc3ff59f825c78df74f2d75467e25e0f55f8a00fa030ed";
+    
     /// @dev 381-bit base field prime modulus
     bytes public constant P =
         hex"1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+    
     /// @dev The BLS12-381 identity elements (infinity/zero points) encoded to comply with EIP2537
     bytes public constant G1_IDENTITY = new bytes(EIP2537_G1_POINT_SIZE);
     bytes public constant G2_IDENTITY = new bytes(EIP2537_G2_POINT_SIZE);
 
-    /// @dev Telcoin-specific Domain Separator Tag for BLS12-381 G1
+    /// @dev The Standard DST for BLS12-381 G1 Basic Signatures (RFC 9380/9677)
     /// https://datatracker.ietf.org/doc/html/rfc9380#appendix-J.9.1
-    /// @notice Used only for single proof of possession checks via blst::min_sig
+    /// @notice This is the generic default used by `blst::min_sig`. Integrators should consider custom DST.
     bytes public constant HASH_TO_G1_DST = "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
 
     /// @dev Constants for `expand_message_xmd` variant defined in RFC9380
@@ -97,6 +108,24 @@ library BlsG1 {
         return encoded;
     }
 
+    /// @dev Decodes an EIP2537-encoded G1 point (128 bytes) to uncompressed format (96 bytes)
+    /// @param encodedPoint 128-byte EIP2537 encoded G1 point
+    /// @return uncompressed 96-byte uncompressed G1 point
+    function decodeG1PointFromEIP2537(bytes memory encodedPoint) external pure returns (bytes memory) {
+        if (encodedPoint.length != EIP2537_G1_POINT_SIZE) {
+            revert InvalidPoint(encodedPoint.length, EIP2537_G1_POINT_SIZE);
+        }
+
+        bytes memory uncompressed = new bytes(96);
+        
+        // Extract X
+        eip2537BytesToFieldElement(encodedPoint, 0, uncompressed, 0);
+        // Extract Y
+        eip2537BytesToFieldElement(encodedPoint, 64, uncompressed, 48);
+
+        return uncompressed;
+    }
+
     /// @dev Encode a BLS12-381 G2 point (public key for min_sig) to EIP2537 format (256 bytes)
     /// @param uncompressedPubkey 192-byte uncompressed G2 point
     /// @return _ EIP2537-compliant, 256-byte encoded G1 point comprising four 64-byte padded field elements (x, y
@@ -125,13 +154,37 @@ library BlsG1 {
         return encoded;
     }
 
+    /// @dev Decodes an EIP2537-encoded G2 point (256 bytes) to uncompressed format (192 bytes)
+    /// @notice Reverses the coordinate reordering (x.c0/c1 -> x.c1/c0) used in encoding
+    function decodeG2PointFromEIP2537(bytes memory encodedPoint) external pure returns (bytes memory) {
+        if (encodedPoint.length != EIP2537_G2_POINT_SIZE) {
+            revert InvalidPoint(encodedPoint.length, EIP2537_G2_POINT_SIZE);
+        }
+
+        bytes memory uncompressed = new bytes(192);
+        
+        // x.c1 (bytes 0-48 in uncompressed) comes from 2nd element (bytes 64-128 in encoded)
+        eip2537BytesToFieldElement(encodedPoint, 64, uncompressed, 0);
+        
+        // x.c0 (bytes 48-96 in uncompressed) comes from 1st element (bytes 0-64 in encoded)
+        eip2537BytesToFieldElement(encodedPoint, 0, uncompressed, 48);
+
+        // y.c1 (bytes 96-144 in uncompressed) comes from 4th element (bytes 192-256 in encoded)
+        eip2537BytesToFieldElement(encodedPoint, 192, uncompressed, 96);
+        
+        // y.c0 (bytes 144-192 in uncompressed) comes from 3rd element (bytes 128-192 in encoded)
+        eip2537BytesToFieldElement(encodedPoint, 128, uncompressed, 144);
+
+        return uncompressed;
+    }
+
     /// @dev Validates an EIP2537-compliant G1 point by adding it to the identity using G1_ADD
     /// @return _ False if not 128 bytes in length, is not on the curve, or is the identity point
     function validatePointG1(bytes memory point) external view returns (bool) {
         if (point.length != EIP2537_G1_POINT_SIZE || isInfinityPointG1(point)) {
             revert InvalidPoint(point.length, EIP2537_G1_POINT_SIZE);
         }
-        return keccak256(addG1(point, G1_IDENTITY)) == keccak256(point);
+        return bytesEq(addG1(point, G1_IDENTITY), point);
     }
 
     /// @dev Validates an EIP2537-compliant G2 point by adding it to the identity using G2_ADD
@@ -140,42 +193,46 @@ library BlsG1 {
         if (point.length != EIP2537_G2_POINT_SIZE || isInfinityPointG2(point)) {
             revert InvalidPoint(point.length, EIP2537_G2_POINT_SIZE);
         }
-        return keccak256(addG2(point, G2_IDENTITY)) == keccak256(point);
+        return bytesEq(addG2(point, G2_IDENTITY), point);
     }
 
     /// @dev Checks if an EIP2537-compliant G1 point is the identity (infinity/zero point)
     /// @param uncompressedPointG1 Is not validated to be a G1 point on the curve; this must be enforced separately
     function isInfinityPointG1(bytes memory uncompressedPointG1) public pure returns (bool) {
-        return keccak256(uncompressedPointG1) == keccak256(G1_IDENTITY);
+        return bytesEq(uncompressedPointG1, G1_IDENTITY);
     }
 
     /// @dev Checks if an EIP2537-compliant G2 point is the identity (infinity/zero point)
     /// @param uncompressedPointG2 Is not validated to be a G2 point on the curve; this must be enforced separately
     function isInfinityPointG2(bytes memory uncompressedPointG2) public pure returns (bool) {
-        return keccak256(uncompressedPointG2) == keccak256(G2_IDENTITY);
+        return bytesEq(uncompressedPointG2, G2_IDENTITY);
+    }
+
+    /// @dev Checks if bytes `a == b`
+    function bytesEq(bytes memory a, bytes memory b) internal pure returns (bool) {
+        return keccak256(a) == keccak256(b);
     }
 
     /**
      * @notice Provided parameters must be uncompressed and EIP2537-compliant due to BLS12-381 precompile limitations
-     * Uses G2 group for public keys (256bytes for EIP2537) and G1 group for signature (128bytes for EIP2537)
+     * Using G2 group for public keys (256bytes for EIP2537) and G1 group for signature (128bytes for EIP2537)
      * Validators must sign over `prefixA || BLS pubkey || prefixB || validatorAddress` to ensure possession
      * Where `prefixA = POP_INTENT_PREFIX && prefixB = ADDRESS_LEN_PREFIX` (constants inserted by rust protocol
      * encoding)
-     * Flow:
-     * 1. hash `msg = concat(validatorAddress, blsPubkey)` to G1 curve using the RFC9380 hash-to-curve spec
-     *   a. hash msg with domain separator to obtain two field elements in the BLS12-381 base field:
-     *      `fieldElements = hashToField(msg, domainSeparator, 2)`
-     *   b. map each fp field element to a point on the G1 curve using the MAP_FP_TO_G1 precompile:
-     *      `point = mapFieldElementToG1(fp)`
-     *   c. add the two resulting G1 curve points using the G1_ADD precompile:
-     *      `msgPointHash = addG1(point0, point1)`
-     * 2. check BLS signature using PAIRING_CHECK precompile:
-     *      `concat(msgPointHash, blsPubkey, signature, G2_GENERATOR_NEG)`
+
+    /**
+     * @notice Verifies a Proof of Possession for a generic message using a custom DST
+     * @param blsPubkey Using G2 group for public keys (256 bytes when EIP2537-encoded)
+     * @param signature Using G1 group for signatures (128bytes when EIP2537-encoded)
+     * @param message The raw message that was signed (pre-hashing).
+     * eg for a PoP: `message = concat(validatorAddress, blsPubkey)`
+     * @param dst The Domain Separator Tag to use for hashing the message to G1
      */
     function verifyProofOfPossessionG1(
         bytes memory blsPubkey,
         bytes memory signature,
-        bytes memory message
+        bytes memory message,
+        bytes memory dst
     )
         external
         view
@@ -185,9 +242,11 @@ library BlsG1 {
         if (isInfinityPointG2(blsPubkey)) revert InvalidBLSPubkey();
         if (isInfinityPointG1(signature)) revert InvalidBLSProof();
 
-        // EIP2537 pairing precompile enforces valid points
-        bytes memory messagePointHash = hashToG1(message);
+        // hash message to G1 curve using the RFC9380 hash-to-curve spec
+        bytes memory messagePointHash = hashToG1(message, dst);
+        // check BLS signature using PAIRING_CHECK precompile
         bytes memory input = bytes.concat(messagePointHash, blsPubkey, signature, G2_GENERATOR_NEG);
+        // EIP2537 pairing precompile enforces valid points
         (bool r, bytes memory res) = PAIRING_CHECK.staticcall(input);
         if (!r) revert LowLevelCallFailure(res);
 
@@ -197,12 +256,15 @@ library BlsG1 {
 
     /// @dev Hash to a point on the G1 curve using hash-to-curve method outlined by RFC9380::8.8.1
     /// https://datatracker.ietf.org/doc/html/rfc9380#section-3-4.2.1
-    /// @return _ The deterministic point on G1 curve derived from `input`
-    function hashToG1(bytes memory input) public view returns (bytes memory) {
-        Fp[] memory fieldElements = hashToField(input, HASH_TO_G1_DST, 2);
+    /// @return _ The deterministic point on G1 curve derived from `message`
+    function hashToG1(bytes memory message, bytes memory dst) public view returns (bytes memory) {
+        // hash message with domain separator to obtain two field elements in the BLS12-381 base field:
+        Fp[] memory fieldElements = hashToField(message, dst, 2);
+        // map each fp field element to a point on the G1 curve using the MAP_FP_TO_G1 precompile:
         bytes memory point0 = mapFieldElementToG1(fieldElements[0]);
         bytes memory point1 = mapFieldElementToG1(fieldElements[1]);
 
+        // get the msg point hash by adding the two resulting G1 curve points using the G1_ADD precompile
         return addG1(point0, point1);
     }
 
@@ -230,6 +292,26 @@ library BlsG1 {
     function addG2(bytes memory point0, bytes memory point1) public view returns (bytes memory) {
         (bool r, bytes memory res) = BlsG1.G2_ADD.staticcall(bytes.concat(point0, point1));
         if (!r) revert BlsG1.LowLevelCallFailure(res);
+
+        return res;
+    }
+
+    /// @dev Scalar multiply the G1 curve point using the `G1_MUL` precompile
+    /// @return _ The resulting G1 point after scalar multiplication
+    function scalarMulG1(bytes memory g1Point, uint256 scalar) public view returns (bytes memory) {
+        bytes memory input = bytes.concat(g1Point, bytes32(scalar));
+        (bool r, bytes memory res) = G1_MUL.staticcall(input);
+        if (!r) revert LowLevelCallFailure(res);
+
+        return res;
+    }
+
+    /// @dev Scalar multiply the G2 curve point using the `G2_MUL` precompile
+    /// @return _ The resulting G2 point after scalar multiplication
+    function scalarMulG2(bytes memory g2Point, uint256 scalar) public view returns (bytes memory) {
+        bytes memory input = bytes.concat(g2Point, bytes32(scalar));
+        (bool r, bytes memory res) = G2_MUL.staticcall(input);
+        if (!r) revert LowLevelCallFailure(res);
 
         return res;
     }
@@ -407,18 +489,30 @@ library BlsG1 {
 
     /// @dev Extracts a 48-byte BLS12-381 field element from EIP2537 64-byte padded format
     /// @param paddedElement 64-byte EIP2537 padded field element (16 zeros + 48 bytes)
-    /// @return fieldElement 48-byte field element
-    function eip2537BytesToFieldElement(bytes memory paddedElement) external pure returns (bytes memory fieldElement) {
-        if (paddedElement.length != EIP2537_FIELD_ELEMENT_SIZE) {
+    /// @param paddedOffset The offset in the padded byte array to start reading
+    /// @param dest The destination byte array to write the 48-byte element
+    /// @param destOffset The offset in the destination to start writing
+    function eip2537BytesToFieldElement(
+        bytes memory paddedElement,
+        uint256 paddedOffset,
+        bytes memory dest,
+        uint256 destOffset
+    ) 
+        public 
+        pure 
+    {
+        if (paddedOffset + EIP2537_FIELD_ELEMENT_SIZE > paddedElement.length) {
             revert InvalidPoint(paddedElement.length, EIP2537_FIELD_ELEMENT_SIZE);
         }
 
         // Verify the first 16 bytes are zeros (required by EIP2537)
         for (uint256 i = 0; i < 16; i++) {
-            require(paddedElement[i] == 0, "Invalid padding: non-zero in first 16 bytes");
+            if(paddedElement[paddedOffset + i] != 0) revert InvalidPadding();
         }
 
         // Extract bytes 16-63 (the actual field element)
-        return extractBytes(paddedElement, 16, 48);
+        for (uint256 i = 0; i < FIELD_ELEMENT_SIZE; i++) {
+            dest[destOffset + i] = paddedElement[paddedOffset + 16 + i];
+        }
     }
 }
