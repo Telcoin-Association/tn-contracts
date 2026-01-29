@@ -504,7 +504,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         bytes memory popMessage = proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress);
         bytes memory eip2537Pubkey = BlsG1.encodeG2PointForEIP2537(g1Pop.uncompressedPubkey);
         bytes memory eip2537Signature = BlsG1.encodeG1PointForEIP2537(g1Pop.uncompressedSignature);
-        if (!BlsG1.verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, popMessage)) {
+        if (!BlsG1.verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, popMessage, BlsG1.HASH_TO_G1_DST)) {
             revert InvalidProofOfPossession(g1Pop, popMessage);
         }
 
@@ -931,7 +931,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             epoch.epochDuration = genesisConfig_.epochDuration;
             epoch.epochIssuance = genesisConfig_.epochIssuance;
 
-            EpochInfo storage futureEpoch = futureEpochInfo[j]; //todo
+            EpochInfo storage futureEpoch = futureEpochInfo[j];
             futureEpoch.epochId = uint32(j);
             futureEpoch.epochDuration = genesisConfig_.epochDuration;
             futureEpoch.epochIssuance = genesisConfig_.epochIssuance;

@@ -83,7 +83,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         // Check event emission
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
@@ -130,7 +130,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         // Check event emission
         bool isDelegate = true;
@@ -174,7 +174,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
 
         // expect revert - not enough active validators
@@ -236,7 +236,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.startPrank(validator5);
@@ -255,7 +255,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.prank(validator5);
         consensusRegistry.stake{
@@ -343,7 +343,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         vm.startPrank(validator5);
         consensusRegistry.stake{
@@ -385,9 +385,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // exit occurs on third epoch without validator5 in committee
         uint32 expectedExitEpoch = uint32(consensusRegistry.getCurrentEpoch() + 1);
+        bytes memory validator1Pubkey = _blsDummyPubkeyFromSecret(1); // recreate validator1 blsPubkey
         vm.expectEmit(true, true, true, true);
         emit ValidatorExited(ValidatorInfo(
-                _blsDummyPubkeyFromSecret(1), // recreate validator1 blsPubkey
+                validator1Pubkey,
                 validator1,
                 uint32(0),
                 expectedExitEpoch,
@@ -425,7 +426,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         // stake stake but never activate
         vm.startPrank(validator5);
@@ -468,7 +469,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
         bytes memory validator5BlsSig =
-            eip2537PointG1ToUncompressed(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
 
         // stake and activate
