@@ -34,37 +34,36 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_correctMessageFormat() public view {
         // Generate test validator
-        uint256 sk = 12345;
+        uint256 sk = 12_345;
         address validator = address(0x789);
 
-        // Generate BLS pubkey (G2) in uncompressed format (192 bytes)
-        bytes memory g2Generator = BlsG1.G2_GENERATOR;
-        bytes memory uncompressedPubkey = BlsG1.scalarMulG2(g2Generator, sk);
-
-        // Decode from EIP2537 (256 bytes) to uncompressed (192 bytes)
-        bytes memory pubkey96 = BlsG1.decodeG2PointFromEIP2537(uncompressedPubkey);
+        // Generate BLS pubkey (G2) as EIP2537 (256 bytes), decode to uncompressed (192 bytes)
+        bytes memory eip2537Pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
+        bytes memory uncompressedPubkey = BlsG1.decodeG2PointFromEIP2537(eip2537Pubkey);
+        assertEq(uncompressedPubkey.length, 192, "Uncompressed G2 should be 192 bytes");
 
         // Create message with correct format
-        bytes memory popMsg = proofOfPossessionMessage(pubkey96, validator);
+        bytes memory popMsg = proofOfPossessionMessage(uncompressedPubkey, validator);
 
-        // Expected format: 5 + 96 + 1 + 20 = 122 bytes
-        assertEq(popMsg.length, 122, "Incorrect message length");
+        // Expected format: 5 + 192 + 1 + 20 = 218 bytes
+        assertEq(popMsg.length, 218, "Incorrect message length");
 
         // Verify structure
         assertEq(bytes5(bytes(popMsg)), POP_INTENT_PREFIX, "Wrong prefix");
-        assertEq(popMsg[101], ADDRESS_LEN_PREFIX, "Wrong address length prefix");
+        // ADDRESS_LEN_PREFIX is at offset 5 + 192 = 197
+        assertEq(popMsg[197], ADDRESS_LEN_PREFIX, "Wrong address length prefix");
 
-        // Extract and verify address
+        // Extract and verify address (starts at offset 198, load 32 bytes from memory offset 32 + 198 = 230)
         bytes20 extractedAddress;
         assembly {
-            extractedAddress := mload(add(popMsg, 122))
+            extractedAddress := mload(add(popMsg, 230))
         }
         assertEq(address(extractedAddress), validator, "Wrong validator address");
     }
 
     function test_integration_signAndVerify_completeFlow() public view {
         // Complete flow: key generation -> message creation -> signing -> verification
-        uint256 sk = 99999;
+        uint256 sk = 99_999;
         address validator = address(0xABCD);
 
         // 1. Generate BLS public key (simulating validator key generation)
@@ -93,7 +92,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_attack_wrongPrefix() public view {
         // Attacker tries to bypass intent prefix
-        uint256 sk = 11111;
+        uint256 sk = 11_111;
         address validator = address(0x111);
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
@@ -116,7 +115,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_attack_wrongAddressLengthPrefix() public view {
         // Attacker tries to manipulate address length prefix
-        uint256 sk = 22222;
+        uint256 sk = 22_222;
         address validator = address(0x222);
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
@@ -128,8 +127,7 @@ contract BlsG1IntegrationTests is Test {
         bytes memory legitSig = BlsG1.scalarMulG1(legitHash, sk);
 
         // Attack: wrong address length prefix (0x15 instead of 0x14)
-        bytes memory attackMsg =
-            bytes.concat(POP_INTENT_PREFIX, uncompressedPubkey, bytes1(0x15), bytes20(validator));
+        bytes memory attackMsg = bytes.concat(POP_INTENT_PREFIX, uncompressedPubkey, bytes1(0x15), bytes20(validator));
 
         // Should not verify
         assertFalse(
@@ -140,7 +138,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_attack_addressSubstitution() public view {
         // Attacker tries to reuse valid signature for different address
-        uint256 sk = 33333;
+        uint256 sk = 33_333;
         address legitValidator = address(0x333);
         address attackValidator = address(0x999);
 
@@ -164,8 +162,8 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_attack_pubkeySubstitution() public view {
         // Attacker tries to use signature from one key with another key
-        uint256 sk1 = 44444;
-        uint256 sk2 = 55555;
+        uint256 sk1 = 44_444;
+        uint256 sk2 = 55_555;
         address validator = address(0x444);
 
         bytes memory pubkey1 = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk1);
@@ -185,33 +183,28 @@ contract BlsG1IntegrationTests is Test {
         );
     }
 
-    function test_integration_attack_signatureMalleable() public view {
+    function test_integration_attack_signatureMalleable() public {
         // Test if signatures can be malleated (they shouldn't be in BLS)
-        uint256 sk = 66666;
+        uint256 sk = 66_666;
         address validator = address(0x666);
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         bytes memory uncompressedPubkey = BlsG1.decodeG2PointFromEIP2537(pubkey);
 
-        bytes memory msg = proofOfPossessionMessage(uncompressedPubkey, validator);
-        bytes memory hash = BlsG1.hashToG1(msg, BlsG1.HASH_TO_G1_DST);
+        bytes memory proof_msg = proofOfPossessionMessage(uncompressedPubkey, validator);
+        bytes memory hash = BlsG1.hashToG1(proof_msg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
         // Verify original signature works
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig, msg, BlsG1.HASH_TO_G1_DST), "Original signature should work"
+            BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST),
+            "Original signature should work"
         );
 
-        // Try to create alternate signature by negating
-        // In BLS12-381, -P is a different point on the curve
-        // This tests if malleated signatures would verify (they shouldn't)
-        bytes memory g1Identity = BlsG1.G1_IDENTITY;
-        // Note: Can't easily negate without more helper functions
-        // But identity should definitely not verify as valid signature
-        assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, g1Identity, msg, BlsG1.HASH_TO_G1_DST),
-            "Identity should not be valid signature"
-        );
+        // Identity point as signature is rejected early with a revert, not a false return.
+        // This is correct behavior: fail fast rather than waste gas on a pairing check.
+        vm.expectRevert(BlsG1.InvalidBLSProof.selector);
+        BlsG1.verifyProofOfPossessionG1(pubkey, BlsG1.G1_IDENTITY, proof_msg, BlsG1.HASH_TO_G1_DST);
     }
 
     // =============================================================================
@@ -220,7 +213,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_noReplay_differentMessages() public view {
         // Verify that same signature can't be used for different messages
-        uint256 sk = 77777;
+        uint256 sk = 77_777;
         address validator = address(0x777);
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
@@ -246,7 +239,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_g2CoordinateReordering() public view {
         // Test that G2 coordinate reordering is correctly handled
-        uint256 sk = 88888;
+        uint256 sk = 88_888;
         bytes memory g2Point = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
 
         // Decode (reversing reordering)
@@ -282,17 +275,17 @@ contract BlsG1IntegrationTests is Test {
     // =============================================================================
 
     function test_gas_fullVerificationFlow() public view {
-        uint256 sk = 123456;
+        uint256 sk = 123_456;
         address validator = address(0xBEEF);
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         bytes memory uncompressedPubkey = BlsG1.decodeG2PointFromEIP2537(pubkey);
-        bytes memory msg = proofOfPossessionMessage(uncompressedPubkey, validator);
-        bytes memory hash = BlsG1.hashToG1(msg, BlsG1.HASH_TO_G1_DST);
+        bytes memory proof_msg = proofOfPossessionMessage(uncompressedPubkey, validator);
+        bytes memory hash = BlsG1.hashToG1(proof_msg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
         uint256 gasBefore = gasleft();
-        bool verified = BlsG1.verifyProofOfPossessionG1(pubkey, sig, msg, BlsG1.HASH_TO_G1_DST);
+        bool verified = BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST);
         uint256 gasUsed = gasBefore - gasleft();
 
         assertTrue(verified, "Verification failed");
@@ -301,10 +294,10 @@ contract BlsG1IntegrationTests is Test {
     }
 
     function test_gas_hashToG1() public view {
-        bytes memory msg = "Test message for gas benchmarking";
+        bytes memory proof_msg = "Test message for gas benchmarking";
 
         uint256 gasBefore = gasleft();
-        BlsG1.hashToG1(msg, BlsG1.HASH_TO_G1_DST);
+        BlsG1.hashToG1(proof_msg, BlsG1.HASH_TO_G1_DST);
         uint256 gasUsed = gasBefore - gasleft();
 
         console2.log("Gas used for hashToG1:", gasUsed);
@@ -312,11 +305,11 @@ contract BlsG1IntegrationTests is Test {
     }
 
     function test_gas_expandMessageXmd() public view {
-        bytes memory msg = "Test message";
+        bytes memory proof_msg = "Test message";
         bytes memory dst = BlsG1.HASH_TO_G1_DST;
 
         uint256 gasBefore = gasleft();
-        BlsG1.expandMessageXmd(msg, dst, 128);
+        BlsG1.expandMessageXmd(proof_msg, dst, 128);
         uint256 gasUsed = gasBefore - gasleft();
 
         console2.log("Gas used for expandMessageXmd:", gasUsed);
@@ -329,8 +322,7 @@ contract BlsG1IntegrationTests is Test {
 
     function test_integration_largeMessage() public view {
         // Test with very large message (1KB)
-        uint256 sk = 111111;
-        address validator = address(0x111);
+        uint256 sk = 111_111;
 
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         bytes memory largeMsg = new bytes(1024);
@@ -341,14 +333,12 @@ contract BlsG1IntegrationTests is Test {
         bytes memory hash = BlsG1.hashToG1(largeMsg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
-        assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig, largeMsg, BlsG1.HASH_TO_G1_DST), "Large message failed"
-        );
+        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, largeMsg, BlsG1.HASH_TO_G1_DST), "Large message failed");
     }
 
     function test_integration_emptyMessage() public view {
         // Test with empty message
-        uint256 sk = 222222;
+        uint256 sk = 222_222;
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         bytes memory emptyMsg = "";
 
@@ -367,10 +357,10 @@ contract BlsG1IntegrationTests is Test {
         address validator = address(0xFFFF);
         bytes memory uncompressedPubkey = BlsG1.decodeG2PointFromEIP2537(pubkey);
 
-        bytes memory msg = proofOfPossessionMessage(uncompressedPubkey, validator);
-        bytes memory hash = BlsG1.hashToG1(msg, BlsG1.HASH_TO_G1_DST);
+        bytes memory proof_msg = proofOfPossessionMessage(uncompressedPubkey, validator);
+        bytes memory hash = BlsG1.hashToG1(proof_msg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, maxSk);
 
-        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, msg, BlsG1.HASH_TO_G1_DST), "Max scalar failed");
+        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST), "Max scalar failed");
     }
 }

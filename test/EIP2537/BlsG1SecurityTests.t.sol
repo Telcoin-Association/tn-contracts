@@ -45,7 +45,7 @@ contract BlsG1SecurityTests is Test {
     }
 
     function test_expandMessageXmd_dstVariations() public pure {
-        bytes memory msg = "test";
+        bytes memory proof_msg = "test";
         uint16 len = 64;
 
         // Test with various DST lengths
@@ -56,9 +56,9 @@ contract BlsG1SecurityTests is Test {
             dst3[i] = bytes1(uint8(65 + (i % 26)));
         }
 
-        bytes memory result1 = BlsG1.expandMessageXmd(msg, dst1, len);
-        bytes memory result2 = BlsG1.expandMessageXmd(msg, dst2, len);
-        bytes memory result3 = BlsG1.expandMessageXmd(msg, dst3, len);
+        bytes memory result1 = BlsG1.expandMessageXmd(proof_msg, dst1, len);
+        bytes memory result2 = BlsG1.expandMessageXmd(proof_msg, dst2, len);
+        bytes memory result3 = BlsG1.expandMessageXmd(proof_msg, dst3, len);
 
         // Results should be different with different DSTs
         assertTrue(keccak256(result1) != keccak256(result2), "DST collision");
@@ -66,17 +66,17 @@ contract BlsG1SecurityTests is Test {
     }
 
     function test_expandMessageXmd_revertOnInvalidInputs() public {
-        bytes memory msg = "test";
+        bytes memory proof_msg = "test";
         bytes memory dst = "DST";
 
         // Test ell > 255
         vm.expectRevert();
-        BlsG1.expandMessageXmd(msg, dst, uint16(256 * 32));
+        BlsG1.expandMessageXmd(proof_msg, dst, uint16(256 * 32));
 
         // Test DST too long (> 255 bytes)
         bytes memory longDST = new bytes(256);
         vm.expectRevert();
-        BlsG1.expandMessageXmd(msg, longDST, 64);
+        BlsG1.expandMessageXmd(proof_msg, longDST, 64);
     }
 
     // =============================================================================
@@ -153,8 +153,7 @@ contract BlsG1SecurityTests is Test {
 
     function test_precompile_scalarMulG1_identity() public view {
         // Any point * 0 = identity
-        uint256 sk = 12345;
-        bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
+        uint256 sk = 12_345;
 
         bytes memory point = BlsG1.scalarMulG1(BlsG1.G1_GENERATOR, sk);
         bytes memory identityResult = BlsG1.scalarMulG1(point, 0);
@@ -289,22 +288,19 @@ contract BlsG1SecurityTests is Test {
     // Padding Validation Tests
     // =============================================================================
 
-    function test_eip2537BytesToFieldElement_validPadding() public pure {
-        // Create properly padded element (16 zeros + 48 bytes)
-        bytes memory padded = new bytes(64);
-        // First 16 bytes are zero (padding)
-        // Fill last 48 bytes with data
-        for (uint256 i = 16; i < 64; i++) {
-            padded[i] = bytes1(uint8(i));
+    function test_eip2537BytesToFieldElement_validPadding_viaRoundtrip() public pure {
+        // Direct calls to eip2537BytesToFieldElement can't observe dest modifications
+        // because public library functions ABI-encode/decode memory params on external calls.
+        // Test indirectly: decodeG1PointFromEIP2537 calls eip2537BytesToFieldElement internally.
+        bytes memory uncompressed = new bytes(96);
+        for (uint256 i = 0; i < 96; i++) {
+            uncompressed[i] = bytes1(uint8(i + 1));
         }
 
-        bytes memory dest = new bytes(48);
-        BlsG1.eip2537BytesToFieldElement(padded, 0, dest, 0);
+        bytes memory encoded = BlsG1.encodeG1PointForEIP2537(uncompressed);
+        bytes memory decoded = BlsG1.decodeG1PointFromEIP2537(encoded);
 
-        // Check extracted data matches
-        for (uint256 i = 0; i < 48; i++) {
-            assertEq(dest[i], bytes1(uint8(i + 16)), "Extraction mismatch");
-        }
+        assertEq(keccak256(decoded), keccak256(uncompressed), "Roundtrip validates padding extraction");
     }
 
     function test_eip2537BytesToFieldElement_revertOnInvalidPadding() public {
@@ -320,24 +316,28 @@ contract BlsG1SecurityTests is Test {
         BlsG1.eip2537BytesToFieldElement(badPadded, 0, dest, 0);
     }
 
-    function test_fieldElementToEIP2537Bytes_correctPadding() public pure {
-        // Create 48-byte field element
-        bytes memory source = new bytes(48);
-        for (uint256 i = 0; i < 48; i++) {
-            source[i] = bytes1(uint8(i + 1));
+    function test_fieldElementToEIP2537Bytes_correctPadding_viaEncode() public pure {
+        // Direct calls to fieldElementToEIP2537Bytes can't observe dest modifications
+        // because public library functions ABI-encode/decode memory params on external calls.
+        // Test indirectly: encodeG1PointForEIP2537 calls fieldElementToEIP2537Bytes internally.
+        bytes memory uncompressed = new bytes(96);
+        for (uint256 i = 0; i < 96; i++) {
+            uncompressed[i] = bytes1(uint8(i + 1));
         }
 
-        bytes memory dest = new bytes(64);
-        BlsG1.fieldElementToEIP2537Bytes(source, 0, dest, 0);
+        bytes memory encoded = BlsG1.encodeG1PointForEIP2537(uncompressed);
+        assertEq(encoded.length, 128, "Wrong encoded length");
 
-        // First 16 bytes should be zero
+        // Verify padding: first 16 bytes of each 64-byte element must be zero
         for (uint256 i = 0; i < 16; i++) {
-            assertEq(dest[i], bytes1(0), "Padding not zero");
+            assertEq(encoded[i], bytes1(0), "X padding not zero");
+            assertEq(encoded[64 + i], bytes1(0), "Y padding not zero");
         }
 
-        // Last 48 bytes should match source
+        // Verify data preserved after padding
         for (uint256 i = 0; i < 48; i++) {
-            assertEq(dest[i + 16], source[i], "Data mismatch");
+            assertEq(encoded[16 + i], uncompressed[i], "X data mismatch");
+            assertEq(encoded[64 + 16 + i], uncompressed[48 + i], "Y data mismatch");
         }
     }
 
@@ -366,7 +366,7 @@ contract BlsG1SecurityTests is Test {
         BlsG1.I2OSP(256, 1); // 256 doesn't fit in 1 byte
 
         vm.expectRevert();
-        BlsG1.I2OSP(65536, 2); // 65536 doesn't fit in 2 bytes
+        BlsG1.I2OSP(65_536, 2); // 65536 doesn't fit in 2 bytes
     }
 
     function test_I2OSP_bigEndian() public pure {
@@ -411,19 +411,16 @@ contract BlsG1SecurityTests is Test {
     // =============================================================================
 
     function test_verifyPoP_withDifferentMessageFormats() public view {
-        uint256 sk = 54321;
+        uint256 sk = 54_321;
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         address validator = address(0x123);
 
         // Format 1: With prefixes (expected)
-        bytes memory msg1 = abi.encodePacked(
-            POP_INTENT_PREFIX, pubkey, ADDRESS_LEN_PREFIX, bytes20(validator)
-        );
+        bytes memory msg1 = abi.encodePacked(POP_INTENT_PREFIX, pubkey, ADDRESS_LEN_PREFIX, bytes20(validator));
         bytes memory hash1 = BlsG1.hashToG1(msg1, BlsG1.HASH_TO_G1_DST);
         bytes memory sig1 = BlsG1.scalarMulG1(hash1, sk);
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg1, BlsG1.HASH_TO_G1_DST),
-            "Valid format should verify"
+            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg1, BlsG1.HASH_TO_G1_DST), "Valid format should verify"
         );
 
         // Format 2: Without prefixes (should fail with sig1)
@@ -443,17 +440,15 @@ contract BlsG1SecurityTests is Test {
 
         // Verify cross-contamination doesn't work
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg2, BlsG1.HASH_TO_G1_DST),
-            "Should not cross-verify"
+            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg2, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
         );
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig2, msg1, BlsG1.HASH_TO_G1_DST),
-            "Should not cross-verify"
+            BlsG1.verifyProofOfPossessionG1(pubkey, sig2, msg1, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
         );
     }
 
     function test_verifyPoP_withDifferentDSTs() public view {
-        uint256 sk = 11111;
+        uint256 sk = 11_111;
         bytes memory pubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, sk);
         bytes memory message = abi.encodePacked(pubkey, bytes20(address(0x456)));
 
@@ -465,15 +460,11 @@ contract BlsG1SecurityTests is Test {
         bytes memory sig1 = BlsG1.scalarMulG1(hash1, sk);
 
         // Verify with same DST should pass
-        assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst1),
-            "Should verify with matching DST"
-        );
+        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst1), "Should verify with matching DST");
 
         // Verify with different DST should fail
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst2),
-            "Should not verify with different DST"
+            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst2), "Should not verify with different DST"
         );
     }
 
@@ -509,23 +500,17 @@ contract BlsG1SecurityTests is Test {
         assertEq(decoded, value, "I2OSP roundtrip failed");
     }
 
-    function testFuzz_extractBytes_consistency(
-        bytes memory source,
-        uint256 offset,
-        uint256 length
-    )
-        public
-        pure
-    {
-        // Constrain to valid inputs
+    function testFuzz_extractBytes_consistency(bytes memory source, uint256 offset, uint256 length) public pure {
         vm.assume(source.length > 0);
-        vm.assume(length > 0 && length <= source.length);
-        vm.assume(offset <= source.length - length);
+        // Use bound() to clamp random uint256 values into valid ranges.
+        // vm.assume() rejects inputs that don't match, but random uint256 values
+        // are almost never <= source.length, exhausting the 65536 rejection limit.
+        length = bound(length, 1, source.length);
+        offset = bound(offset, 0, source.length - length);
 
         bytes memory extracted = BlsG1.extractBytes(source, offset, length);
         assertEq(extracted.length, length, "Wrong extraction length");
 
-        // Verify content matches
         for (uint256 i = 0; i < length; i++) {
             assertEq(extracted[i], source[offset + i], "Extraction content mismatch");
         }
