@@ -11,7 +11,7 @@ script = "script"
 solc = "0.8.26"
 src = "src"
 test = "test"
-libs = ["node_modules"]
+libs = ["node_modules", "lib"]
 fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/consensus-registry-config.yaml" },
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },

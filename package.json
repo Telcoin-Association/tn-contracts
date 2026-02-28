@@ -55,7 +55,12 @@
     "js-yaml": "^4.1.0",
     "solady": "~0.1.26",
     "telcoin-contracts": "1.0.0",
-    "viem": "2.38.3"
+    "viem": "2.38.3",
+    "@layerzerolabs/oft-evm": "^4.0.1",
+    "@layerzerolabs/oapp-evm": "^0.4.1",
+    "@layerzerolabs/lz-evm-protocol-v2": "^3.0.148",
+    "@layerzerolabs/lz-evm-messagelib-v2": "^3.0.148",
+    "@layerzerolabs/test-devtools-evm-foundry": "^6.0.3"
   },
   "devDependencies": {
     "@types/js-yaml": "4.0.9",
