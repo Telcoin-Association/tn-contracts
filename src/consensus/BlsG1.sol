@@ -66,6 +66,10 @@ library BlsG1 {
     bytes public constant G1_IDENTITY = new bytes(EIP2537_G1_POINT_SIZE);
     bytes public constant G2_IDENTITY = new bytes(EIP2537_G2_POINT_SIZE);
 
+    /// @dev The BLS12-381 identity elements in raw uncompressed format (pre-encoding)
+    bytes public constant G1_IDENTITY_RAW = new bytes(96);
+    bytes public constant G2_IDENTITY_RAW = new bytes(192);
+
     /// @dev The Standard DST for BLS12-381 G1 Basic Signatures (RFC 9380/9677)
     /// https://datatracker.ietf.org/doc/html/rfc9380#appendix-J.9.1
     /// @notice This is the generic default used by `blst::min_sig`. Integrators should consider custom DST.
@@ -101,7 +105,7 @@ library BlsG1 {
 
         // if the provided signature is the identity, return early with 128 zero bytes
         bytes memory encoded = new bytes(EIP2537_G1_POINT_SIZE);
-        if (isInfinityPointG1(uncompressedSignature)) return encoded;
+        if (isUncompressedInfinityPointG1(uncompressedSignature)) return encoded;
 
         // otherwise, pad x and y coordinates with 16 leading zeroes
         fieldElementToEIP2537Bytes(uncompressedSignature, 0, encoded, 0);
@@ -141,7 +145,7 @@ library BlsG1 {
 
         // if the provided public key is the identity, return early with 256 zero bytes
         bytes memory encoded = new bytes(EIP2537_G2_POINT_SIZE);
-        if (isInfinityPointG2(uncompressedPubkey)) return encoded;
+        if (isUncompressedInfinityPointG2(uncompressedPubkey)) return encoded;
 
         // reorder blst serialization of coordinates for EIP2537 compliance: `x.c0 || x.c1 || y.c0 || y.c1`
         // x.c0 (second 48 bytes of x coordinate, bytes 48-96)
@@ -199,15 +203,27 @@ library BlsG1 {
     }
 
     /// @dev Checks if an EIP2537-compliant G1 point is the identity (infinity/zero point)
-    /// @param uncompressedPointG1 Is not validated to be a G1 point on the curve; this must be enforced separately
-    function isInfinityPointG1(bytes memory uncompressedPointG1) public pure returns (bool) {
-        return bytesEq(uncompressedPointG1, G1_IDENTITY);
+    /// @param eip2537PointG1 Is not validated to be a G1 point on the curve; this must be enforced separately
+    function isInfinityPointG1(bytes memory eip2537PointG1) public pure returns (bool) {
+        return bytesEq(eip2537PointG1, G1_IDENTITY);
+    }
+
+    /// @dev Checks if an uncompressed G1 point (96 bytes) is the identity (infinity/zero point)
+    /// @param uncompressedPointG1 96-byte uncompressed G1 point
+    function isUncompressedInfinityPointG1(bytes memory uncompressedPointG1) public pure returns (bool) {
+        return bytesEq(uncompressedPointG1, G1_IDENTITY_RAW);
     }
 
     /// @dev Checks if an EIP2537-compliant G2 point is the identity (infinity/zero point)
-    /// @param uncompressedPointG2 Is not validated to be a G2 point on the curve; this must be enforced separately
-    function isInfinityPointG2(bytes memory uncompressedPointG2) public pure returns (bool) {
-        return bytesEq(uncompressedPointG2, G2_IDENTITY);
+    /// @param eip2537PointG2 Is not validated to be a G2 point on the curve; this must be enforced separately
+    function isInfinityPointG2(bytes memory eip2537PointG2) public pure returns (bool) {
+        return bytesEq(eip2537PointG2, G2_IDENTITY);
+    }
+
+    /// @dev Checks if an uncompressed G2 point (192 bytes) is the identity (infinity/zero point)
+    /// @param uncompressedPointG2 192-byte uncompressed G2 point
+    function isUncompressedInfinityPointG2(bytes memory uncompressedPointG2) public pure returns (bool) {
+        return bytesEq(uncompressedPointG2, G2_IDENTITY_RAW);
     }
 
     /// @dev Checks if bytes `a == b`
