@@ -19,31 +19,8 @@ struct Deployments {
     address TANIssuancePlugin;
     address admin;
     EXYZs eXYZs;
-    ITS its;
-    address optimismTEL;
-    address sepoliaTEL;
     UniswapV2 uniswapV2;
     address wTEL;
-}
-
-/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
-struct ITS {
-    address AxelarAmplifierGateway;
-    address AxelarAmplifierGatewayImpl;
-    address GasService;
-    address GasServiceImpl;
-    address GatewayCaller;
-    address InterchainTEL;
-    address InterchainTELTokenManager;
-    address InterchainTokenDeployer;
-    address InterchainTokenFactory;
-    address InterchainTokenFactoryImpl;
-    address InterchainTokenImpl;
-    address InterchainTokenService;
-    address InterchainTokenServiceImpl;
-    address TokenHandler;
-    address TokenManagerDeployer;
-    address TokenManagerImpl;
 }
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering

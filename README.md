@@ -2,7 +2,7 @@
 
 ## Overview
 
-This Telcoin Network smart contracts repository contains various system and standard contracts that play crucial roles for the Telcoin Network, including the **InterchainTEL** token precompile and the **ConsensusRegistry** system contract.
+This Telcoin Network smart contracts repository contains various system and standard contracts that play crucial roles for the Telcoin Network, including the **ConsensusRegistry** system contract.
 
 ## Get Started
 
@@ -21,8 +21,6 @@ To build the smart contracts:
 To run the smart contract tests, which will run for a bit to fuzz thoroughly, use:
 
 `forge test`
-
-The fork tests will require you to add a Sepolia, Optimism-Sepolia, and Telcoin-Network RPC url to the .env file.
 
 ## ConsensusRegistry Contract
 
@@ -63,28 +61,6 @@ Below, we follow the general lifecycle of a new validator in roughly chronologic
 7. **Unstaking**: Validators that have elapsed one full epoch in the `Exited` state (or their delegators) may call the `unstake()` function to reclaim the original stake and any accrued rewards. This process burns the `ConsensusNFT`, releasing the stake and rewards. Once unstaked, the validator's address enters an `UNSTAKED` state, making the retirement irreversible. To rejoin the network, a new `ConsensusNFT` must be obtained, and a new validator address must be used.
 
 This detailed lifecycle ensures that validators are properly integrated into the Telcoin Network, maintaining the integrity and reliability of the network's consensus mechanism. For further technical details, refer to the [consensus/design.md](./design.md) file.
-
-## InterchainTEL
-
-### Overview
-
-The InterchainTEL module is a crucial component of the Telcoin Network, facilitating the seamless conversion between Ethereum's ERC20 TEL and Telcoin Network's native TEL gas currency. This module is integral to the network's interchain bridging flow.
-
-### Key Features
-
-- **Axelar Interchain Token Service**: Utilizes Axelar's Interchain Token Service (ITS) to manage interchain conversions, integrated as system precompiles in the protocol.
-- **Custom Implementation**: The InterchainTEL token contract is a custom implementation that handles minting and burning of TEL as part of the interchain bridging process.
-
-### Interchain Bridging Process
-
-- **Inbound Conversion**: Native TEL is minted on Telcoin Network when TEL is locked or burned on a remote chain.
-- **Outbound Bridging**: TEL is double-wrapped to iTEL for bridging to remote chains, with only settled balances being eligible for bridging.
-
-### Native TEL at Genesis
-
-At network genesis, the total supply of TEL, adjusted for the initial validator set's stake, is allocated to the InterchainTEL module.
-
-For more detailed information, please refer to the [design.md](./design.md) file.
 
 ## Get Involved
 
