@@ -10,8 +10,9 @@ import { IUniswapV2Router02 } from "external/uniswap/interfaces/IUniswapV2Router
 import { IUniswapV2Pair } from "external/uniswap/interfaces/IUniswapV2Pair.sol";
 import { UniswapV2FactoryBytecode } from "external/uniswap/precompiles/UniswapV2FactoryBytecode.sol";
 import { UniswapV2Router02Bytecode } from "external/uniswap/precompiles/UniswapV2Router02Bytecode.sol";
-import { WTEL } from "../../../src/WTEL.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+
+address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1;
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol -vvvv \
 /// --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
@@ -19,11 +20,11 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
     // deploys the following:
     IUniswapV2Factory uniswapV2Factory;
     IUniswapV2Router02 uniswapV2Router02;
-    IUniswapV2Pair[] pairs; // 45 pairs: 22 for eUSD, 21 for eEUR, wTEL<>eUSD, wTEL<>eEUR
+    IUniswapV2Pair[] pairs; // 45 pairs: 22 for eUSD, 21 for eEUR, TEL<>eUSD, TEL<>eEUR
 
     // config
     Deployments deployments;
-    address wTEL;
+    address telPrecompile;
     address feeToSetter_;
     address admin;
     bytes32 factorySalt;
@@ -39,7 +40,7 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        wTEL = deployments.wTEL;
+        telPrecompile = TELCOIN_PRECOMPILE;
         admin = deployments.admin;
         feeToSetter_ = admin;
         factorySalt = bytes32(bytes("UniswapV2Factory"));
@@ -86,10 +87,13 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         uniswapV2Factory = IUniswapV2Factory(address(bytes20(factoryRet)));
 
         // deploy v2 periphery contracts
+        // NOTE: pass TEL precompile as WETH arg; the router's *ETH* convenience functions
+        // (swapExactETHForTokens, addLiquidityETH, etc.) won't work with the precompile.
+        // Use standard ERC20 swap functions (swapExactTokensForTokens, addLiquidity, etc.) instead.
         bytes memory router02Initcode = bytes.concat(
             UNISWAPV2ROUTER02_BYTECODE,
             bytes32(uint256(uint160(address(uniswapV2Factory)))),
-            bytes32(uint256(uint160(wTEL)))
+            bytes32(uint256(uint160(telPrecompile)))
         );
         (bool routerRes, bytes memory routerRet) =
             deployments.ArachnidDeterministicDeployFactory.call(bytes.concat(routerSalt, router02Initcode));
@@ -120,17 +124,17 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
             pairs.push(eUSDcurrentPair);
         }
 
-        // deploy wTEL pools for both eEUR and eUSD, record pairs
-        IUniswapV2Pair wTELeEURPair = IUniswapV2Pair(uniswapV2Factory.createPair(wTEL, deployments.eXYZs.eEUR));
-        pairs.push(wTELeEURPair);
-        IUniswapV2Pair wTELeUSDPair = IUniswapV2Pair(uniswapV2Factory.createPair(wTEL, deployments.eXYZs.eUSD));
-        pairs.push(wTELeUSDPair);
+        // deploy TEL pools for both eEUR and eUSD, record pairs
+        IUniswapV2Pair TELeEURPair = IUniswapV2Pair(uniswapV2Factory.createPair(telPrecompile, deployments.eXYZs.eEUR));
+        pairs.push(TELeEURPair);
+        IUniswapV2Pair TELeUSDPair = IUniswapV2Pair(uniswapV2Factory.createPair(telPrecompile, deployments.eXYZs.eUSD));
+        pairs.push(TELeUSDPair);
 
         // for live deployments, use existing pairs
-        // IUniswapV2Pair wTELeEURPair = uniswapV2Factory.getPair(wTEL, deployments.eXYZs.eEUR);
-        // pairs.push(wTELeEURPair);
-        // IUniswapV2Pair wTELeUSDPair = uniswapV2Factory.getPair(wTEL, deployments.eXYZs.eUSD);
-        // pairs.push(wTELeUSDPair);
+        // IUniswapV2Pair TELeEURPair = uniswapV2Factory.getPair(telPrecompile, deployments.eXYZs.eEUR);
+        // pairs.push(TELeEURPair);
+        // IUniswapV2Pair TELeUSDPair = uniswapV2Factory.getPair(telPrecompile, deployments.eXYZs.eUSD);
+        // pairs.push(TELeUSDPair);
 
         vm.stopBroadcast();
 
@@ -139,10 +143,10 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         assert(uniswapV2Factory.feeToSetter() == admin);
         assert(address(uniswapV2Router02).code.length != 0);
         assert(uniswapV2Router02.factory() == address(uniswapV2Factory));
-        assert(uniswapV2Router02.WETH() == wTEL);
+        assert(uniswapV2Router02.WETH() == telPrecompile);
 
         assert(stables.length == 23);
-        assert(pairs.length == 45); // 22 for eUSD pairs, 21 for eEUR pairs, wTEL<>eUSD, wTEL<>eEUR
+        assert(pairs.length == 45); // 22 for eUSD pairs, 21 for eEUR pairs, TEL<>eUSD, TEL<>eEUR
         for (uint256 i; i < pairs.length; ++i) {
             IUniswapV2Pair currentPair = pairs[i];
             bool correctFactory = currentPair.factory() == address(uniswapV2Factory);
@@ -176,17 +180,17 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
                     if (!correctToken1) correctToken1 = token1 == stables[j] || token1 == deployments.eXYZs.eUSD;
                 }
             } else {
-                // last two pools are wTEL<>eEUR or wTEL<>eUSD
+                // last two pools are TEL<>eEUR or TEL<>eUSD
                 if (i == pairs.length - 2) {
-                    // shold be wTEL<>eEUR; skip matches already found
-                    if (!correctToken0) correctToken0 = token0 == wTEL || token0 == deployments.eXYZs.eEUR;
-                    if (!correctToken1) correctToken1 = token1 == wTEL || token1 == deployments.eXYZs.eEUR;
+                    // should be TEL<>eEUR; skip matches already found
+                    if (!correctToken0) correctToken0 = token0 == telPrecompile || token0 == deployments.eXYZs.eEUR;
+                    if (!correctToken1) correctToken1 = token1 == telPrecompile || token1 == deployments.eXYZs.eEUR;
                 }
 
                 if (i == pairs.length - 1) {
-                    // shold be wTEL<>eUSD; skip matches already found
-                    if (!correctToken0) correctToken0 = token0 == wTEL || token0 == deployments.eXYZs.eUSD;
-                    if (!correctToken1) correctToken1 = token1 == wTEL || token1 == deployments.eXYZs.eUSD;
+                    // should be TEL<>eUSD; skip matches already found
+                    if (!correctToken0) correctToken0 = token0 == telPrecompile || token0 == deployments.eXYZs.eUSD;
+                    if (!correctToken1) correctToken1 = token1 == telPrecompile || token1 == deployments.eXYZs.eUSD;
                 }
             }
 
@@ -248,8 +252,8 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[40]))), 20), dest, ".uniswapV2.eUSD_eSGD_Pool");
         vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[41]))), 20), dest, ".uniswapV2.eUSD_eTRY_Pool");
         vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[42]))), 20), dest, ".uniswapV2.eUSD_eZAR_Pool");
-        vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[43]))), 20), dest, ".uniswapV2.wTEL_eEUR_Pool");
-        vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[44]))), 20), dest, ".uniswapV2.wTEL_eUSD_Pool");
+        vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[43]))), 20), dest, ".uniswapV2.TEL_eEUR_Pool");
+        vm.writeJson(LibString.toHexString(uint256(uint160(address(pairs[44]))), 20), dest, ".uniswapV2.TEL_eUSD_Pool");
     }
 
     function computeAddress(address deployer, bytes32 salt, bytes memory bytecode) public pure returns (address) {

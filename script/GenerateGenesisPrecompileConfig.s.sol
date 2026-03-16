@@ -3,7 +3,6 @@ pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
-import { WTEL } from "../src/WTEL.sol";
 import { Deployments } from "../deployments/Deployments.sol";
 import { GenesisPrecompiler } from "../deployments/genesis/GenesisPrecompiler.sol";
 import { Safe } from "safe-contracts/contracts/Safe.sol";
@@ -30,7 +29,6 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     uint256 telSupplyBalance = telTotalSupply - governanceInitialBalance;
 
     // Safe infrastructure
-    WTEL wTEL;
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
     Safe governanceSafe;
@@ -45,7 +43,6 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        wTEL = WTEL(payable(deployments.wTEL));
         safeImpl = Safe(payable(deployments.SafeImpl));
         safeProxyFactory = SafeProxyFactory(deployments.SafeProxyFactory);
         governanceSafe = Safe(payable(deployments.Safe));
@@ -60,10 +57,6 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         if (vm.exists(dest)) vm.removeFile(dest);
         vm.writeLine(dest, "---"); // indicate yaml format
 
-        // wTEL
-        address simulatedWTEL = address(payable(instantiateWTEL()));
-        assertFalse(yamlAppendGenesisAccount(dest, simulatedWTEL, address(wTEL), sharedNonce, sharedBalance));
-
         // safe impl (has storage)
         address simulatedSafeImpl = address(instantiateSafeImpl());
         assertTrue(yamlAppendGenesisAccount(dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance));
@@ -71,15 +64,15 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         // safe proxy factory (no storage)
         address simulatedSafeFactory = address(instantiateSafeProxyFactory());
         assertFalse(
-            yamlAppendGenesisAccount(
-                dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance
-            )
+            yamlAppendGenesisAccount(dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance)
         );
 
         // governance safe (has storage)
         address simulatedSafe = address(instantiateGovernanceSafe());
         assertTrue(
-            yamlAppendGenesisAccount(dest, simulatedSafe, address(governanceSafe), sharedNonce, governanceInitialBalance)
+            yamlAppendGenesisAccount(
+                dest, simulatedSafe, address(governanceSafe), sharedNonce, governanceInitialBalance
+            )
         );
 
         // TEL supply allocation to 0xde1e7e
@@ -103,11 +96,6 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         safeThreshold = 3;
     }
 
-    function instantiateWTEL() public returns (WTEL simulatedDeployment) {
-        simulatedDeployment = new WTEL();
-        copyContractState(address(simulatedDeployment), address(wTEL), new bytes32[](0));
-    }
-
     function instantiateSafeImpl() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
         simulatedDeployment = new Safe();
@@ -125,13 +113,25 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
 
-        address to; bytes memory data; address fallbackHandler;
-        address paymentToken; uint256 payment; address paymentReceiver;
+        address to;
+        bytes memory data;
+        address fallbackHandler;
+        address paymentToken;
+        uint256 payment;
+        address paymentReceiver;
         bytes memory setupData = abi.encodeWithSelector(
             Safe.setup.selector,
-            safeOwners, safeThreshold,
-            to, data, fallbackHandler, paymentToken, payment, paymentReceiver);
-        simulatedDeployment = Safe(payable(address(safeProxyFactory.createProxyWithNonce(address(safeImpl), setupData, 0x0))));
+            safeOwners,
+            safeThreshold,
+            to,
+            data,
+            fallbackHandler,
+            paymentToken,
+            payment,
+            paymentReceiver
+        );
+        simulatedDeployment =
+            Safe(payable(address(safeProxyFactory.createProxyWithNonce(address(safeImpl), setupData, 0x0))));
 
         Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);

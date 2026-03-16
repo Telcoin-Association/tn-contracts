@@ -8,7 +8,6 @@ import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy
 import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
 import { StablecoinManager } from "../../../src/faucet/StablecoinManager.sol";
-import { WTEL } from "../../../src/WTEL.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \

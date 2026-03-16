@@ -5,18 +5,15 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
-import { WTEL } from "../../src/WTEL.sol";
 
 /// @dev Usage: `forge script script/testnet/TestnetFundDeveloper.s.sol \
 /// -vvvv --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
 contract TestnetFundDeveloper is Script {
-    // config: send $wTEL and stables to the following address
+    // config: send $TEL and stables to the following address
     address developer = 0x6A7aE3671672D1d7dc250f60C46F14E35d383a80;
     uint256 telAmount;
-    uint256 wTelAmount;
     uint256 stablecoinAmount;
 
-    WTEL wTEL;
     Stablecoin[] stables; // 23 canonical Telcoin stablecoins
 
     // json source
@@ -29,11 +26,9 @@ contract TestnetFundDeveloper is Script {
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        telAmount = 1_000_000_000e18;
-        wTelAmount = 1_000_000_000e18; // wTel.decimals() == 18
+        telAmount = 2_000_000_000e18;
         stablecoinAmount = 1_000_000_000e6; // stablecoin.decimals() == 6
 
-        wTEL = WTEL(payable(deployments.wTEL));
         // populate array for iteration
         stables.push(Stablecoin(deployments.eXYZs.eAUD));
         stables.push(Stablecoin(deployments.eXYZs.eCAD));
@@ -63,13 +58,9 @@ contract TestnetFundDeveloper is Script {
     function run() public {
         vm.startBroadcast(); // must be called by minter role
 
-        // send $TEL for gas
-        (bool r,) = developer.call{ value: telAmount }("");
-        require(r);
-
-        // wrap $TEL and send $wTEL
-        wTEL.deposit{ value: wTelAmount }();
-        wTEL.transfer(developer, wTelAmount);
+        // send native $TEL for gas/swaps
+        (bool success,) = developer.call{ value: telAmount }("");
+        require(success, "TEL transfer failed");
 
         // mint and transfer stables
         for (uint256 i; i < stables.length; ++i) {

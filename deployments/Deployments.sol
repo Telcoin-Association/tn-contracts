@@ -20,7 +20,6 @@ struct Deployments {
     address admin;
     EXYZs eXYZs;
     UniswapV2 uniswapV2;
-    address wTEL;
 }
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
@@ -52,6 +51,8 @@ struct EXYZs {
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 struct UniswapV2 {
+    address TEL_eEUR_Pool;
+    address TEL_eUSD_Pool;
     address UniswapV2Factory;
     address UniswapV2Router02;
     address eEUR_eAUD_Pool;
@@ -97,6 +98,4 @@ struct UniswapV2 {
     address eUSD_eSGD_Pool;
     address eUSD_eTRY_Pool;
     address eUSD_eZAR_Pool;
-    address wTEL_eEUR_Pool;
-    address wTEL_eUSD_Pool;
 }
