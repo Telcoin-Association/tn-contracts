@@ -29,7 +29,7 @@
 
 **stake**
 
-- initial validators' stakes are allocated to the ConsensusRegistry and decremented from InterchainTEL directly within the protocol on the rust side (thus not provided to the constructor)
+- initial validators' stakes are allocated to the ConsensusRegistry and decremented from the TEL supply allocation directly within the protocol on the rust side (thus not provided to the constructor)
 - the only way to withdraw funds from the ConsensusRegistry and Issuance contract are during reward claim or full validator retirement using `unstake()` which sends stake + rewards
 - stake configs must take effect in the next epoch, not current
 - stake config versions are set on a per-validator basis at stake time
@@ -39,7 +39,7 @@
 - consensus burns slash all the validator's remaining stake
 - slashes are applied until the validator outstanding balance reaches 0,
 - consensus burns and slashes-to-zero immediately retire the validator and eject it from all upcoming committees
-- ConsensusRegistry only ever holds staked funds, including on behalf of the initial validator set at network genesis (rest to InterchainTEL)
+- ConsensusRegistry only ever holds staked funds, including on behalf of the initial validator set at network genesis
 - Issuance only ever holds epoch reward funds, less claims
 - when unstaking, stake is sourced from the registry
 - when claiming or unstaking, rewards are sourced from Issuance

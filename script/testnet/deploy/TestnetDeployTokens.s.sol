@@ -16,10 +16,10 @@ import { Deployments } from "../../../deployments/Deployments.sol";
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
 /// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
 // To verify StablecoinImpl: `forge verify-contract 0xd3930b15461fcecff57a4c9bd65abf6fa2a44307
-// node_modules/telcoin-contracts/contracts/stablecoin/Stablecoin.sol:Stablecoin --rpc-url $TN_RPC_URL \
+// lib/telcoin-contracts/contracts/stablecoin/Stablecoin.sol:Stablecoin --rpc-url $TN_RPC_URL \
 // --verifier sourcify --compiler-version 0.8.26 --num-of-optimizations 200`
 // To verify Proxies: `forge verify-contract <eXYZ> \
-// node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --rpc-url $TN_RPC_URL --verifier \
+// lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --rpc-url $TN_RPC_URL --verifier \
 // sourcify --compiler-version 0.8.26 --num-of-optimizations 200`
 contract TestnetDeployTokens is Script {
     Stablecoin stablecoinImpl;

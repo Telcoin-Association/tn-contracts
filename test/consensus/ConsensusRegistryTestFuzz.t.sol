@@ -8,7 +8,6 @@ import { IConsensusRegistry } from "src/interfaces/IConsensusRegistry.sol";
 import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Slash, RewardInfo, IStakeManager } from "src/interfaces/IStakeManager.sol";
-import { InterchainTEL } from "src/InterchainTEL.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 /// @dev Fuzz test module separated into new file with extra setup to avoid `OutOfGas`

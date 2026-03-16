@@ -902,7 +902,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @param initialValidators_ The initial validator set running Telcoin Network; these validators will
     /// comprise the voter committee for the first three epochs, ie `epochInfo[0:2]`
     /// @dev Stake for `initialValidators_` is allocated directly to the ConsensusRegistry balance and
-    /// decremented directly from InterchainTEL within the protocol on the rust side
+    /// decremented directly from the TEL supply allocation within the protocol on the rust side
     /// @dev Only governance delegation is enabled at genesis
     constructor(
         StakeConfig memory genesisConfig_,

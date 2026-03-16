@@ -8,7 +8,6 @@ import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
-import { InterchainTEL } from "src/InterchainTEL.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
 

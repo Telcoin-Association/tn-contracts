@@ -38,26 +38,6 @@
     "eUSD": "0xb8913be082c50e7570e5453b18585b247cca6533",
     "eZAR": "0xfc7147e46d525131c36a404a7d02208bf7eecd76"
   },
-  "its": {
-    "AxelarAmplifierGateway": "0xF128c84c3326727c3e155168daAa4C0156B87AD1",
-    "AxelarAmplifierGatewayImpl": "0xD981b4a8D46b7b80dCbE245c615432c4DeF2e817",
-    "GasService": "0x1179d44e69ba5252B7478a8602617d5EEeb2F377",
-    "GasServiceImpl": "0xC75c1Dc33514db5c39a13b2e7fE82A05050535EF",
-    "GatewayCaller": "0x7d6aBBb2a041D1bDEb7c45f233D09D75D9e0b17C",
-    "InterchainTEL": "0xef8BEe06f753e85F1Ff0d469ffB918ebCcA05CFd",
-    "InterchainTELTokenManager": "0x46b3f5065bE134a4c80ea0a6b113063263751543",
-    "InterchainTokenDeployer": "0xd99464aF9D4040e1F657ca3Ee5472DAEbb4b1edd",
-    "InterchainTokenFactory": "0xdB7d6A5B8d37a4f34BC1e7ce0d0B8a9DDA124871",
-    "InterchainTokenFactoryImpl": "0x7fA7b469fF43B4B74BAc1e8e3AB31A8633F67f49",
-    "InterchainTokenImpl": "0x5321CB9412D5F53d95D2B5a07861Dd45CBca2671",
-    "InterchainTokenService": "0x2269B93c8D8D4AfcE9786d2940F5Fcd4386Db7ff",
-    "InterchainTokenServiceImpl": "0xDF462B5df860e747212C9081ed25355032Dc6a37",
-    "TokenHandler": "0x5AE8567D9Ce9f9EfB91b3818C4F8cE3a2505a3d0",
-    "TokenManagerImpl": "0x5683C518fB0A39Cdc3EEBc0E03B968F108AC9916",
-    "TokenManagerDeployer": "0x1Eb942ca2ADC970E43eBb40e94E0118eAA2EDC16"
-  },
-  "optimismTEL": "0x8CFb42a80291737Cb62cEF7B665Fe1304D112Fee",
-  "sepoliaTEL": "0x92bc9f0D42A3194Df2C5AB55c3bbDD82e6Fb2F92",
   "uniswapV2": {
     "UniswapV2Factory": "0x764eca68a03ff1eb710e7d1a02c2e7c008877f2f",
     "UniswapV2Router02": "0x76b5628c7071c9cb587f38c78943c5a55c77ee3f",
