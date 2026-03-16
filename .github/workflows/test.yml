@@ -22,14 +22,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set Up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install Node.js Dependencis
-        run: npm install
-
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
@@ -48,8 +40,6 @@ jobs:
         id: build
 
       - name: Run Forge tests
-        env:
-          POLYGON_RPC_URL: ${{ secrets.POLYGON_RPC_URL }}
         run: |
           forge test -vvv
         id: test

@@ -6,13 +6,13 @@ This Telcoin Network smart contracts repository contains various system and stan
 
 ## Get Started
 
-This repository does not use Foundry git submodules due to dependencies that do not properly support them. Instead of the `lib` directory, all dependencies are kept in `node_modules`
+Install dependencies via Foundry git submodules:
 
-Requires Node version >= 22, which can be installed like so:
+`git clone --recurse-submodules <repo-url>`
 
-`nvm install 22`
+Or if already cloned:
 
-`npm install`
+`git submodule update --init --recursive`
 
 To build the smart contracts:
 

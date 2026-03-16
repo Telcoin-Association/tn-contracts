@@ -1,5 +1,6 @@
-forge-std/=node_modules/forge-std/src/
-solady/=node_modules/solady/src/
-@openzeppelin/=node_modules/@openzeppelin/
-safe-contracts/=node_modules/safe-contracts/
-telcoin-contracts/=node_modules/telcoin-contracts/
+forge-std/=lib/forge-std/src/
+solady/=lib/solady/src/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+safe-contracts/=lib/safe-contracts/
+telcoin-contracts/=lib/telcoin-contracts/
