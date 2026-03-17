@@ -13,7 +13,7 @@ Cross-chain bridging is notorious for security breaches, arising from numerous b
 
 Telcoin Network exposes TEL as a native ERC20 precompile at `0x00000000000000000000000000000000000007e1`. The precompile uses a unified balance model where `balanceOf(account)` returns the native account balance directly — no wrapping needed. It supports the full ERC20 interface plus governance-gated `mint`, `claim`, and `burn` functions.
 
-For more information, refer to [this design document](./src/design.md).
+For more information, refer to [the TEL precompile](https://github.com/telcoin-association/telcon-network).
 
 ## Bridging
 
