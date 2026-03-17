@@ -513,13 +513,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(
-        bytes memory blsPubkey,
-        address validatorAddress
-    )
-        private
-        returns (bytes32 blsPubkeyHash)
-    {
+    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -797,14 +791,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(
-        address validatorAddress,
-        address[] memory committee
-    )
-        internal
-        pure
-        returns (bool)
-    {
+    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -902,7 +889,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @param initialValidators_ The initial validator set running Telcoin Network; these validators will
     /// comprise the voter committee for the first three epochs, ie `epochInfo[0:2]`
     /// @dev Stake for `initialValidators_` is allocated directly to the ConsensusRegistry balance and
-    /// decremented directly from the TEL supply allocation within the protocol on the rust side
+    /// decremented directly from the TEL precompile within the protocol on the rust side
     /// @dev Only governance delegation is enabled at genesis
     constructor(
         StakeConfig memory genesisConfig_,
