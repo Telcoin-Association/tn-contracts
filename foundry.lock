@@ -22,11 +22,5 @@
       "name": "v0.1.26",
       "rev": "acd959aa4bd04720d640bf4e6a5c71037510cc4b"
     }
-  },
-  "lib/telcoin-contracts": {
-    "tag": {
-      "name": "v1.0.0",
-      "rev": "a0c916e49232a4df28cb18c316ac927536dd03db"
-    }
   }
 }

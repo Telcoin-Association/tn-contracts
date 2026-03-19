@@ -84,7 +84,7 @@ abstract contract GenesisPrecompiler is Test {
     /// @dev Uses current `writtenStorageSlots` values; simulation results must be populated correctly
     /// @param simulatedDeployment The simulated contract deployment whose config to copy onto `genesisTarget`
     /// @param genesisTarget The target precompile address to write to at genesis
-    function yamlAppendGenesisAccount(string memory dest, address simulatedDeployment, address genesisTarget, uint64 nonce, uint256 balance) public virtual returns (bool hasStorage) {
+    function yamlAppendGenesisAccount(string memory dest, address simulatedDeployment, address genesisTarget, uint64 nonce, uint256 balance, string memory comment) public virtual returns (bool hasStorage) {
         require(simulatedDeployment != address(0) && genesisTarget != address(0), "Invalid deployment or target address");
         GenesisAccount storage account = genesisAccounts[simulatedDeployment];
         require(account.code.length == 0, "Precompile already processed");
@@ -94,8 +94,12 @@ abstract contract GenesisPrecompiler is Test {
         require(account.code.length != 0, "Contract is not deployed");
 
         // Convert genesisTarget to hex string (20 bytes, i.e. address) and write
-        string memory targetKey = LibString.toHexString(uint256(uint160(genesisTarget)), 20);
-        vm.writeLine(dest, string.concat('"', targetKey, '":'));
+        {
+            string memory targetKey = LibString.toHexString(uint256(uint160(genesisTarget)), 20);
+            vm.writeLine(dest, bytes(comment).length > 0
+                ? string.concat('"', targetKey, '": # ', comment)
+                : string.concat('"', targetKey, '":'));
+        }
 
         // Write the genesisAccount entry with nonce, balance, and code
         vm.writeLine(dest, string.concat("  nonce: ", LibString.toString(nonce)));
