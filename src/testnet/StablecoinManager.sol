@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
-import { IStablecoin } from "external/telcoin-contracts/interfaces/IStablecoin.sol";
+import { StablecoinHandler } from "./StablecoinHandler.sol";
+import { IStablecoin } from "./IStablecoin.sol";
 import { TNFaucet } from "./TNFaucet.sol";
 
 /**

@@ -5,7 +5,7 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
+import { Stablecoin } from "../../../src/testnet/Stablecoin.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev To deploy the Arachnid deterministic deployment proxy:

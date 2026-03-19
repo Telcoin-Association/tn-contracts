@@ -5,9 +5,9 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
-import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
-import { StablecoinManager } from "../../../src/faucet/StablecoinManager.sol";
+import { StablecoinHandler } from "../../../src/testnet/StablecoinHandler.sol";
+import { Stablecoin } from "../../../src/testnet/Stablecoin.sol";
+import { StablecoinManager } from "../../../src/testnet/StablecoinManager.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \

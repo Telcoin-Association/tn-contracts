@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
-import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
+import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/TestnetFundDeveloper.s.sol \
