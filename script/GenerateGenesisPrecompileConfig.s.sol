@@ -75,11 +75,6 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
-        // TEL supply allocation to 0xde1e7e
-        vm.writeLine(dest, '"0x0000000000000000000000000000000000de1e7e":');
-        vm.writeLine(dest, "  nonce: 0");
-        vm.writeLine(dest, string.concat("  balance: ", vm.toString(telSupplyBalance)));
-
         // EIP-2935 and EIP-4788 system contracts
         instantiateEIP2935AndEIP4788();
 
