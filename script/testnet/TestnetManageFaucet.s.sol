@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
-import { StablecoinManager } from "../../src/faucet/StablecoinManager.sol";
+import { StablecoinManager } from "../../src/testnet/StablecoinManager.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/TestnetManageFaucet.s.sol \

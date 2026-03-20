@@ -3,10 +3,10 @@ pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
-import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
+import { StablecoinHandler } from "../../src/testnet/StablecoinHandler.sol";
+import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { ITELMint } from "../../src/interfaces/ITELMint.sol";
-import "../../src/faucet/StablecoinManager.sol";
+import "../../src/testnet/StablecoinManager.sol";
 
 contract StablecoinManagerTest is Test {
     StablecoinManager stablecoinManagerImpl;
@@ -227,14 +227,9 @@ contract StablecoinManagerTest is Test {
 
         // mock the TEL precompile mint call
         vm.mockCall(
-            address(0x7e1),
-            abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt),
-            abi.encode()
+            address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt), abi.encode()
         );
-        vm.expectCall(
-            address(0x7e1),
-            abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt)
-        );
+        vm.expectCall(address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt));
 
         // fast forward 1 day
         vm.warp(block.timestamp + 1 days);
@@ -266,5 +261,4 @@ contract StablecoinManagerTest is Test {
         uint256 balAfter = currency.balanceOf(address(stablecoinManager));
         assertEq(balAfter, 0);
     }
-
 }
