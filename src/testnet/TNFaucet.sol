@@ -19,13 +19,11 @@ abstract contract TNFaucet {
     event NativeDripAmountUpdated(uint256 newNativeDripAmount);
     event DripAmountUpdated(uint256 newDripAmount);
     event Drip(address token, address recipient, uint256 amount);
-    event FaucetLowNativeBalance();
 
     /// @custom:storage-location erc7201:telcoin.storage.Faucet
     struct FaucetStorage {
         uint256 _dripAmount;
         uint256 _nativeDripAmount;
-        uint256 _lowBalanceThreshold;
         mapping(address => mapping(address => uint256)) _lastDripTimestamp;
     }
 
@@ -43,11 +41,11 @@ abstract contract TNFaucet {
      *
      */
 
-    /// @notice Developers may find it useful to extend this method with access control
-    function drip(address token, address recipient) public virtual {
-        _checkDrip(token, recipient);
-        _setLastFulfilledDripTimestamp(token, recipient, block.timestamp);
-        _drip(token, recipient);
+    /// @notice Permissionless: anyone can request a drip for themselves, rate-limited by cooldown
+    function drip(address token) public virtual {
+        _checkDrip(token, msg.sender);
+        _setLastFulfilledDripTimestamp(token, msg.sender, block.timestamp);
+        _drip(token, msg.sender);
     }
 
     /// @dev Should be inherited with a form of access control
@@ -55,9 +53,6 @@ abstract contract TNFaucet {
 
     /// @dev Should be inherited with a form of access control
     function setNativeDripAmount(uint256 newNativeDripAmount) external virtual;
-
-    /// @dev Should be inherited with a form of access control
-    function setLowBalanceThreshold(uint256 newThreshold) external virtual;
 
     /// @notice Agnostic to enabled/disabled status for data availability
     function getDripAmount() public view returns (uint256 dripAmount) {
@@ -72,14 +67,7 @@ abstract contract TNFaucet {
     }
 
     /// @dev Exposes the timestamp of the last fulfilled faucet drip for a given `token` and `recipient`
-    function getLastFulfilledDripTimestamp(
-        address token,
-        address recipient
-    )
-        public
-        view
-        returns (uint256 timestamp)
-    {
+    function getLastFulfilledDripTimestamp(address token, address recipient) public view returns (uint256 timestamp) {
         FaucetStorage storage $ = _faucetStorage();
         timestamp = $._lastDripTimestamp[recipient][token];
     }
@@ -113,24 +101,6 @@ abstract contract TNFaucet {
     function _setLastFulfilledDripTimestamp(address token, address recipient, uint256 timestamp) internal {
         FaucetStorage storage $ = _faucetStorage();
         $._lastDripTimestamp[recipient][token] = timestamp;
-    }
-
-    /// @dev Emits an alert for indexer when faucet balance can only process <= 10_000 more requests
-    function _checkLowNativeBalance() internal {
-        uint256 thresholdDripsLeft = _getLowBalanceThreshold();
-        if (address(this).balance <= getNativeDripAmount() * thresholdDripsLeft) {
-            emit FaucetLowNativeBalance();
-        }
-    }
-
-    function _getLowBalanceThreshold() internal view returns (uint256 thresholdDripsLeft) {
-        FaucetStorage storage $ = _faucetStorage();
-        thresholdDripsLeft = $._lowBalanceThreshold;
-    }
-
-    function _setLowBalanceThreshold(uint256 newThreshold) internal {
-        FaucetStorage storage $ = _faucetStorage();
-        $._lowBalanceThreshold = newThreshold;
     }
 
     function _faucetStorage() internal pure returns (FaucetStorage storage $) {
