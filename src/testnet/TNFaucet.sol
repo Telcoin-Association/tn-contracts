@@ -41,11 +41,11 @@ abstract contract TNFaucet {
      *
      */
 
-    /// @notice Developers may find it useful to extend this method with access control
-    function drip(address token, address recipient) public virtual {
-        _checkDrip(token, recipient);
-        _setLastFulfilledDripTimestamp(token, recipient, block.timestamp);
-        _drip(token, recipient);
+    /// @notice Permissionless: anyone can request a drip for themselves, rate-limited by cooldown
+    function drip(address token) public virtual {
+        _checkDrip(token, msg.sender);
+        _setLastFulfilledDripTimestamp(token, msg.sender, block.timestamp);
+        _drip(token, msg.sender);
     }
 
     /// @dev Should be inherited with a form of access control

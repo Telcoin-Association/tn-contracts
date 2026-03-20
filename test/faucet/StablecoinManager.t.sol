@@ -21,19 +21,16 @@ contract StablecoinManagerTest is Test {
     uint256 max = type(uint256).max;
     uint256 min = 1000;
 
-    address[] faucets;
     uint256 dripAmount = 42;
     uint256 nativeDripAmount = 69;
 
     function setUp() public {
-        faucets.push(address(0xc0ffee));
-
         stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
 
         bytes memory initCall = abi.encodeWithSelector(
             StablecoinManager.initialize.selector,
             StablecoinManager.StablecoinManagerInitParams(
-                admin, maintainer, new address[](0), max, min, faucets, dripAmount, nativeDripAmount
+                admin, maintainer, new address[](0), max, min, dripAmount, nativeDripAmount
             )
         );
 
@@ -209,8 +206,8 @@ contract StablecoinManagerTest is Test {
         vm.warp(block.timestamp + 1 days);
 
         uint256 balBefore = currency.balanceOf(recipient);
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(currency), recipient);
+        vm.prank(recipient);
+        stablecoinManager.drip(address(currency));
         uint256 balAfter = currency.balanceOf(recipient);
 
         uint256 dripAmt = stablecoinManager.getDripAmount();
@@ -234,8 +231,8 @@ contract StablecoinManagerTest is Test {
         // fast forward 1 day
         vm.warp(block.timestamp + 1 days);
 
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(0), recipient);
+        vm.prank(recipient);
+        stablecoinManager.drip(address(0));
 
         uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
         assertEq(lastFulfilledDrip, block.timestamp);

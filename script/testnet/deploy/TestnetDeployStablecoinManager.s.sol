@@ -23,11 +23,6 @@ contract TestnetDeployStablecoinManager is Script {
     uint256 maxLimit;
     uint256 minLimit;
 
-    address faucet0 = 0xE626Ce81714CB7777b1Bf8aD2323963fb3398ad5;
-    address faucet1 = 0xB3FabBd1d2EdDE4D9Ced3CE352859CE1bebf7907;
-    address faucet2 = 0xA3478861957661b2D8974D9309646A71271D98b9;
-    address faucet3 = 0xE69151677E5aeC0B4fC0a94BFcAf20F6f0f975eB;
-    address[] faucets; // will contain above
     uint256 dripAmount;
     uint256 nativeDripAmount;
     Deployments deployments;
@@ -73,10 +68,6 @@ contract TestnetDeployStablecoinManager is Script {
         stables.push(deployments.eXYZs.eUSD);
         stables.push(deployments.eXYZs.eZAR);
 
-        faucets.push(faucet0);
-        faucets.push(faucet1);
-        faucets.push(faucet2);
-        faucets.push(faucet3);
     }
 
     function run() public {
@@ -89,7 +80,7 @@ contract TestnetDeployStablecoinManager is Script {
         // deploy the deterministic faucet proxy pointing to latest faucet version
         stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
         StablecoinManager.StablecoinManagerInitParams memory initParams = StablecoinManager.StablecoinManagerInitParams(
-            admin, admin, new address[](0), maxLimit, minLimit, new address[](0), dripAmount, nativeDripAmount
+            admin, admin, new address[](0), maxLimit, minLimit, dripAmount, nativeDripAmount
         );
         bytes memory initCall = abi.encodeWithSelector(StablecoinManager.initialize.selector, initParams);
         stablecoinManager = StablecoinManager(
@@ -112,11 +103,6 @@ contract TestnetDeployStablecoinManager is Script {
             }
         }
 
-        bytes32 faucetRole = keccak256("FAUCET_ROLE");
-        for (uint256 i; i < faucets.length; ++i) {
-            stablecoinManager.grantRole(faucetRole, faucets[i]);
-        }
-
         vm.stopBroadcast();
 
         // asserts
@@ -127,9 +113,6 @@ contract TestnetDeployStablecoinManager is Script {
         for (uint256 i; i < stables.length; ++i) {
             assert(Stablecoin(stables[i]).hasRole(minterRole, address(stablecoinManager)));
             assert(stablecoinManager.isEnabledXYZ(stables[i]) == enableAllXYZs);
-        }
-        for (uint256 i; i < faucets.length; ++i) {
-            assert(stablecoinManager.hasRole(stablecoinManager.FAUCET_ROLE(), faucets[i]));
         }
         assert(stablecoinManager.getDripAmount() == dripAmount);
         assert(stablecoinManager.getNativeDripAmount() == nativeDripAmount);

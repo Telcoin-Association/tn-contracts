@@ -40,7 +40,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         address[] tokens_;
         uint256 initMaxLimit;
         uint256 initMinLimit;
-        address[] authorizedFaucets_;
         uint256 dripAmount_;
         uint256 nativeDripAmount_;
     }
@@ -62,8 +61,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     bytes32 internal constant StablecoinManagerStorageSlot =
         0x77dc539bf9c224afa178d31bf07d5109c2b5c5e56656e49b25e507fec3a69f00;
 
-    bytes32 public constant FAUCET_ROLE = keccak256("FAUCET_ROLE");
-
     // TN-custom precompile
     ITELMint public constant TEL_MINT = ITELMint(address(0x7e1));
 
@@ -82,10 +79,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.admin_);
         _grantRole(MAINTAINER_ROLE, initParams.maintainer_);
-
-        for (uint256 i; i < initParams.authorizedFaucets_.length; ++i) {
-            _grantRole(FAUCET_ROLE, initParams.authorizedFaucets_[i]);
-        }
     }
 
     function UpdateXYZ(
@@ -168,9 +161,9 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev Faucet function defining this contract as the onchain entrypoint for minting testnet tokens to users
     /// @dev To mint the chain's native token, use `NATIVE_TOKEN_POINTER == address(0x0)`
     /// @notice This contract must be given `Stablecoin::MINTER_ROLE` on each eXYZ contract
-    /// @notice Implements Access Control, requiring callers to possess the `FAUCET_ROLE`
-    function drip(address token, address recipient) public virtual override onlyRole(FAUCET_ROLE) {
-        super.drip(token, recipient);
+    /// @notice Permissionless: rate-limited by cooldown (1 day per token per caller)
+    function drip(address token) public virtual override {
+        super.drip(token);
     }
 
     /// @inheritdoc TNFaucet
