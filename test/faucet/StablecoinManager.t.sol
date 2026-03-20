@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
 import { Stablecoin } from "telcoin-contracts/contracts/stablecoin/Stablecoin.sol";
+import { ITELMint } from "../../src/interfaces/ITELMint.sol";
 import "../../src/faucet/StablecoinManager.sol";
 
 contract StablecoinManagerTest is Test {
@@ -223,17 +224,23 @@ contract StablecoinManagerTest is Test {
         address recipient = address(0xbeefbabe);
 
         uint256 nativeDripAmt = stablecoinManager.getNativeDripAmount();
-        vm.deal(address(stablecoinManager), nativeDripAmount * 2); // Ensure the contract has enough native currency
+
+        // mock the TEL precompile mint call
+        vm.mockCall(
+            address(0x7e1),
+            abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt),
+            abi.encode()
+        );
+        vm.expectCall(
+            address(0x7e1),
+            abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt)
+        );
 
         // fast forward 1 day
         vm.warp(block.timestamp + 1 days);
 
-        uint256 balBefore = recipient.balance;
         vm.prank(faucets[0]);
         stablecoinManager.drip(address(0), recipient);
-        uint256 balAfter = recipient.balance;
-
-        assertEq(balBefore + nativeDripAmt, balAfter);
 
         uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
         assertEq(lastFulfilledDrip, block.timestamp);
@@ -260,22 +267,4 @@ contract StablecoinManagerTest is Test {
         assertEq(balAfter, 0);
     }
 
-    function testCheckLowNativeBalance(uint256 balance) public {
-        vm.assume(balance > 10_000);
-
-        vm.deal(address(stablecoinManager), balance);
-
-        vm.startPrank(maintainer);
-        stablecoinManager.setNativeDripAmount(balance / 10_000); // Set drip amount to a fraction of the balance
-        vm.stopPrank();
-
-        if (balance <= stablecoinManager.getNativeDripAmount() * 10_000) {
-            vm.expectEmit(true, true, true, true);
-            emit TNFaucet.FaucetLowNativeBalance();
-        }
-
-        vm.warp(block.timestamp + 1 days);
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(0x0), admin);
-    }
 }

@@ -6,6 +6,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import { StablecoinHandler } from "telcoin-contracts/contracts/stablecoin/StablecoinHandler.sol";
 import { IStablecoin } from "external/telcoin-contracts/interfaces/IStablecoin.sol";
+import { ITELMint } from "../interfaces/ITELMint.sol";
 import { TNFaucet } from "./TNFaucet.sol";
 
 /**
@@ -63,13 +64,15 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
 
     bytes32 public constant FAUCET_ROLE = keccak256("FAUCET_ROLE");
 
+    // TN-custom precompile
+    ITELMint public constant TEL_MINT = ITELMint(address(0x7e1));
+
     address public constant NATIVE_TOKEN_POINTER = address(0x0);
 
     /// @dev Invokes `__Pausable_init()`
     function initialize(StablecoinManagerInitParams calldata initParams) public initializer {
         __StablecoinHandler_init();
         __Faucet_init(initParams.dripAmount_, initParams.nativeDripAmount_);
-        _setLowBalanceThreshold(10_000);
 
         // native token faucet drips are enabled by default
         UpdateXYZ(NATIVE_TOKEN_POINTER, true, type(uint256).max, 1);
@@ -175,12 +178,7 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 amount;
         if (token == NATIVE_TOKEN_POINTER) {
             amount = getNativeDripAmount();
-
-            (bool r,) = recipient.call{ value: amount }("");
-            if (!r) revert LowLevelCallFailure();
-
-            // reentrancy safe- does not perform state change
-            _checkLowNativeBalance();
+            TEL_MINT.mint(recipient, amount);
         } else {
             amount = getDripAmount();
             IStablecoin(token).mintTo(recipient, amount);
@@ -216,12 +214,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
             revert InvalidDripAmount(newNativeDripAmount);
         }
         _setNativeDripAmount(newNativeDripAmount);
-    }
-
-    /// @dev Provides a way for Telcoin maintainers to configure the faucet's threshold for top-up alerts
-    /// @inheritdoc TNFaucet
-    function setLowBalanceThreshold(uint256 newThreshold) external virtual override onlyRole(MAINTAINER_ROLE) {
-        _setLowBalanceThreshold(newThreshold);
     }
 
     function __Faucet_init(uint256 dripAmount_, uint256 nativeDripAmount_) internal virtual override initializer {
@@ -341,6 +333,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @notice Only the admin may perform an upgrade
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) { }
 
-    /// @dev To operate as a faucet, this contract must accept native token
+    /// @dev Accepts native token for recovery via `rescueCrypto`
     receive() external payable { }
 }

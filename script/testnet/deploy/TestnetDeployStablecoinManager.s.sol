@@ -30,8 +30,6 @@ contract TestnetDeployStablecoinManager is Script {
     address[] faucets; // will contain above
     uint256 dripAmount;
     uint256 nativeDripAmount;
-    uint256 lowBalanceThreshold;
-
     Deployments deployments;
     address admin; // admin, support, minter, burner role
 
@@ -49,7 +47,6 @@ contract TestnetDeployStablecoinManager is Script {
         minLimit = 1000;
         dripAmount = 100e6; // 100 units of the stablecoin (decimals == 6)
         nativeDripAmount = 1e18; // 1 $TEL
-        lowBalanceThreshold = 10_000;
 
         // populate stables array
         stables.push(deployments.eXYZs.eAUD);
@@ -102,7 +99,6 @@ contract TestnetDeployStablecoinManager is Script {
         // set configs (TEL is enabled by default)
         stablecoinManager.setNativeDripAmount(nativeDripAmount);
         stablecoinManager.setDripAmount(dripAmount);
-        stablecoinManager.setLowBalanceThreshold(lowBalanceThreshold);
 
         // grant minter role to StablecoinManager on all tokens and disables XYZs if `!enableAllXYZs`
         bytes32 minterRole = keccak256("MINTER_ROLE");

@@ -17,7 +17,6 @@ contract TestnetUpgradeStablecoinManager is Script {
     bytes upgradeCall; // optional- configure for each upgrade
     uint256 dripAmount;
     uint256 nativeDripAmount;
-    uint256 lowBalanceThreshold;
 
     Deployments deployments;
     address admin; // admin, support, minter, burner role
@@ -35,7 +34,6 @@ contract TestnetUpgradeStablecoinManager is Script {
         stablecoinManagerSalt = bytes32(bytes("StablecoinManager"));
         dripAmount = 100e6;
         nativeDripAmount = 1e18; // 1 $TEL
-        lowBalanceThreshold = 10_000;
     }
 
     function run() public {
