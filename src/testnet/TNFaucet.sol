@@ -41,11 +41,16 @@ abstract contract TNFaucet {
      *
      */
 
-    /// @notice Permissionless: anyone can request a drip for themselves, rate-limited by cooldown
+    /// @notice Permissionless: anyone can request a drip to a specified recipient, rate-limited by cooldown per recipient
+    function dripTo(address token, address recipient) public virtual {
+        _checkDrip(token, recipient);
+        _setLastFulfilledDripTimestamp(token, recipient, block.timestamp);
+        _drip(token, recipient);
+    }
+
+    /// @notice Permissionless: convenience wrapper that drips to msg.sender. See `dripTo` for dripping to others.
     function drip(address token) public virtual {
-        _checkDrip(token, msg.sender);
-        _setLastFulfilledDripTimestamp(token, msg.sender, block.timestamp);
-        _drip(token, msg.sender);
+        dripTo(token, msg.sender);
     }
 
     /// @dev Should be inherited with a form of access control
