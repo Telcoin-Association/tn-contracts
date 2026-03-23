@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { StablecoinHandler } from "../../src/testnet/StablecoinHandler.sol";
 import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
+import { ITELMint } from "../../src/interfaces/ITELMint.sol";
 import "../../src/testnet/StablecoinManager.sol";
 
 contract StablecoinManagerTest is Test {
@@ -20,19 +21,16 @@ contract StablecoinManagerTest is Test {
     uint256 max = type(uint256).max;
     uint256 min = 1000;
 
-    address[] faucets;
     uint256 dripAmount = 42;
     uint256 nativeDripAmount = 69;
 
     function setUp() public {
-        faucets.push(address(0xc0ffee));
-
         stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
 
         bytes memory initCall = abi.encodeWithSelector(
             StablecoinManager.initialize.selector,
             StablecoinManager.StablecoinManagerInitParams(
-                admin, maintainer, new address[](0), max, min, faucets, dripAmount, nativeDripAmount
+                admin, maintainer, new address[](0), max, min, dripAmount, nativeDripAmount
             )
         );
 
@@ -208,8 +206,8 @@ contract StablecoinManagerTest is Test {
         vm.warp(block.timestamp + 1 days);
 
         uint256 balBefore = currency.balanceOf(recipient);
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(currency), recipient);
+        vm.prank(recipient);
+        stablecoinManager.drip(address(currency));
         uint256 balAfter = currency.balanceOf(recipient);
 
         uint256 dripAmt = stablecoinManager.getDripAmount();
@@ -223,17 +221,18 @@ contract StablecoinManagerTest is Test {
         address recipient = address(0xbeefbabe);
 
         uint256 nativeDripAmt = stablecoinManager.getNativeDripAmount();
-        vm.deal(address(stablecoinManager), nativeDripAmount * 2); // Ensure the contract has enough native currency
+
+        // mock the TEL precompile mint call
+        vm.mockCall(
+            address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt), abi.encode()
+        );
+        vm.expectCall(address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt));
 
         // fast forward 1 day
         vm.warp(block.timestamp + 1 days);
 
-        uint256 balBefore = recipient.balance;
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(0), recipient);
-        uint256 balAfter = recipient.balance;
-
-        assertEq(balBefore + nativeDripAmt, balAfter);
+        vm.prank(recipient);
+        stablecoinManager.drip(address(0));
 
         uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
         assertEq(lastFulfilledDrip, block.timestamp);
@@ -258,24 +257,5 @@ contract StablecoinManagerTest is Test {
 
         uint256 balAfter = currency.balanceOf(address(stablecoinManager));
         assertEq(balAfter, 0);
-    }
-
-    function testCheckLowNativeBalance(uint256 balance) public {
-        vm.assume(balance > 10_000);
-
-        vm.deal(address(stablecoinManager), balance);
-
-        vm.startPrank(maintainer);
-        stablecoinManager.setNativeDripAmount(balance / 10_000); // Set drip amount to a fraction of the balance
-        vm.stopPrank();
-
-        if (balance <= stablecoinManager.getNativeDripAmount() * 10_000) {
-            vm.expectEmit(true, true, true, true);
-            emit TNFaucet.FaucetLowNativeBalance();
-        }
-
-        vm.warp(block.timestamp + 1 days);
-        vm.prank(faucets[0]);
-        stablecoinManager.drip(address(0x0), admin);
     }
 }
