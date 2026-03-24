@@ -238,6 +238,112 @@ contract StablecoinManagerTest is Test {
         assertEq(lastFulfilledDrip, block.timestamp);
     }
 
+    function testDripTo(address funder, address recipient, uint256 fuzzDripAmount) public {
+        vm.assume(funder != address(0));
+        vm.assume(recipient != address(0));
+        vm.assume(funder != recipient);
+        vm.assume(fuzzDripAmount > 0);
+
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.startPrank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
+        stablecoinManager.setDripAmount(fuzzDripAmount);
+        vm.stopPrank();
+
+        // fast forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 balBefore = currency.balanceOf(recipient);
+        vm.prank(funder);
+        stablecoinManager.dripTo(address(currency), recipient);
+        uint256 balAfter = currency.balanceOf(recipient);
+
+        uint256 dripAmt = stablecoinManager.getDripAmount();
+        assertEq(balBefore + dripAmt, balAfter);
+
+        // cooldown is set on recipient, not funder
+        uint256 recipientLastDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(currency), recipient);
+        assertEq(recipientLastDrip, block.timestamp);
+        uint256 funderLastDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(currency), funder);
+        assertEq(funderLastDrip, 0);
+    }
+
+    function testNativeCurrencyDripTo() public {
+        address funder = address(0xf00d);
+        address recipient = address(0xbeefbabe);
+
+        uint256 nativeDripAmt = stablecoinManager.getNativeDripAmount();
+
+        // mock the TEL precompile mint call
+        vm.mockCall(
+            address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt), abi.encode()
+        );
+        vm.expectCall(address(0x7e1), abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmt));
+
+        // fast forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(funder);
+        stablecoinManager.dripTo(address(0), recipient);
+
+        uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
+        assertEq(lastFulfilledDrip, block.timestamp);
+    }
+
+    function testDripTo_RateLimitPerRecipient() public {
+        address funderA = address(0xf00d);
+        address funderB = address(0xbead);
+        address recipient = address(0xbeefbabe);
+
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
+
+        // fast forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        // funder A drips to recipient - succeeds
+        vm.prank(funderA);
+        stablecoinManager.dripTo(address(currency), recipient);
+
+        // funder B tries to drip to same recipient immediately - reverts
+        vm.prank(funderB);
+        vm.expectRevert();
+        stablecoinManager.dripTo(address(currency), recipient);
+    }
+
+    function testDripTo_IndependentRecipients() public {
+        address funder = address(0xf00d);
+        address recipientA = address(0xbeefbabe);
+        address recipientB = address(0xcafebabe);
+
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
+
+        // fast forward 1 day
+        vm.warp(block.timestamp + 1 days);
+
+        // same funder drips to two different recipients in the same block - both succeed
+        vm.startPrank(funder);
+        stablecoinManager.dripTo(address(currency), recipientA);
+        stablecoinManager.dripTo(address(currency), recipientB);
+        vm.stopPrank();
+
+        uint256 dripAmt = stablecoinManager.getDripAmount();
+        assertEq(currency.balanceOf(recipientA), dripAmt);
+        assertEq(currency.balanceOf(recipientB), dripAmt);
+    }
+
     function testRescueCrypto(uint256 amount) public {
         vm.assume(amount > 0);
 

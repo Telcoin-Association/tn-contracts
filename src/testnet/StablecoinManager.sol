@@ -161,7 +161,12 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev Faucet function defining this contract as the onchain entrypoint for minting testnet tokens to users
     /// @dev To mint the chain's native token, use `NATIVE_TOKEN_POINTER == address(0x0)`
     /// @notice This contract must be given `Stablecoin::MINTER_ROLE` on each eXYZ contract
-    /// @notice Permissionless: rate-limited by cooldown (1 day per token per caller)
+    /// @notice Permissionless: rate-limited by cooldown (1 day per token per recipient)
+    function dripTo(address token, address recipient) public virtual override {
+        super.dripTo(token, recipient);
+    }
+
+    /// @dev Convenience wrapper: drips to msg.sender. See `dripTo` for dripping to others.
     function drip(address token) public virtual override {
         super.drip(token);
     }
