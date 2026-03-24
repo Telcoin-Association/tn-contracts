@@ -42,7 +42,8 @@ forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
     --private-key "$ADMIN_PK" \
-    --broadcast
+    --broadcast \
+    --resume
 echo "StablecoinManager deployed successfully"
 echo ""
 
@@ -52,7 +53,8 @@ forge script script/testnet/deploy/TestnetDeployGitAttestationRegistry.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
     --private-key "$ADMIN_PK" \
-    --broadcast
+    --broadcast \
+    --resume
 echo "GitAttestationRegistry deployed successfully"
 echo ""
 
@@ -62,7 +64,8 @@ forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
     --private-key "$ADMIN_PK" \
-    --broadcast
+    --broadcast \
+    --resume
 echo "Uniswap V2 deployed successfully"
 echo ""
 
@@ -72,7 +75,8 @@ forge script script/testnet/TestnetGrantRole.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
     --private-key "$ADMIN_PK" \
-    --broadcast
+    --broadcast \
+    --resume
 echo "Roles granted successfully"
 echo ""
 
@@ -82,7 +86,8 @@ forge script script/testnet/TestnetManageFaucet.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
     --private-key "$ADMIN_PK" \
-    --broadcast
+    --broadcast \
+    --resume
 echo "Faucet configured successfully"
 echo ""
 
