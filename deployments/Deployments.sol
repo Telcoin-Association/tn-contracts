@@ -17,6 +17,7 @@ struct Deployments {
     address StakeManager;
     address TANIssuanceHistory;
     address TANIssuancePlugin;
+    address WorkerConfigs;
     address admin;
     EXYZs eXYZs;
     UniswapV2 uniswapV2;

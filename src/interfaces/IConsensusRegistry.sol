@@ -14,48 +14,122 @@ import { RewardInfo, Slash } from "./IStakeManager.sol";
 interface IConsensusRegistry {
     /// @dev Packed struct storing each validator's onchain info
     struct ValidatorInfo {
-        bytes blsPubkey; // using uncompressed BLS public keys in EIP2537 256-byte form
+        /// @notice Uncompressed BLS12-381 G2 public key in 256-byte EIP-2537 encoding
+        bytes blsPubkey;
+        /// @notice The validator's execution-layer address; doubles as its ConsensusNFT tokenId
         address validatorAddress;
+        /// @notice Epoch at which this validator became or will become active
         uint32 activationEpoch;
+        /// @notice Epoch at which this validator exited; 0 until exit begins, type(uint32).max while pending
         uint32 exitEpoch;
+        /// @notice The validator's current lifecycle status
         ValidatorStatus currentStatus;
+        /// @notice Once true, this validator address can never rejoin the network
         bool isRetired;
+        /// @notice True if a third-party delegator provided this validator's stake
         bool isDelegated;
+        /// @notice Index into the `versions` mapping identifying this validator's StakeConfig
         uint8 stakeVersion;
     }
 
     /// @dev Stores each epoch's validator committee and starting block height
     /// @dev Used in two parallel ring buffers offset 2 to store past & future epochs
     struct EpochInfo {
+        /// @notice Ordered set of validator addresses selected for this epoch's voting committee
         address[] committee;
+        /// @notice Total TEL distributed as staking rewards during this epoch
         uint256 epochIssuance;
+        /// @notice The L2 block number at which this epoch started; 0 for future epochs not yet begun
         uint64 blockHeight;
+        /// @notice Sequential identifier for this epoch
         uint32 epochId;
+        /// @notice Duration of this epoch in L2 blocks
         uint32 epochDuration;
+        /// @notice The global StakeConfig version that was active when this epoch started
         uint8 stakeVersion;
     }
 
+    /// @notice Thrown during genesis initialization when a validator has address(0)
     error InvalidValidatorAddress();
+    /// @notice Thrown during genesis when initialValidators is empty or its length mismatches proofsOfPossession
     error GenesisArityMismatch();
+    /// @notice Thrown when a BLS public key has already been registered to another validator
     error DuplicateBLSPubkey();
+    /// @notice Thrown when a committee size is zero or exceeds the number of eligible validators
+    /// @param minCommitteeSize The minimum acceptable committee size
+    /// @param providedCommitteeSize The committee size that was rejected
     error InvalidCommitteeSize(uint256 minCommitteeSize, uint256 providedCommitteeSize);
+    /// @notice Thrown when the committee array is not sorted in strictly ascending address order
+    /// @param validatorAddress The address at which the sort invariant was violated
     error CommitteeRequirement(address validatorAddress);
+    /// @notice Thrown when a delegated-stake EIP-712 signature fails verification
+    /// @param validatorAddress The validator whose signature was invalid
     error NotValidator(address validatorAddress);
+    /// @notice Thrown when minting a ConsensusNFT for an address that already holds one or is retired
+    /// @param validatorAddress The address that was already defined
     error AlreadyDefined(address validatorAddress);
+    /// @notice Thrown when a validator's current status does not match the required status for the operation
+    /// @param status The validator's actual status that caused the revert
     error InvalidStatus(ValidatorStatus status);
+    /// @notice Thrown when a queried epoch is outside the stored range or genesis epoch values are nonzero
+    /// @param epoch The epoch number that was rejected
     error InvalidEpoch(uint32 epoch);
+    /// @notice Thrown in upgradeStakeVersion when the new epoch duration is zero
+    /// @param duration The invalid duration value
     error InvalidDuration(uint32 duration);
+    /// @notice Thrown when a validator attempts to unstake but is ineligible
+    /// @dev Validators may unstake only if Staked (pre-activation) or Exited with at least one full epoch elapsed
+    /// @param validator The full ValidatorInfo of the ineligible validator
     error IneligibleUnstake(ValidatorInfo validator);
 
+    /// @notice Emitted when a validator first stakes, entering the Staked lifecycle state
+    /// @param validator The newly staked validator's info
     event ValidatorStaked(ValidatorInfo validator);
+    /// @notice Emitted when a staked validator self-activates, entering the activation queue
+    /// @dev Activation completes automatically at the start of the next epoch
+    /// @param validator The validator entering PendingActivation status
     event ValidatorPendingActivation(ValidatorInfo validator);
+    /// @notice Emitted when a validator's activation resolves at epoch conclusion or at genesis
+    /// @param validator The newly activated validator's info
     event ValidatorActivated(ValidatorInfo validator);
+    /// @notice Emitted when an active validator requests exit, entering the exit queue
+    /// @dev Exit completes when the validator is no longer required in any future committee
+    /// @param validator The validator entering PendingExit status
     event ValidatorPendingExit(ValidatorInfo validator);
+    /// @notice Emitted when a pending-exit validator is removed from the active set by the protocol
+    /// @param validator The exited validator's info
     event ValidatorExited(ValidatorInfo validator);
+    /// @notice Emitted when a validator is permanently retired and its address can never rejoin
+    /// @param validator The retired validator's info
     event ValidatorRetired(ValidatorInfo validator);
+    /// @notice Emitted for each slash applied to a validator's outstanding balance
+    /// @dev If the slash reduces the balance to zero, the validator is forcibly ejected and retired
+    /// @param slash The slash details including validator address and penalty amount
     event ValidatorSlashed(Slash slash);
+    /// @notice Emitted at epoch conclusion when a new epoch begins
+    /// @param epoch The new epoch's full configuration including committee and block height
     event NewEpoch(EpochInfo epoch);
+    /// @notice Emitted when a stake originator claims accrued rewards or unstakes
+    /// @param claimant The address that received the funds (validator or its delegator)
+    /// @param rewards The amount of TEL claimed
     event RewardsClaimed(address claimant, uint256 rewards);
+    /// @notice Emitted when a validator's stake version is upgraded in-place
+    /// @param validatorAddress The validator whose stake version was upgraded
+    /// @param oldVersion The validator's previous stake version
+    /// @param newVersion The validator's new stake version
+    /// @param oldStakeAmount The stakeAmount associated with the old version
+    /// @param newStakeAmount The stakeAmount associated with the new version
+    event ValidatorStakeVersionUpgraded(
+        address indexed validatorAddress,
+        uint8 oldVersion,
+        uint8 newVersion,
+        uint256 oldStakeAmount,
+        uint256 newStakeAmount
+    );
+    /// @notice Emitted when governance or the protocol adjusts the next epoch's committee size
+    /// @param oldSize The previous nextCommitteeSize value
+    /// @param newSize The updated nextCommitteeSize value
+    /// @param numActiveValidators The current count of committee-eligible validators
     event NextCommitteeSizeUpdated(uint16 oldSize, uint16 newSize, uint256 numActiveValidators);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
