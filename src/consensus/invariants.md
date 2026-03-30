@@ -51,3 +51,10 @@
 - protocol dictates committee based on `getValidators(Active)`, taking the first `nextCommitteeSize` validators after Fisher-Yates shuffle
 - protocol reads `nextCommitteeSize` from contract storage to determine committee size for the future committee passed to `concludeEpoch`
 - `nextCommitteeSize` serves as the source of truth for committee sizing, eliminating need for protocol hard forks to adjust committee sizes
+
+**worker configs**
+
+- every worker 0..numWorkers-1 must have a config with value >= MIN_GAS (7 wei)
+- setWorkerConfig allows setting config for any workerId (including beyond numWorkers); setNumWorkers validates coverage
+- strategy is a raw uint8 stored without contract interpretation; the protocol layer handles strategy semantics
+- constructor atomically sets numWorkers and all configs, guaranteeing coverage from deployment
