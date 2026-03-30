@@ -42,6 +42,13 @@ contract EpochGasTargetTest is Test {
         assertEq(target.defaultTargetGas(), 50_000_000);
     }
 
+    function test_setDefaultTargetGas_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit IEpochGasTarget.DefaultTargetGasUpdated(defaultTarget, 50_000_000);
+        target.setDefaultTargetGas(50_000_000);
+    }
+
     function test_setDefaultTargetGas_revertsNonOwner() public {
         address nonOwner = address(0xdead);
         vm.prank(nonOwner);
@@ -63,6 +70,13 @@ contract EpochGasTargetTest is Test {
         vm.prank(owner);
         target.setWorkerTargetGas(1, 50_000_000);
         assertEq(target.getTargetGas(1), 50_000_000);
+    }
+
+    function test_setWorkerTargetGas_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit IEpochGasTarget.WorkerTargetGasUpdated(1, 0, 50_000_000);
+        target.setWorkerTargetGas(1, 50_000_000);
     }
 
     function test_setWorkerTargetGas_revertsNonOwner() public {
@@ -89,6 +103,16 @@ contract EpochGasTargetTest is Test {
 
         target.clearWorkerTargetGas(1);
         assertEq(target.getTargetGas(1), defaultTarget);
+        vm.stopPrank();
+    }
+
+    function test_clearWorkerTargetGas_emitsEvent() public {
+        vm.startPrank(owner);
+        target.setWorkerTargetGas(1, 50_000_000);
+
+        vm.expectEmit(true, false, false, false);
+        emit IEpochGasTarget.WorkerTargetGasCleared(1);
+        target.clearWorkerTargetGas(1);
         vm.stopPrank();
     }
 

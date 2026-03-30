@@ -8,6 +8,15 @@ interface IEpochGasTarget {
     /// @notice Thrown when a zero value is provided for a gas target.
     error ZeroTargetGas();
 
+    /// @notice Emitted when the default gas target is updated.
+    event DefaultTargetGasUpdated(uint64 oldValue, uint64 newValue);
+
+    /// @notice Emitted when a worker's gas target override is set.
+    event WorkerTargetGasUpdated(uint16 indexed workerId, uint64 oldValue, uint64 newValue);
+
+    /// @notice Emitted when a worker's gas target override is cleared.
+    event WorkerTargetGasCleared(uint16 indexed workerId);
+
     /// @notice Set the default gas target used by workers without an override.
     /// @param targetGas The new default gas target (must be non-zero).
     function setDefaultTargetGas(uint64 targetGas) external;

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IEpochGasTarget} from "../interfaces/IEpochGasTarget.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IEpochGasTarget } from "../interfaces/IEpochGasTarget.sol";
 
 /// @title EpochGasTarget
 /// @notice Manages per-epoch gas targets for workers. The owner can set a default gas target and
@@ -25,18 +25,23 @@ contract EpochGasTarget is Ownable, IEpochGasTarget {
     /// @inheritdoc IEpochGasTarget
     function setDefaultTargetGas(uint64 targetGas) external onlyOwner {
         if (targetGas == 0) revert ZeroTargetGas();
+        uint64 oldValue = defaultTargetGas;
         defaultTargetGas = targetGas;
+        emit DefaultTargetGasUpdated(oldValue, targetGas);
     }
 
     /// @inheritdoc IEpochGasTarget
     function setWorkerTargetGas(uint16 workerId, uint64 targetGas) external onlyOwner {
         if (targetGas == 0) revert ZeroTargetGas();
+        uint64 oldValue = _workerTargetGas[workerId];
         _workerTargetGas[workerId] = targetGas;
+        emit WorkerTargetGasUpdated(workerId, oldValue, targetGas);
     }
 
     /// @inheritdoc IEpochGasTarget
     function clearWorkerTargetGas(uint16 workerId) external onlyOwner {
         delete _workerTargetGas[workerId];
+        emit WorkerTargetGasCleared(workerId);
     }
 
     /// @inheritdoc IEpochGasTarget
