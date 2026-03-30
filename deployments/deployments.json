@@ -1,6 +1,7 @@
 {
 	"ArachnidDeterministicDeployFactory": "0x4e59b44847b379578588920ca78fbf26c0b4956c",
 	"ConsensusRegistry": "0x07e17e17e17e17e17e17e17e17e17e17e17e17e1",
+	"EpochGasTarget": "0xfee0fee0fee0fee0fee0fee0fee0fee0fee0fee0",
 	"GitAttestationRegistry": "0xba26a2c8e1c54d5bbb96e891fd4a9d853f438eb9",
 	"Issuance": "0x07a07a07a07a07a07a07a07a07a07a07a07a07a0",
 	"Safe": "0x00000000000000000000000000000000000007a0",
