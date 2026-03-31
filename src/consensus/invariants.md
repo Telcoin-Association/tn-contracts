@@ -45,6 +45,11 @@
 - when claiming or unstaking, rewards are sourced from Issuance
 - claims can revert if Issuance contract runs dry (eg TAO governance problem) but rewards ledger must continue being updated by applyIncentives or applySlahes
 - all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not
+- mid-epoch stake version upgrades cause the entire epoch's rewards to be weighted by the new version's `stakeAmount`, since `applyIncentives` reads `stakeVersion` at epoch end; there is no pro-rata split within an epoch
+- during a stake-decreasing version upgrade on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
+- validators with both accrued rewards and a pending slash should claim rewards before upgrading stake version; a stake-decreasing upgrade on a partially slashed validator may zero claimable rewards (the recipient still receives the correct total ETH via the refund)
+- `upgradeValidatorStakeVersion` only permits forward version upgrades (targetVersion > currentVersion); version downgrades are rejected
+- `upgradeValidatorStakeVersion` is restricted to validators with status Staked, PendingActivation, or Active
 
 **protocol**
 
