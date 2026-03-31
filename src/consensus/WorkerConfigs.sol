@@ -10,6 +10,11 @@ import {IWorkerConfigs} from "../interfaces/IWorkerConfigs.sol";
 /// The constructor atomically sets `numWorkers` and every worker's config,
 /// guaranteeing full coverage from deployment. After deployment the owner can
 /// update individual configs and resize the worker set (with coverage checks).
+///
+/// @dev Protocol usage: at each epoch boundary the execution layer reads
+/// `numWorkers()` and iterates `getWorkerConfig(0 .. numWorkers-1)` to
+/// build the per-worker fee parameters for the upcoming epoch. The contract
+/// therefore acts as the on-chain source of truth for worker fee policy.
 contract WorkerConfigs is Ownable, IWorkerConfigs {
     /// @notice Absolute minimum gas value any worker config may hold (7 wei).
     uint64 public constant MIN_GAS = 7;
@@ -36,18 +41,23 @@ contract WorkerConfigs is Ownable, IWorkerConfigs {
     /// @param owner_ The address that will own this contract.
     constructor(uint8[] memory strategies, uint64[] memory values, address owner_) Ownable(owner_) {
         if (strategies.length != values.length) revert LengthMismatch();
+        if (strategies.length > type(uint16).max) revert TooManyWorkers();
 
         uint16 count = uint16(strategies.length);
+        if (count < 1) revert NumWorkersBelowMinimum();
         numWorkers = count;
 
         for (uint16 i = 0; i < count; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
             _workerConfigs[i] = WorkerConfig({strategy: strategies[i], value: values[i]});
+            emit WorkerConfigUpdated(i, strategies[i], values[i]);
         }
     }
 
     /// @inheritdoc IWorkerConfigs
     function setNumWorkers(uint16 numWorkers_) external onlyOwner {
+        if (numWorkers_ < 1) revert NumWorkersBelowMinimum();
+
         // Validate that every worker 0..numWorkers_-1 has a valid config.
         for (uint16 i = 0; i < numWorkers_; i++) {
             if (_workerConfigs[i].value < MIN_GAS) revert MissingWorkerConfig(i);

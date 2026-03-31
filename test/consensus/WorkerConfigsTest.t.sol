@@ -71,11 +71,11 @@ contract WorkerConfigsTest is Test {
         new WorkerConfigs(s, v, owner);
     }
 
-    function test_constructor_zeroWorkersAllowed() public {
+    function test_constructor_revertsOnZeroWorkers() public {
         uint8[] memory s = new uint8[](0);
         uint64[] memory v = new uint64[](0);
-        WorkerConfigs empty = new WorkerConfigs(s, v, owner);
-        assertEq(empty.numWorkers(), 0);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.NumWorkersBelowMinimum.selector));
+        new WorkerConfigs(s, v, owner);
     }
 
     // ──────────────────────────────────────────────
@@ -223,5 +223,68 @@ contract WorkerConfigsTest is Test {
             assertEq(rs, uint8(i));
             assertEq(rv, uint64(i) + 7);
         }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Additional coverage
+    // ──────────────────────────────────────────────
+
+    function test_setNumWorkers_revertsOnZero() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.NumWorkersBelowMinimum.selector));
+        wc.setNumWorkers(0);
+    }
+
+    function test_setNumWorkers_shrinkThenExpand() public {
+        // Shrink 2 → 1, then expand back to 2. Stale config for worker 1 should persist.
+        vm.startPrank(owner);
+        wc.setNumWorkers(1);
+        assertEq(wc.numWorkers(), 1);
+
+        // Worker 1's config is still in storage even though numWorkers is 1.
+        (uint8 s1, uint64 v1) = wc.getWorkerConfig(1);
+        assertEq(s1, 0);
+        assertEq(v1, 30_000_000);
+
+        // Expand back — worker 1's stale config satisfies the coverage check.
+        wc.setNumWorkers(2);
+        assertEq(wc.numWorkers(), 2);
+        vm.stopPrank();
+    }
+
+    function test_setWorkerConfig_overwrite() public {
+        vm.startPrank(owner);
+        wc.setWorkerConfig(0, 1, 100);
+        (uint8 s, uint64 v) = wc.getWorkerConfig(0);
+        assertEq(s, 1);
+        assertEq(v, 100);
+
+        // Overwrite with different values.
+        wc.setWorkerConfig(0, 2, 200);
+        (s, v) = wc.getWorkerConfig(0);
+        assertEq(s, 2);
+        assertEq(v, 200);
+        vm.stopPrank();
+    }
+
+    function test_setNumWorkers_idempotent() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit IWorkerConfigs.NumWorkersUpdated(2, 2);
+        wc.setNumWorkers(2);
+        assertEq(wc.numWorkers(), 2);
+    }
+
+    function test_constructor_emitsEvents() public {
+        uint8[] memory s = new uint8[](2);
+        uint64[] memory v = new uint64[](2);
+        s[0] = 0; v[0] = 100;
+        s[1] = 1; v[1] = 200;
+
+        vm.expectEmit(true, false, false, true);
+        emit IWorkerConfigs.WorkerConfigUpdated(0, 0, 100);
+        vm.expectEmit(true, false, false, true);
+        emit IWorkerConfigs.WorkerConfigUpdated(1, 1, 200);
+        new WorkerConfigs(s, v, owner);
     }
 }

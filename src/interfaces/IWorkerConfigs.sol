@@ -27,6 +27,12 @@ interface IWorkerConfigs {
     /// @notice Thrown when constructor array lengths do not match.
     error LengthMismatch();
 
+    /// @notice Thrown when the number of workers is set to zero.
+    error NumWorkersBelowMinimum();
+
+    /// @notice Thrown when the strategies array length exceeds `type(uint16).max`.
+    error TooManyWorkers();
+
     // ── Events ──────────────────────────────────────────────────────────
 
     /// @notice Emitted when a worker's config is created or updated.
@@ -66,5 +72,8 @@ interface IWorkerConfigs {
     function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value);
 
     /// @notice Return the current number of workers.
+    /// @dev The protocol reads this value at epoch boundaries to determine how many
+    ///      worker configs to fetch. Each worker `0 .. numWorkers()-1` is guaranteed
+    ///      to have a config with `value >= MIN_GAS`.
     function numWorkers() external view returns (uint16);
 }

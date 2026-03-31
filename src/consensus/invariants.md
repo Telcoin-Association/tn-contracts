@@ -55,6 +55,17 @@
 **worker configs**
 
 - every worker 0..numWorkers-1 must have a config with value >= MIN_GAS (7 wei)
+- numWorkers must always be >= 1; the constructor and setNumWorkers both enforce this minimum
 - setWorkerConfig allows setting config for any workerId (including beyond numWorkers); setNumWorkers validates coverage
 - strategy is a raw uint8 stored without contract interpretation; the protocol layer handles strategy semantics
 - constructor atomically sets numWorkers and all configs, guaranteeing coverage from deployment
+- constructor emits WorkerConfigUpdated for each worker to provide an indexable deployment record
+- shrinking numWorkers does not delete stale configs; expanding reactivates them — governance must update stale configs before expanding (recommend multicall to batch setWorkerConfig + setNumWorkers)
+- getWorkerConfig returns (0, 0) for workers that have never been configured; this is only observable for workerIds >= numWorkers since coverage is enforced for active workers
+- strategies.length is checked against type(uint16).max in the constructor to prevent silent truncation
+
+**worker configs — protocol usage**
+
+- at each epoch boundary the execution layer reads `numWorkers()` and iterates `getWorkerConfig(0 .. numWorkers-1)` to build per-worker fee parameters for the upcoming epoch
+- WorkerConfigs acts as the on-chain source of truth for worker fee policy, analogous to how `nextCommitteeSize` serves as source of truth for committee sizing
+- governance should coordinate config updates with epoch timing; configs take effect the next time the protocol reads them (next epoch boundary)
