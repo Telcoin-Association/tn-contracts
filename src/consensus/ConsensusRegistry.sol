@@ -461,6 +461,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 // Route through Issuance (same pattern as _unstake)
                 Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
             }
+
+            // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
+            uint256 confiscatedAmount = surplus - refundAmount;
+            if (confiscatedAmount > 0) {
+                (bool r,) = issuance.call{ value: confiscatedAmount }("");
+                r;
+            }
         } else {
             // Same stake amount: just a metadata update
             if (msg.value != 0) revert InvalidStakeAmount(msg.value);
