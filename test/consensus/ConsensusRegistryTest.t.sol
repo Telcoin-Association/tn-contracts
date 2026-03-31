@@ -7,7 +7,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
-import { Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
 
@@ -616,5 +616,280 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // committee size should auto-adjust
         assertEq(consensusRegistry.getNextCommitteeSize(), 3);
+    }
+
+    /*
+     *   upgradeValidatorStakeVersion
+     */
+
+    function test_upgradeValidatorStakeVersion_increaseStake() public {
+        // Create a new stake version with higher stake
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        // validator1 is Active with version 0
+        uint256 deficit = newStakeAmt - stakeAmount_;
+        vm.deal(validator1, deficit);
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorStakeVersionUpgraded(validator1, 0, newVersion, stakeAmount_, newStakeAmt);
+
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+
+        // Verify state
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.stakeVersion, newVersion);
+        (uint256 balance, uint256 stakeAmt,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balance, newStakeAmt);
+        assertEq(stakeAmt, newStakeAmt);
+    }
+
+    function test_upgradeValidatorStakeVersion_decreaseStake() public {
+        // Create a new stake version with lower stake
+        uint256 newStakeAmt = 500_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        uint256 recipientBalBefore = validator1.balance;
+
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        // Verify state
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.stakeVersion, newVersion);
+        (uint256 balance, uint256 stakeAmt,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balance, newStakeAmt);
+        assertEq(stakeAmt, newStakeAmt);
+        // surplus refunded to validator1 (who is the recipient since no delegator)
+        uint256 surplus = stakeAmount_ - newStakeAmt;
+        assertEq(validator1.balance, recipientBalBefore + surplus);
+    }
+
+    function test_upgradeValidatorStakeVersion_sameStake() public {
+        // Create a new version with same stake amount
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(stakeAmount_, minWithdrawAmount_ * 2, epochIssuance_, epochDuration_)
+        );
+
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.stakeVersion, newVersion);
+        (uint256 balance,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balance, stakeAmount_);
+    }
+
+    function test_upgradeValidatorStakeVersion_stakedStatus() public {
+        // Mint and stake validator5 (Staked status, not yet activated)
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+
+        vm.prank(validator5);
+        consensusRegistry.stake{value: stakeAmount_}(
+            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig)
+        );
+
+        // Create new version with higher stake
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        uint256 deficit = newStakeAmt - stakeAmount_;
+        vm.deal(validator5, deficit);
+
+        vm.prank(validator5);
+        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator5, newVersion);
+
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator5);
+        assertEq(info.stakeVersion, newVersion);
+        assertEq(uint8(info.currentStatus), uint8(ValidatorStatus.Staked));
+    }
+
+    function test_upgradeValidatorStakeVersion_delegated() public {
+        // Setup delegated validator5
+        vm.prank(crOwner);
+        uint256 validator5PrivateKey = 5;
+        validator5 = vm.addr(validator5PrivateKey);
+        address delegator = _addressFromPrivateKey(42);
+        vm.deal(delegator, stakeAmount_);
+
+        consensusRegistry.mint(validator5);
+
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+        bytes32 structHash = consensusRegistry.delegationDigest(dummyPubkey, validator5, delegator);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
+        bytes memory validatorSig = abi.encodePacked(r, s, v);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+
+        vm.prank(delegator);
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig
+        );
+
+        // Create new version with lower stake
+        uint256 newStakeAmt = 500_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        uint256 delegatorBalBefore = delegator.balance;
+
+        // Delegator calls upgrade (they are the recipient)
+        vm.prank(delegator);
+        consensusRegistry.upgradeValidatorStakeVersion(validator5, newVersion);
+
+        // Verify delegation record updated
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator5);
+        assertEq(info.stakeVersion, newVersion);
+
+        // Surplus refunded to delegator (the recipient)
+        uint256 surplus = stakeAmount_ - newStakeAmt;
+        assertEq(delegator.balance, delegatorBalBefore + surplus);
+    }
+
+    function test_upgradeValidatorStakeVersion_preservesRewards() public {
+        // First conclude an epoch and apply incentives so validator1 has rewards
+        address[] memory committee = new address[](4);
+        committee[0] = validator1;
+        committee[1] = validator2;
+        committee[2] = validator3;
+        committee[3] = validator4;
+        _sortAddresses(committee);
+
+        vm.prank(sysAddress);
+        RewardInfo[] memory rewards = new RewardInfo[](4);
+        rewards[0] = RewardInfo(validator1, 10);
+        rewards[1] = RewardInfo(validator2, 10);
+        rewards[2] = RewardInfo(validator3, 10);
+        rewards[3] = RewardInfo(validator4, 10);
+        consensusRegistry.applyIncentives(rewards);
+
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(committee);
+
+        // Record validator1's rewards before upgrade
+        uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
+        assertTrue(rewardsBefore > 0);
+
+        // Create new version with higher stake
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        uint256 deficit = newStakeAmt - stakeAmount_;
+        vm.deal(validator1, deficit);
+
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+
+        // Rewards should be preserved
+        uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
+        assertEq(rewardsAfter, rewardsBefore);
+    }
+
+    function test_upgradeValidatorStakeVersion_slashedDecrease() public {
+        // Slash validator1 partially (lose 200k of 1M stake)
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, 200_000e18);
+        vm.prank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+
+        // validator1 balance is now 800k, stakeAmount is 1M
+        (uint256 balBefore,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balBefore, 800_000e18);
+
+        // Create new version with 600k stake
+        uint256 newStakeAmt = 600_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        uint256 recipientBalBefore = validator1.balance;
+
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        // Partial refund: balance(800k) - newStakeAmt(600k) = 200k refund (not full 400k surplus)
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, newStakeAmt);
+        assertEq(validator1.balance, recipientBalBefore + 200_000e18);
+    }
+
+    function testRevert_upgradeValidatorStakeVersion_wrongMsgValue() public {
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        // Send wrong amount (too much)
+        uint256 wrongAmount = newStakeAmt;
+        vm.deal(validator1, wrongAmount);
+
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeAmount.selector, wrongAmount));
+        consensusRegistry.upgradeValidatorStakeVersion{value: wrongAmount}(validator1, newVersion);
+    }
+
+    function testRevert_upgradeValidatorStakeVersion_invalidVersion() public {
+        // Target version <= current (0)
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeVersion.selector, uint8(0), uint8(0)));
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, 0);
+
+        // Target version > global stakeVersion
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeVersion.selector, uint8(0), uint8(5)));
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, 5);
+    }
+
+    function testRevert_upgradeValidatorStakeVersion_pendingExit() public {
+        // Put validator1 in PendingExit
+        vm.prank(validator1);
+        consensusRegistry.beginExit();
+
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.PendingExit));
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+    }
+
+    function testRevert_upgradeValidatorStakeVersion_notRecipient() public {
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        address unauthorized = address(0xdead);
+        vm.prank(unauthorized);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.NotRecipient.selector, validator1));
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
     }
 }

@@ -398,6 +398,84 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         emit RewardsClaimed(recipient, rewards);
     }
 
+    /// @inheritdoc IStakeManager
+    function upgradeValidatorStakeVersion(
+        address validatorAddress,
+        uint8 targetVersion
+    )
+        external
+        payable
+        override
+        whenNotPaused
+        nonReentrant
+    {
+        // 1. Access control (same pattern as claimStakeRewards/unstake)
+        _checkConsensusNFTOwner(validatorAddress);
+        address recipient = _getRecipient(validatorAddress);
+        // this allows validators to act independently of delegators
+        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+
+        // 2. Status check: only Staked, PendingActivation, or Active
+        ValidatorInfo storage validator = validators[validatorAddress];
+        ValidatorStatus status = validator.currentStatus;
+        // TODO: would this be better to check affirmation instead?
+        if (
+            status != ValidatorStatus.Staked && status != ValidatorStatus.PendingActivation
+                && status != ValidatorStatus.Active
+        ) {
+            revert InvalidStatus(status);
+        }
+
+        // 3. Version validation: must be strictly newer, within bounds
+        uint8 oldVersion = validator.stakeVersion;
+        if (targetVersion <= oldVersion || targetVersion > stakeVersion) {
+            revert InvalidStakeVersion(oldVersion, targetVersion);
+        }
+
+        // 4. Compute stake difference
+        uint256 oldStakeAmount = versions[oldVersion].stakeAmount;
+        uint256 newStakeAmount = versions[targetVersion].stakeAmount;
+
+        // 5. Balance adjustment
+        if (newStakeAmount > oldStakeAmount) {
+            // Stake increase: caller must send exact deficit
+            uint256 deficit = newStakeAmount - oldStakeAmount;
+            if (msg.value != deficit) revert InvalidStakeAmount(msg.value);
+            balances[validatorAddress] += deficit;
+        } else if (newStakeAmount < oldStakeAmount) {
+            // Stake decrease: refund surplus to recipient
+            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
+            uint256 surplus = oldStakeAmount - newStakeAmount;
+            uint256 currentBalance = balances[validatorAddress];
+            uint256 refundAmount;
+            if (currentBalance >= oldStakeAmount) {
+                // Not slashed: full surplus refund
+                refundAmount = surplus;
+            } else if (currentBalance > newStakeAmount) {
+                // Partially slashed: partial refund down to newStakeAmount
+                refundAmount = currentBalance - newStakeAmount;
+            }
+            // else: slashed below new stake amount, no refund
+
+            if (refundAmount > 0) {
+                balances[validatorAddress] -= refundAmount;
+                // Route through Issuance (same pattern as _unstake)
+                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
+            }
+        } else {
+            // Same stake amount: just a metadata update
+            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
+        }
+
+        // 6. Update state
+        validator.stakeVersion = targetVersion;
+        if (validator.isDelegated) {
+            delegations[validatorAddress].validatorVersion = targetVersion;
+        }
+
+        emit ValidatorStakeVersionUpgraded(validatorAddress, oldVersion, targetVersion, oldStakeAmount, newStakeAmount);
+    }
+
     /// @inheritdoc IConsensusRegistry
     function beginExit() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
@@ -513,7 +591,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
+    function _spendBLSPubkey(
+        bytes memory blsPubkey,
+        address validatorAddress
+    )
+        private
+        returns (bytes32 blsPubkeyHash)
+    {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -791,7 +875,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
+    function _isCommitteeMember(
+        address validatorAddress,
+        address[] memory committee
+    )
+        internal
+        pure
+        returns (bool)
+    {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {

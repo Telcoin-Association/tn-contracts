@@ -56,6 +56,13 @@ interface IConsensusRegistry {
     event ValidatorSlashed(Slash slash);
     event NewEpoch(EpochInfo epoch);
     event RewardsClaimed(address claimant, uint256 rewards);
+    event ValidatorStakeVersionUpgraded(
+        address indexed validatorAddress,
+        uint8 oldVersion,
+        uint8 newVersion,
+        uint256 oldStakeAmount,
+        uint256 newStakeAmount
+    );
     event NextCommitteeSizeUpdated(uint16 oldSize, uint16 newSize, uint256 numActiveValidators);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational

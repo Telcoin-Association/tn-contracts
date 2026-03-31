@@ -30,9 +30,9 @@
 **stake**
 
 - initial validators' stakes are allocated to the ConsensusRegistry and decremented from the TEL supply allocation directly within the protocol on the rust side (thus not provided to the constructor)
-- the only way to withdraw funds from the ConsensusRegistry and Issuance contract are during reward claim or full validator retirement using `unstake()` which sends stake + rewards
+- the only way to withdraw funds from the ConsensusRegistry and Issuance contract are during reward claim, full validator retirement using `unstake()` which sends stake + rewards, or during stake version upgrade via `upgradeValidatorStakeVersion()` which refunds surplus stake
 - stake configs must take effect in the next epoch, not current
-- stake config versions are set on a per-validator basis at stake time
+- stake config versions are set on a per-validator basis at stake time and may be upgraded in-place via `upgradeValidatorStakeVersion`
 - rewards are weighted by validator version initial stake and the number of consensus headers for the epoch
 - consensus burns must never push committees or validator set to invalid state
 - consensus burned tokenIDs must not cause a revert for system called epoch actions

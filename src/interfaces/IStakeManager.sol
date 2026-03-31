@@ -53,6 +53,7 @@ interface IStakeManager {
     error NotTransferable();
     error RequiresConsensusNFT();
     error InvalidSupply();
+    error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance
@@ -127,4 +128,11 @@ interface IStakeManager {
     /// The only way received TEL can be re-minted is as staking issuance rewards
     /// @notice Only governance may burn TEL in this manner
     function allocateIssuance() external payable;
+
+    /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place
+    /// @param validatorAddress The validator whose stake version should be upgraded
+    /// @param targetVersion The new stake version to upgrade to
+    /// @notice If the new version requires more stake, msg.value must equal the difference
+    /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient
+    function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable;
 }
