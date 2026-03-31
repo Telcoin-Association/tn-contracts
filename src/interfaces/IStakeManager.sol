@@ -53,6 +53,10 @@ interface IStakeManager {
     error NotTransferable();
     error RequiresConsensusNFT();
     error InvalidSupply();
+    /// @notice Thrown when a stake version upgrade targets an invalid version
+    /// @dev Target version must be strictly greater than current and not exceed global `stakeVersion`
+    /// @param currentVersion The validator's current stake version
+    /// @param targetVersion The requested target version that was rejected
     error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
@@ -129,10 +133,16 @@ interface IStakeManager {
     /// @notice Only governance may burn TEL in this manner
     function allocateIssuance() external payable;
 
-    /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place
+    /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place.
+    /// Only callable for validators with status Staked, PendingActivation, or Active.
     /// @param validatorAddress The validator whose stake version should be upgraded
-    /// @param targetVersion The new stake version to upgrade to
-    /// @notice If the new version requires more stake, msg.value must equal the difference
-    /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient
+    /// @param targetVersion The new stake version to upgrade to (must be strictly greater than current)
+    /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit
+    /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient.
+    /// For partially slashed validators, only the balance above `newStakeAmount` is refunded.
+    /// @notice If a validator has been slashed and has accrued rewards, upgrading to a lower
+    /// `stakeAmount` may zero claimable rewards since rewards are derived as `balance - stakeAmount`.
+    /// The recipient still receives the correct total ETH via the refund. Validators should claim
+    /// rewards before upgrading if they have both accrued rewards and pending slashes.
     function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable;
 }

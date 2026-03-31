@@ -56,6 +56,12 @@ interface IConsensusRegistry {
     event ValidatorSlashed(Slash slash);
     event NewEpoch(EpochInfo epoch);
     event RewardsClaimed(address claimant, uint256 rewards);
+    /// @notice Emitted when a validator's stake version is upgraded in-place
+    /// @param validatorAddress The validator whose stake version was upgraded
+    /// @param oldVersion The validator's previous stake version
+    /// @param newVersion The validator's new stake version
+    /// @param oldStakeAmount The stakeAmount associated with the old version
+    /// @param newStakeAmount The stakeAmount associated with the new version
     event ValidatorStakeVersionUpgraded(
         address indexed validatorAddress,
         uint8 oldVersion,
