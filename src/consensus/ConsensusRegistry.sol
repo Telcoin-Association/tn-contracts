@@ -418,7 +418,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // 2. Status check: only Staked, PendingActivation, or Active
         ValidatorInfo storage validator = validators[validatorAddress];
         ValidatorStatus status = validator.currentStatus;
-        // TODO: would this be better to check affirmation instead?
         if (
             status != ValidatorStatus.Staked && status != ValidatorStatus.PendingActivation
                 && status != ValidatorStatus.Active
