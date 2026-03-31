@@ -635,4 +635,127 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         vm.expectRevert(abi.encodeWithSelector(NotRecipient.selector, testValidator));
         consensusRegistry.upgradeValidatorStakeVersion(testValidator, newVersion);
     }
+
+    function testFuzz_upgradeValidatorStakeVersion_increaseAmount(uint256 newStakeAmt) public {
+        newStakeAmt = bound(newStakeAmt, stakeAmount_ + 1, stakeAmount_ * 100);
+
+        // create new version with the fuzzed stake amount
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+        // fund validator1 with exact deficit and upgrade
+        uint256 deficit = newStakeAmt - stakeAmount_;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+
+        vm.deal(validator1, deficit);
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion{ value: deficit }(validator1, newVersion);
+
+        // assert: balance updated to new stake amount
+        (uint256 bal,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(bal, newStakeAmt, "Validator balance should equal new stake amount");
+
+        // assert: version updated
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.stakeVersion, newVersion, "Validator version should be updated");
+
+        // assert: registry ETH balance increased by deficit
+        assertEq(address(consensusRegistry).balance, registryBalBefore + deficit, "Registry balance should increase by deficit");
+    }
+
+    function testFuzz_upgradeValidatorStakeVersion_decreaseWithSlash(uint256 slashAmount, uint256 newStakeAmt) public {
+        // bound slashAmount to partial slash (avoid ejection)
+        slashAmount = bound(slashAmount, 1, stakeAmount_ - 1);
+        // bound newStakeAmt to ensure a decrease
+        newStakeAmt = bound(newStakeAmt, 1, stakeAmount_ - 1);
+
+        // apply slash to validator1
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, slashAmount);
+        vm.prank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+
+        uint256 balanceAfterSlash = stakeAmount_ - slashAmount;
+
+        // create lower version
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+        // snapshot total ETH across all relevant accounts before upgrade
+        uint256 totalBefore = address(consensusRegistry).balance + issuance.balance + validator1.balance;
+
+        // perform upgrade
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        // snapshot total ETH after upgrade
+        uint256 totalAfter = address(consensusRegistry).balance + issuance.balance + validator1.balance;
+
+        // KEY INVARIANT: total ETH conservation (no ETH created or destroyed)
+        assertEq(totalAfter, totalBefore, "ETH conservation violated: no ETH should be created or destroyed");
+
+        // compute expected refund and verify new balance
+        uint256 expectedRefund;
+        // balanceAfterSlash >= stakeAmount_ is impossible since slashAmount >= 1
+        if (balanceAfterSlash > newStakeAmt) {
+            expectedRefund = balanceAfterSlash - newStakeAmt;
+        }
+        // else: refund = 0
+
+        // verify new balance is min(balanceAfterSlash, newStakeAmt)
+        (uint256 newBal,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        uint256 expectedBal = balanceAfterSlash < newStakeAmt ? balanceAfterSlash : newStakeAmt;
+        assertEq(newBal, expectedBal, "New balance should be min(balanceAfterSlash, newStakeAmt)");
+    }
+
+    function testFuzz_upgradeValidatorStakeVersion_rewardsInteraction(uint256 newStakeAmt, bool isIncrease) public {
+        // earn rewards: apply incentives for all 4 genesis validators, then conclude epoch
+        RewardInfo[] memory rewardInfos = new RewardInfo[](4);
+        rewardInfos[0] = RewardInfo(validator1, 1);
+        rewardInfos[1] = RewardInfo(validator2, 1);
+        rewardInfos[2] = RewardInfo(validator3, 1);
+        rewardInfos[3] = RewardInfo(validator4, 1);
+
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+
+        // conclude epoch to finalize rewards
+        address[] memory committee = new address[](4);
+        committee[0] = validator1;
+        committee[1] = validator2;
+        committee[2] = validator3;
+        committee[3] = validator4;
+        _sortAddresses(committee);
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(committee);
+
+        // record rewards before upgrade
+        uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
+        assertTrue(rewardsBefore > 0, "Validator1 should have earned rewards");
+
+        if (isIncrease) {
+            // stake increase path
+            newStakeAmt = bound(newStakeAmt, stakeAmount_ + 1, stakeAmount_ * 10);
+            uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+            uint256 deficit = newStakeAmt - stakeAmount_;
+            vm.deal(validator1, deficit);
+            vm.prank(validator1);
+            consensusRegistry.upgradeValidatorStakeVersion{ value: deficit }(validator1, newVersion);
+
+            // assert rewards preserved after increase
+            uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
+            assertEq(rewardsAfter, rewardsBefore, "Rewards should be preserved after stake increase");
+        } else {
+            // stake decrease path (no slash case: balance >= oldStakeAmount due to rewards)
+            newStakeAmt = bound(newStakeAmt, 1, stakeAmount_ - 1);
+            uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+            vm.prank(validator1);
+            consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+            // rewards are preserved: balance was above stakeAmount_ due to rewards,
+            // full surplus is refunded, so remaining balance = newStakeAmt + rewards
+            uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
+            assertEq(rewardsAfter, rewardsBefore, "Rewards should be preserved after stake decrease (no slash)");
+        }
+    }
 }
