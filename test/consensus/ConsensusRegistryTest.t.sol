@@ -70,6 +70,51 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.stakeConfig(0).minWithdrawAmount, minWithdrawAmount_);
     }
 
+    function test_setValidatorRegion() public {
+        // region defaults to 0
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 0);
+
+        // owner sets region
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator1, 5);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 5);
+
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 5);
+
+        // update to different region
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 8);
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 8);
+
+        // reset to unspecified
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 0);
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 0);
+    }
+
+    function test_setValidatorRegion_revert_invalidRegion() public {
+        vm.expectRevert(abi.encodeWithSelector(InvalidRegion.selector, uint8(9)));
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 9);
+    }
+
+    function test_setValidatorRegion_revert_notOwner() public {
+        vm.expectRevert();
+        vm.prank(validator1);
+        consensusRegistry.setValidatorRegion(validator1, 5);
+    }
+
+    function test_setValidatorRegion_revert_noNFT() public {
+        vm.expectRevert();
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(address(0xdead), 5);
+    }
+
     function test_stake() public {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
@@ -88,7 +133,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.expectEmit(true, true, true, true);
         emit ValidatorStaked(ValidatorInfo(
-                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, false, uint8(0)
+                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, false, uint8(0), uint8(0)
             ));
         vm.prank(validator5);
         consensusRegistry.stake{
@@ -135,7 +180,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         bool isDelegate = true;
         vm.expectEmit(true, true, true, true);
         emit ValidatorStaked(ValidatorInfo(
-                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, isDelegate, uint8(0)
+                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, isDelegate, uint8(0), uint8(0)
             ));
 
         vm.prank(delegator);
@@ -204,7 +249,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.expectEmit(true, true, true, true);
         emit ValidatorActivated(ValidatorInfo(
-                dummyPubkey, validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+                dummyPubkey, validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, false, uint8(0), uint8(0)
             ));
         vm.prank(sysAddress);
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeValidators.length));
@@ -293,6 +338,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 ValidatorStatus.PendingExit,
                 false,
                 false,
+                uint8(0),
                 uint8(0)
             ));
         // begin exit
@@ -394,6 +440,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 ValidatorStatus.Exited,
                 false,
                 false,
+                uint8(0),
                 uint8(0)
             ));
 
@@ -481,7 +528,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Attempt to unstake without exiting
         bytes memory err = abi.encodeWithSelector(
             IneligibleUnstake.selector,
-            ValidatorInfo(dummyPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0)
+            ValidatorInfo(dummyPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0, 0)
         );
         vm.expectRevert(err);
         consensusRegistry.unstake(validator5);

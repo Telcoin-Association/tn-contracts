@@ -46,6 +46,43 @@ At the epoch boundary, the protocol performs gasless system calls to the Consens
 - **Delegation**: DPOS is currently supported though expected to be used sparingly for delegators and validators with ongoing offchain relationships or agreements.
 - **Delegation Rewards**: Delegators receive all stake rewards and the staked balance upon unstaking, so schemas for splitting stake rewards between validator and delegator are assumed to be agreed upon offchain by those parties and settled externally to the protocol
 
+## Geographic Diversity
+
+### Region Mapping
+
+Validators are assigned a GSMA region identifier (`uint8 region`) on `ValidatorInfo`. The region value corresponds to GSMA's standard regional breakdown:
+
+| Value | Region |
+|-------|--------|
+| 0 | Unspecified (default) |
+| 1 | Sub-Saharan Africa |
+| 2 | Middle East & North Africa |
+| 3 | Greater China |
+| 4 | Asia Pacific |
+| 5 | Europe |
+| 6 | CIS |
+| 7 | Latin America & Caribbean |
+| 8 | North America |
+
+Values 9-255 are reserved for future use.
+
+### `setValidatorRegion`
+
+Governance sets a validator's region via `setValidatorRegion(address, uint8)`, gated by `onlyOwner`. The region is stored on `ValidatorInfo` in the same storage slot as the other packed fields, adding zero additional gas cost.
+
+### Region-Aware Committee Shuffle
+
+The committee shuffle algorithm ensures geographic diversity:
+
+1. Validators are separated into assigned (region 1-8) and unassigned (region 0) groups
+2. Each region group is internally shuffled via Fisher-Yates for intra-region fairness
+3. Region visit order is randomized
+4. Round-robin selection cycles through regions, taking one validator per region per round
+5. After round-robin exhausts assigned regions, remaining slots are filled from the unassigned pool
+6. If still not full, additional assigned validators fill remaining seats
+
+Validators with region 0 bypass diversity constraints entirely, preserving backwards compatibility. When all validators are region 0, the algorithm degrades to a standard Fisher-Yates shuffle.
+
 ## Rewards and Issuance
 
 - **Rewards Claiming**: Pull-only claim flow to avoid reverts during critical consensus logic.

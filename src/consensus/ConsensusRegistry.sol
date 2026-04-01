@@ -133,6 +133,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function setValidatorRegion(address validatorAddress, uint8 region) external onlyOwner {
+        if (region > 8) revert InvalidRegion(region);
+        _checkConsensusNFTOwner(validatorAddress);
+        validators[validatorAddress].region = region;
+        emit ValidatorRegionUpdated(validatorAddress, region);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function setNextCommitteeSize(uint16 newSize) external onlyOwner {
         if (newSize == 0) {
             revert InvalidCommitteeSize(epochInfo[epochPointer].committee.length, 0);
@@ -540,7 +548,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             ValidatorStatus.Staked,
             false,
             isDelegated,
-            stakeVersion
+            stakeVersion,
+            uint8(0)
         );
         validators[validatorAddress] = newValidator;
         balances[validatorAddress] = stakeAmt;
@@ -954,6 +963,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
             if (currentValidator.stakeVersion != 0) {
                 revert InvalidStakeAmount(currentValidator.stakeVersion);
+            }
+            if (currentValidator.region > 8) {
+                revert InvalidRegion(currentValidator.region);
             }
 
             // first three epochs use initial validators as committee

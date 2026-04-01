@@ -22,6 +22,7 @@ interface IConsensusRegistry {
         bool isRetired;
         bool isDelegated;
         uint8 stakeVersion;
+        uint8 region; // GSMA region identifier (0=unspecified, 1-8=assigned)
     }
 
     /// @dev Stores each epoch's validator committee and starting block height
@@ -35,6 +36,7 @@ interface IConsensusRegistry {
         uint8 stakeVersion;
     }
 
+    error InvalidRegion(uint8 region);
     error InvalidValidatorAddress();
     error GenesisArityMismatch();
     error DuplicateBLSPubkey();
@@ -56,6 +58,7 @@ interface IConsensusRegistry {
     event ValidatorSlashed(Slash slash);
     event NewEpoch(EpochInfo epoch);
     event RewardsClaimed(address claimant, uint256 rewards);
+    event ValidatorRegionUpdated(address validatorAddress, uint8 region);
     event NextCommitteeSizeUpdated(uint16 oldSize, uint16 newSize, uint256 numActiveValidators);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
@@ -106,6 +109,11 @@ interface IConsensusRegistry {
     /// @dev Issues an exit request for a validator to be retired from the `Active` validator set
     /// @notice Reverts if the exit queue is full, ie if active validator count would drop too low
     function beginExit() external;
+
+    /// @dev Sets the GSMA region identifier for a validator. Only callable by governance (owner).
+    /// @param validatorAddress The address of the validator to update
+    /// @param region The GSMA region identifier (0=unspecified, 1-8=assigned regions)
+    function setValidatorRegion(address validatorAddress, uint8 region) external;
 
     /// @dev Set the internal value for the nextCommitteeSize.
     /// @dev This is managed off-chain and read by the protocol to shuffle n-validators for `concludeEpoch` call.
