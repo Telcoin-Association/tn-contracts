@@ -6,7 +6,6 @@ pragma solidity ^0.8.26;
 struct Deployments {
     address ArachnidDeterministicDeployFactory;
     address ConsensusRegistry;
-    address EpochGasTarget;
     address GitAttestationRegistry;
     address Issuance;
     address Safe;
@@ -18,6 +17,7 @@ struct Deployments {
     address StakeManager;
     address TANIssuanceHistory;
     address TANIssuancePlugin;
+    address WorkerConfigs;
     address admin;
     EXYZs eXYZs;
     UniswapV2 uniswapV2;
