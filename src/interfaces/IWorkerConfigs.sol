@@ -8,13 +8,15 @@ pragma solidity 0.8.26;
 /// The `strategy` field is a raw `uint8` stored without contract interpretation;
 /// the protocol layer handles strategy semantics (e.g. EIP-1559 vs Static).
 interface IWorkerConfigs {
-    // ── Constants ────────────────────────────────────────────────────────
+    // ── Constants
+    // ────────────────────────────────────────────────────────
 
     /// @notice Absolute minimum gas value any worker config may hold.
     /// @dev Matches `MIN_PROTOCOL_BASE_FEE` on the Rust side (7 wei).
     function MIN_GAS() external pure returns (uint64);
 
-    // ── Errors ──────────────────────────────────────────────────────────
+    // ── Errors
+    // ──────────────────────────────────────────────────────────
 
     /// @notice Thrown when a config value is below `MIN_GAS`.
     /// @param value The rejected value.
@@ -22,7 +24,7 @@ interface IWorkerConfigs {
 
     /// @notice Thrown when `setNumWorkers` is called but worker `workerId` has no config set.
     /// @param workerId The worker missing a config.
-    error MissingWorkerConfig(uint16 workerId);
+    error MissingWorkerConfig(uint256 workerId);
 
     /// @notice Thrown when constructor array lengths do not match.
     error LengthMismatch();
@@ -36,7 +38,8 @@ interface IWorkerConfigs {
     /// @notice Thrown when the strategies array length exceeds `type(uint16).max`.
     error TooManyWorkers();
 
-    // ── Events ──────────────────────────────────────────────────────────
+    // ── Events
+    // ──────────────────────────────────────────────────────────
 
     /// @notice Emitted when a worker's config is created or updated.
     /// @param workerId The worker identifier.
@@ -49,7 +52,8 @@ interface IWorkerConfigs {
     /// @param newValue New worker count.
     event NumWorkersUpdated(uint16 oldValue, uint16 newValue);
 
-    // ── Mutators ────────────────────────────────────────────────────────
+    // ── Mutators
+    // ────────────────────────────────────────────────────────
 
     /// @notice Set the number of workers.
     /// @dev Reverts with `MissingWorkerConfig(i)` if any worker `0 .. numWorkers_-1`
@@ -75,9 +79,11 @@ interface IWorkerConfigs {
         uint16[] calldata workerIds,
         uint8[] calldata strategies,
         uint64[] calldata values
-    ) external;
+    )
+        external;
 
-    // ── Views ───────────────────────────────────────────────────────────
+    // ── Views
+    // ───────────────────────────────────────────────────────────
 
     /// @notice Return the stored config for a worker.
     /// @dev Returns `(0, 0)` for workers that have never been configured.

@@ -32,7 +32,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     }
 
     /// @notice Per-worker config storage.
-    mapping(uint16 => WorkerConfig) internal _workerConfigs;
+    mapping(uint256 => WorkerConfig) internal _workerConfigs;
 
     /// @notice Deploy with initial configs for every worker.
     /// @dev Reverts `LengthMismatch()` if array lengths differ.
@@ -61,7 +61,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         if (numWorkers_ == numWorkers) revert NumWorkersUnchanged();
 
         // Validate that every worker 0..numWorkers_-1 has a valid config.
-        for (uint16 i = 0; i < numWorkers_; i++) {
+        for (uint256 i; i < numWorkers_; i++) {
             if (_workerConfigs[i].value < MIN_GAS) revert MissingWorkerConfig(i);
         }
 
@@ -82,7 +82,10 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         uint16[] calldata workerIds,
         uint8[] calldata strategies,
         uint64[] calldata values
-    ) external onlyOwner {
+    )
+        external
+        onlyOwner
+    {
         if (workerIds.length != strategies.length || workerIds.length != values.length) revert LengthMismatch();
         for (uint256 i; i < workerIds.length; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
