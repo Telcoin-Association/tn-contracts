@@ -42,7 +42,7 @@ interface IWorkerConfigs {
     /// @param workerId The worker identifier.
     /// @param strategy The raw strategy id.
     /// @param value The config value (must be >= MIN_GAS).
-    event WorkerConfigUpdated(uint16 indexed workerId, uint8 strategy, uint64 value);
+    event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value);
 
     /// @notice Emitted when the number of workers changes.
     /// @param oldValue Previous worker count.

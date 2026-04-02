@@ -46,10 +46,11 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         if (count != values.length) revert LengthMismatch();
         numWorkers = count;
 
-        for (uint16 i; i < count; i++) {
+        for (uint256 i; i < count; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
             _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i] });
-            emit WorkerConfigUpdated(i, strategies[i], values[i]);
+            //
+            emit WorkerConfigUpdated(uint16(i), strategies[i], values[i]);
         }
     }
 
