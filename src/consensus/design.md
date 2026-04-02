@@ -83,6 +83,8 @@ The committee shuffle algorithm ensures geographic diversity:
 
 Validators with region 0 bypass diversity constraints entirely, preserving backwards compatibility. When all validators are region 0, the algorithm degrades to a standard Fisher-Yates shuffle.
 
+> **Note**: The committee shuffle algorithm above is implemented in the Rust protocol client, not in Solidity. The ConsensusRegistry contract stores the region field and exposes `getValidators(Active)` for the protocol to apply the shuffle when building committees.
+
 ## Rewards and Issuance
 
 - **Rewards Claiming**: Pull-only claim flow to avoid reverts during critical consensus logic.
