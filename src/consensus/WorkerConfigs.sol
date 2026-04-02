@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IWorkerConfigs} from "../interfaces/IWorkerConfigs.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 
 /// @title WorkerConfigs
 /// @notice Strategy-agnostic per-worker fee config store.
@@ -40,16 +40,16 @@ contract WorkerConfigs is Ownable, IWorkerConfigs {
     /// @param values Array of config values, one per worker.
     /// @param owner_ The address that will own this contract.
     constructor(uint8[] memory strategies, uint64[] memory values, address owner_) Ownable(owner_) {
-        if (strategies.length != values.length) revert LengthMismatch();
-        if (strategies.length > type(uint16).max) revert TooManyWorkers();
-
         uint16 count = uint16(strategies.length);
+        if (count != values.length) revert LengthMismatch();
+        if (count > type(uint16).max) revert TooManyWorkers();
+
         if (count < 1) revert NumWorkersBelowMinimum();
         numWorkers = count;
 
-        for (uint16 i = 0; i < count; i++) {
+        for (uint16 i; i < count; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
-            _workerConfigs[i] = WorkerConfig({strategy: strategies[i], value: values[i]});
+            _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i] });
             emit WorkerConfigUpdated(i, strategies[i], values[i]);
         }
     }
@@ -71,7 +71,7 @@ contract WorkerConfigs is Ownable, IWorkerConfigs {
     /// @inheritdoc IWorkerConfigs
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external onlyOwner {
         if (value < MIN_GAS) revert ValueBelowMinGas(value);
-        _workerConfigs[workerId] = WorkerConfig({strategy: strategy, value: value});
+        _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value });
         emit WorkerConfigUpdated(workerId, strategy, value);
     }
 
