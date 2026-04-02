@@ -30,6 +30,9 @@ interface IWorkerConfigs {
     /// @notice Thrown when the number of workers is set to zero.
     error NumWorkersBelowMinimum();
 
+    /// @notice Thrown when `setNumWorkers` is called with the current value.
+    error NumWorkersUnchanged();
+
     /// @notice Thrown when the strategies array length exceeds `type(uint16).max`.
     error TooManyWorkers();
 

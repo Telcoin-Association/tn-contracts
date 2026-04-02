@@ -58,6 +58,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @inheritdoc IWorkerConfigs
     function setNumWorkers(uint16 numWorkers_) external onlyOwner {
         if (numWorkers_ < 1) revert NumWorkersBelowMinimum();
+        if (numWorkers_ == numWorkers) revert NumWorkersUnchanged();
 
         // Validate that every worker 0..numWorkers_-1 has a valid config.
         for (uint16 i = 0; i < numWorkers_; i++) {

@@ -268,12 +268,10 @@ contract WorkerConfigsTest is Test {
         vm.stopPrank();
     }
 
-    function test_setNumWorkers_idempotent() public {
+    function test_setNumWorkers_revertsOnSameValue() public {
         vm.prank(owner);
-        vm.expectEmit(false, false, false, true);
-        emit IWorkerConfigs.NumWorkersUpdated(2, 2);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.NumWorkersUnchanged.selector));
         wc.setNumWorkers(2);
-        assertEq(wc.numWorkers(), 2);
     }
 
     function test_constructor_emitsEvents() public {
