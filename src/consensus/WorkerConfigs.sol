@@ -78,6 +78,20 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     }
 
     /// @inheritdoc IWorkerConfigs
+    function setWorkerConfigsBatch(
+        uint16[] calldata workerIds,
+        uint8[] calldata strategies,
+        uint64[] calldata values
+    ) external onlyOwner {
+        if (workerIds.length != strategies.length || workerIds.length != values.length) revert LengthMismatch();
+        for (uint256 i; i < workerIds.length; i++) {
+            if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
+            _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i] });
+            emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i]);
+        }
+    }
+
+    /// @inheritdoc IWorkerConfigs
     function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value) {
         WorkerConfig storage c = _workerConfigs[workerId];
         return (c.strategy, c.value);

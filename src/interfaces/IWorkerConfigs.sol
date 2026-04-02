@@ -65,6 +65,18 @@ interface IWorkerConfigs {
     /// @param value The config value (must be >= MIN_GAS).
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external;
 
+    /// @notice Set or update fee configs for multiple workers in a single call.
+    /// @dev Reverts `LengthMismatch()` if array lengths differ.
+    ///      Reverts `ValueBelowMinGas(value)` if any value < MIN_GAS.
+    /// @param workerIds Array of worker identifiers.
+    /// @param strategies Array of strategy ids, one per worker.
+    /// @param values Array of config values, one per worker.
+    function setWorkerConfigsBatch(
+        uint16[] calldata workerIds,
+        uint8[] calldata strategies,
+        uint64[] calldata values
+    ) external;
+
     // ── Views ───────────────────────────────────────────────────────────
 
     /// @notice Return the stored config for a worker.

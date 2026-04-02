@@ -321,4 +321,92 @@ contract WorkerConfigsTest is Test {
         wc.renounceOwnership();
         assertEq(wc.owner(), address(0));
     }
+
+    // ──────────────────────────────────────────────
+    //  setWorkerConfigsBatch
+    // ──────────────────────────────────────────────
+
+    function test_setWorkerConfigsBatch_succeeds() public {
+        uint16[] memory ids = new uint16[](3);
+        uint8[] memory s = new uint8[](3);
+        uint64[] memory v = new uint64[](3);
+        ids[0] = 0; s[0] = 1; v[0] = 100;
+        ids[1] = 1; s[1] = 2; v[1] = 200;
+        ids[2] = 5; s[2] = 0; v[2] = 300;
+
+        vm.prank(owner);
+        wc.setWorkerConfigsBatch(ids, s, v);
+
+        (uint8 s0, uint64 v0) = wc.getWorkerConfig(0);
+        assertEq(s0, 1);
+        assertEq(v0, 100);
+        (uint8 s1, uint64 v1) = wc.getWorkerConfig(1);
+        assertEq(s1, 2);
+        assertEq(v1, 200);
+        (uint8 s5, uint64 v5) = wc.getWorkerConfig(5);
+        assertEq(s5, 0);
+        assertEq(v5, 300);
+    }
+
+    function test_setWorkerConfigsBatch_emitsEvents() public {
+        uint16[] memory ids = new uint16[](2);
+        uint8[] memory s = new uint8[](2);
+        uint64[] memory v = new uint64[](2);
+        ids[0] = 0; s[0] = 1; v[0] = 100;
+        ids[1] = 1; s[1] = 2; v[1] = 200;
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit IWorkerConfigs.WorkerConfigUpdated(0, 1, 100);
+        vm.expectEmit(true, false, false, true);
+        emit IWorkerConfigs.WorkerConfigUpdated(1, 2, 200);
+        wc.setWorkerConfigsBatch(ids, s, v);
+    }
+
+    function test_setWorkerConfigsBatch_revertsOnLengthMismatch() public {
+        uint16[] memory ids = new uint16[](2);
+        uint8[] memory s = new uint8[](2);
+        uint64[] memory v = new uint64[](1);
+        ids[0] = 0; ids[1] = 1;
+        s[0] = 0; s[1] = 0;
+        v[0] = 100;
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.LengthMismatch.selector));
+        wc.setWorkerConfigsBatch(ids, s, v);
+    }
+
+    function test_setWorkerConfigsBatch_revertsOnValueBelowMinGas() public {
+        uint16[] memory ids = new uint16[](2);
+        uint8[] memory s = new uint8[](2);
+        uint64[] memory v = new uint64[](2);
+        ids[0] = 0; s[0] = 0; v[0] = 100;
+        ids[1] = 1; s[1] = 0; v[1] = 6; // below MIN_GAS
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.ValueBelowMinGas.selector, uint64(6)));
+        wc.setWorkerConfigsBatch(ids, s, v);
+    }
+
+    function test_setWorkerConfigsBatch_revertsNonOwner() public {
+        uint16[] memory ids = new uint16[](1);
+        uint8[] memory s = new uint8[](1);
+        uint64[] memory v = new uint64[](1);
+        ids[0] = 0; s[0] = 0; v[0] = 100;
+
+        address nonOwner = address(0xdead);
+        vm.prank(nonOwner);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, nonOwner));
+        wc.setWorkerConfigsBatch(ids, s, v);
+    }
+
+    function test_setWorkerConfigsBatch_empty() public {
+        uint16[] memory ids = new uint16[](0);
+        uint8[] memory s = new uint8[](0);
+        uint64[] memory v = new uint64[](0);
+
+        vm.prank(owner);
+        wc.setWorkerConfigsBatch(ids, s, v);
+        // No revert — empty batch is a no-op.
+    }
 }
