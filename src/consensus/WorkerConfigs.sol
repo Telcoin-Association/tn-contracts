@@ -42,10 +42,8 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @param owner_ The address that will own this contract.
     constructor(uint8[] memory strategies, uint64[] memory values, address owner_) Ownable(owner_) {
         uint16 count = uint16(strategies.length);
+        if (count == 0) revert NumWorkersBelowMinimum();
         if (count != values.length) revert LengthMismatch();
-        if (count > type(uint16).max) revert TooManyWorkers();
-
-        if (count < 1) revert NumWorkersBelowMinimum();
         numWorkers = count;
 
         for (uint16 i; i < count; i++) {
@@ -57,7 +55,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
     /// @inheritdoc IWorkerConfigs
     function setNumWorkers(uint16 numWorkers_) external onlyOwner {
-        if (numWorkers_ < 1) revert NumWorkersBelowMinimum();
+        if (numWorkers_ == 0) revert NumWorkersBelowMinimum();
         if (numWorkers_ == numWorkers) revert NumWorkersUnchanged();
 
         // Validate that every worker 0..numWorkers_-1 has a valid config.
