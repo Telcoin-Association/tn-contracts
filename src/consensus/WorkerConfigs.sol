@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 
 /// @title WorkerConfigs
@@ -15,7 +16,7 @@ import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 /// `numWorkers()` and iterates `getWorkerConfig(0 .. numWorkers-1)` to
 /// build the per-worker fee parameters for the upcoming epoch. The contract
 /// therefore acts as the on-chain source of truth for worker fee policy.
-contract WorkerConfigs is Ownable, IWorkerConfigs {
+contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @notice Absolute minimum gas value any worker config may hold (7 wei).
     uint64 public constant MIN_GAS = 7;
 

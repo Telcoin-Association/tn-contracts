@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {WorkerConfigs} from "src/consensus/WorkerConfigs.sol";
 import {IWorkerConfigs} from "src/interfaces/IWorkerConfigs.sol";
 
@@ -286,5 +287,40 @@ contract WorkerConfigsTest is Test {
         vm.expectEmit(true, false, false, true);
         emit IWorkerConfigs.WorkerConfigUpdated(1, 1, 200);
         new WorkerConfigs(s, v, owner);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Ownable2Step
+    // ──────────────────────────────────────────────
+
+    function test_transferOwnership_twoStep() public {
+        address newOwner = address(0xbeef);
+        vm.prank(owner);
+        wc.transferOwnership(newOwner);
+        assertEq(wc.pendingOwner(), newOwner);
+        // Owner hasn't changed yet.
+        assertEq(wc.owner(), owner);
+
+        vm.prank(newOwner);
+        wc.acceptOwnership();
+        assertEq(wc.owner(), newOwner);
+        assertEq(wc.pendingOwner(), address(0));
+    }
+
+    function test_transferOwnership_onlyPendingCanAccept() public {
+        address newOwner = address(0xbeef);
+        address rando = address(0xdead);
+        vm.prank(owner);
+        wc.transferOwnership(newOwner);
+
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, rando));
+        wc.acceptOwnership();
+    }
+
+    function test_renounceOwnership() public {
+        vm.prank(owner);
+        wc.renounceOwnership();
+        assertEq(wc.owner(), address(0));
     }
 }
