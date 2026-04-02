@@ -21,7 +21,7 @@ interface IConsensusRegistry {
         ValidatorStatus currentStatus;
         bool isRetired;
         uint8 stakeVersion;
-        uint8 region; // GSMA region identifier (0=unspecified, 1-8=assigned)
+        uint8 region; // GSMA region identifier (0=unspecified, 1-8=GSMA regions, 9-255=available)
     }
 
     /// @dev Stores each epoch's validator committee and starting block height
@@ -35,7 +35,6 @@ interface IConsensusRegistry {
         uint8 stakeVersion;
     }
 
-    error InvalidRegion(uint8 region);
     error InvalidValidatorAddress();
     error GenesisArityMismatch();
     error DuplicateBLSPubkey();
@@ -111,7 +110,7 @@ interface IConsensusRegistry {
 
     /// @dev Sets the GSMA region identifier for a validator. Only callable by governance (owner).
     /// @param validatorAddress The address of the validator to update
-    /// @param region The GSMA region identifier (0=unspecified, 1-8=assigned regions)
+    /// @param region The GSMA region identifier (uint8; 0=unspecified, 1-8=GSMA regions)
     function setValidatorRegion(address validatorAddress, uint8 region) external;
 
     /// @dev Set the internal value for the nextCommitteeSize.

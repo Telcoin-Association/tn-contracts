@@ -134,7 +134,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IConsensusRegistry
     function setValidatorRegion(address validatorAddress, uint8 region) external onlyOwner {
-        if (region > 8) revert InvalidRegion(region);
         _checkConsensusNFTOwner(validatorAddress);
         validators[validatorAddress].region = region;
         emit ValidatorRegionUpdated(validatorAddress, region);
@@ -961,9 +960,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
             if (currentValidator.stakeVersion != 0) {
                 revert InvalidStakeAmount(currentValidator.stakeVersion);
-            }
-            if (currentValidator.region > 8) {
-                revert InvalidRegion(currentValidator.region);
             }
 
             // first three epochs use initial validators as committee

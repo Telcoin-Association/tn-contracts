@@ -97,12 +97,6 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(info.region, 0);
     }
 
-    function test_setValidatorRegion_revert_invalidRegion() public {
-        vm.expectRevert(abi.encodeWithSelector(InvalidRegion.selector, uint8(9)));
-        vm.prank(crOwner);
-        consensusRegistry.setValidatorRegion(validator1, 9);
-    }
-
     function test_setValidatorRegion_revert_notOwner() public {
         vm.expectRevert();
         vm.prank(validator1);

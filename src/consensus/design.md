@@ -64,7 +64,7 @@ Validators are assigned a GSMA region identifier (`uint8 region`) on `ValidatorI
 | 7 | Latin America & Caribbean |
 | 8 | North America |
 
-Values 9-255 are reserved for future use.
+All uint8 values (0-255) are valid. Values 9-255 are available for future region assignments without requiring a contract upgrade.
 
 ### `setValidatorRegion`
 
