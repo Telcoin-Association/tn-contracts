@@ -243,6 +243,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function isDelegated(address validatorAddress) external view returns (bool) {
+        return delegations[validatorAddress].delegator != address(0);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function isRetired(address validatorAddress) public view returns (bool) {
         if (_exists(_getTokenId(validatorAddress))) {
             // validator exists but has not yet retired
@@ -336,7 +341,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkValidatorStatus(msg.sender, ValidatorStatus.Undefined);
 
         // enter validator in activation queue
-        _recordStaked(blsPubkey, msg.sender, false, validatorVersion, stakeAmt);
+        _recordStaked(blsPubkey, msg.sender, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc StakeManager
@@ -376,7 +381,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         delegations[validatorAddress] =
             Delegation(blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce + 1);
-        _recordStaked(blsPubkey, validatorAddress, true, validatorVersion, stakeAmt);
+        _recordStaked(blsPubkey, validatorAddress, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -534,7 +539,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function _recordStaked(
         bytes calldata blsPubkey,
         address validatorAddress,
-        bool isDelegated,
         uint8 stakeVersion,
         uint256 stakeAmt
     )
@@ -547,7 +551,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             uint32(0),
             ValidatorStatus.Staked,
             false,
-            isDelegated,
             stakeVersion,
             uint8(0)
         );
@@ -955,11 +958,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
             if (currentValidator.isRetired != false) {
                 revert InvalidStatus(ValidatorStatus.Exited);
-            }
-            if (currentValidator.isDelegated == true) {
-                // at genesis, only governance delegations are enabled
-                delegations[currentValidator.validatorAddress] =
-                    Delegation(blsPubkeyHash, currentValidator.validatorAddress, owner_, uint8(0), uint64(1));
             }
             if (currentValidator.stakeVersion != 0) {
                 revert InvalidStakeAmount(currentValidator.stakeVersion);

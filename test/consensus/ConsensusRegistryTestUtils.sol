@@ -65,7 +65,6 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
             uint8(0),
             uint8(0)
         );
@@ -75,7 +74,6 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
-            false,
             false,
             uint8(0),
             uint8(0)
@@ -87,7 +85,6 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
             uint8(0),
             uint8(0)
         );
@@ -97,7 +94,6 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
-            false,
             false,
             uint8(0),
             uint8(0)

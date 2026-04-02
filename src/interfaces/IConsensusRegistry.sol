@@ -20,7 +20,6 @@ interface IConsensusRegistry {
         uint32 exitEpoch;
         ValidatorStatus currentStatus;
         bool isRetired;
-        bool isDelegated;
         uint8 stakeVersion;
         uint8 region; // GSMA region identifier (0=unspecified, 1-8=assigned)
     }
@@ -149,6 +148,9 @@ interface IConsensusRegistry {
     /// @param blsPubkey The compressed 96-byte BLS public key to check
     /// @return bool True if the validator exists and is not retired, false otherwise
     function isValidator(bytes calldata blsPubkey) external view returns (bool);
+
+    /// @dev Returns whether a validator's stake was delegated (ie has a delegator)
+    function isDelegated(address validatorAddress) external view returns (bool);
 
     /// @dev Returns whether a validator is exited && unstaked, ie "retired"
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused

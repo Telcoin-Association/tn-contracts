@@ -68,7 +68,7 @@ Values 9-255 are reserved for future use.
 
 ### `setValidatorRegion`
 
-Governance sets a validator's region via `setValidatorRegion(address, uint8)`, gated by `onlyOwner`. The region is stored on `ValidatorInfo` in the same storage slot as the other packed fields, adding zero additional gas cost.
+Governance sets a validator's region via `setValidatorRegion(address, uint8)`, gated by `onlyOwner`. The region is stored on `ValidatorInfo` in the same storage slot as the other packed scalar fields (32 bytes total), adding zero additional gas cost.
 
 ### Region-Aware Committee Shuffle
 
