@@ -82,6 +82,8 @@ interface IStakeManager {
     /// @param currentVersion The validator's current stake version
     /// @param targetVersion The requested target version that was rejected
     error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
+    /// @notice Thrown when a low-level ETH transfer to the Issuance contract fails
+    error IssuanceTransferFailed();
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance

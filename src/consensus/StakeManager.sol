@@ -214,7 +214,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
             unstakeAmt = bal;
             // consolidate slashed stake remainder on the Issuance contract, repurposed for future rewards
             (bool r,) = issuance.call{ value: stakeAmt - bal }("");
-            r;
+            // this is believed to be impossible
+            if (!r) revert IssuanceTransferFailed();
         }
 
         // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance

@@ -466,7 +466,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             uint256 confiscatedAmount = surplus - refundAmount;
             if (confiscatedAmount > 0) {
                 (bool r,) = issuance.call{ value: confiscatedAmount }("");
-                r;
+                // this is believed to be impossible
+                if (!r) revert IssuanceTransferFailed();
             }
         } else {
             // Same stake amount: just a metadata update
@@ -562,7 +563,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function allocateIssuance() external payable override onlyOwner {
         (bool r,) = issuance.call{ value: msg.value }("");
-        require(r, "Impossible condition");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
     }
 
     /**
@@ -597,13 +599,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(
-        bytes memory blsPubkey,
-        address validatorAddress
-    )
-        private
-        returns (bytes32 blsPubkeyHash)
-    {
+    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -721,20 +717,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint32 current = currentEpoch;
         uint8 currentEpochPointer = epochPointer;
         address[] storage currentCommittee = _getRecentEpochInfo(current, current, currentEpochPointer).committee;
-        bool ejected = _eject(currentCommittee, validatorAddress);
+        _eject(currentCommittee, validatorAddress);
         uint256 committeeSize = currentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 nextEpoch = current + 1;
         address[] storage nextCommittee = _getFutureEpochInfo(nextEpoch, current, currentEpochPointer).committee;
-        ejected = _eject(nextCommittee, validatorAddress);
+        _eject(nextCommittee, validatorAddress);
         committeeSize = nextCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 subsequentEpoch = current + 2;
         address[] storage subsequentCommittee =
         _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
-        ejected = _eject(subsequentCommittee, validatorAddress);
+        _eject(subsequentCommittee, validatorAddress);
         committeeSize = subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
@@ -781,7 +777,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // confiscate outstanding stake balance by consolidating it on the Issuance contract
         uint256 confiscatedStake = outstandingBalance < initialStakeAmt ? outstandingBalance : initialStakeAmt;
         (bool r,) = issuance.call{ value: confiscatedStake }("");
-        require(r, "Impossible condition");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
 
         // exit, retire, and unstake + burn validator immediately
         _exit(validator, currentEpoch);
@@ -881,14 +878,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(
-        address validatorAddress,
-        address[] memory committee
-    )
-        internal
-        pure
-        returns (bool)
-    {
+    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
