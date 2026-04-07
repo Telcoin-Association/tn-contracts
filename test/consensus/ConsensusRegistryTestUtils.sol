@@ -320,4 +320,29 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
 
         return (rewardInfos, expectedRewards);
     }
+
+    function _fuzz_upgradeGlobalStakeVersion(uint256 newStakeAmount) internal returns (uint8) {
+        vm.prank(crOwner);
+        return consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmount, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+    }
+
+    function _fuzz_upgradeValidatorStakeVersions(
+        uint24 numValidators,
+        uint8 targetVersion,
+        uint256 newStakeAmount,
+        uint256 oldStakeAmount
+    ) internal {
+        for (uint256 i; i < numValidators; ++i) {
+            address validatorAddr = _addressFromPrivateKey(i + 5);
+            uint256 deficit;
+            if (newStakeAmount > oldStakeAmount) {
+                deficit = newStakeAmount - oldStakeAmount;
+                vm.deal(validatorAddr, deficit);
+            }
+            vm.prank(validatorAddr);
+            consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validatorAddr, targetVersion);
+        }
+    }
 }

@@ -85,6 +85,9 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function upgradeStakeVersion(StakeConfig calldata config) external virtual returns (uint8);
 
     /// @inheritdoc IStakeManager
+    function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable virtual;
+
+    /// @inheritdoc IStakeManager
     function allocateIssuance() external payable virtual override;
 
     /**
@@ -211,7 +214,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
             unstakeAmt = bal;
             // consolidate slashed stake remainder on the Issuance contract, repurposed for future rewards
             (bool r,) = issuance.call{ value: stakeAmt - bal }("");
-            r;
+            // this is believed to be impossible
+            if (!r) revert IssuanceTransferFailed();
         }
 
         // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
@@ -242,6 +246,11 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         uint256 rewards = balance > initialStake ? balance - initialStake : 0;
 
         return rewards;
+    }
+
+    /// @dev Returns whether the given validator has a delegator
+    function _isDelegated(address validatorAddress) internal view returns (bool) {
+        return delegations[validatorAddress].delegator != address(0);
     }
 
     /// @dev Identifies the validator's rewards recipient, ie the stake originator

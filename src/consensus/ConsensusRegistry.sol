@@ -243,7 +243,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IConsensusRegistry
     function isDelegated(address validatorAddress) external view returns (bool) {
-        return delegations[validatorAddress].delegator != address(0);
+        return _isDelegated(validatorAddress);
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -410,6 +410,91 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         emit RewardsClaimed(recipient, rewards);
     }
 
+    /// @inheritdoc IStakeManager
+    function upgradeValidatorStakeVersion(
+        address validatorAddress,
+        uint8 targetVersion
+    )
+        external
+        payable
+        override
+        whenNotPaused
+        nonReentrant
+    {
+        // 1. Access control (same pattern as claimStakeRewards/unstake)
+        _checkConsensusNFTOwner(validatorAddress);
+        address recipient = _getRecipient(validatorAddress);
+        // this allows validators to act independently of delegators
+        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+
+        // 2. Status check: only Staked, PendingActivation, or Active
+        ValidatorInfo storage validator = validators[validatorAddress];
+        ValidatorStatus status = validator.currentStatus;
+        if (
+            status != ValidatorStatus.Staked && status != ValidatorStatus.PendingActivation
+                && status != ValidatorStatus.Active
+        ) {
+            revert InvalidStatus(status);
+        }
+
+        // 3. Version validation: must be strictly newer, within bounds
+        uint8 oldVersion = validator.stakeVersion;
+        if (targetVersion <= oldVersion || targetVersion > stakeVersion) {
+            revert InvalidStakeVersion(oldVersion, targetVersion);
+        }
+
+        // 4. Compute stake difference
+        uint256 oldStakeAmount = versions[oldVersion].stakeAmount;
+        uint256 newStakeAmount = versions[targetVersion].stakeAmount;
+
+        // 5. Balance adjustment
+        if (newStakeAmount > oldStakeAmount) {
+            // Stake increase: caller must send exact deficit
+            uint256 deficit = newStakeAmount - oldStakeAmount;
+            if (msg.value != deficit) revert InvalidStakeAmount(msg.value);
+            balances[validatorAddress] += deficit;
+        } else if (newStakeAmount < oldStakeAmount) {
+            // Stake decrease: refund surplus to recipient
+            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
+            uint256 surplus = oldStakeAmount - newStakeAmount;
+            uint256 currentBalance = balances[validatorAddress];
+            uint256 refundAmount;
+            if (currentBalance >= oldStakeAmount) {
+                // Not slashed: full surplus refund
+                refundAmount = surplus;
+            } else if (currentBalance > newStakeAmount) {
+                // Partially slashed: partial refund down to newStakeAmount
+                refundAmount = currentBalance - newStakeAmount;
+            }
+            // else: slashed below new stake amount, no refund
+
+            if (refundAmount > 0) {
+                balances[validatorAddress] -= refundAmount;
+                // Route through Issuance (same pattern as _unstake)
+                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
+            }
+
+            // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
+            uint256 confiscatedAmount = surplus - refundAmount;
+            if (confiscatedAmount > 0) {
+                (bool r,) = issuance.call{ value: confiscatedAmount }("");
+                // this is believed to be impossible
+                if (!r) revert IssuanceTransferFailed();
+            }
+        } else {
+            // Same stake amount: just a metadata update
+            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
+        }
+
+        // 6. Update state
+        validator.stakeVersion = targetVersion;
+        if (_isDelegated(validatorAddress)) {
+            delegations[validatorAddress].validatorVersion = targetVersion;
+        }
+
+        emit ValidatorStakeVersionUpgraded(validatorAddress, oldVersion, targetVersion, oldStakeAmount, newStakeAmount);
+    }
+
     /// @inheritdoc IConsensusRegistry
     function beginExit() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
@@ -490,7 +575,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function allocateIssuance() external payable override onlyOwner {
         (bool r,) = issuance.call{ value: msg.value }("");
-        require(r, "Impossible condition");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
     }
 
     /**
@@ -525,7 +611,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
+    function _spendBLSPubkey(
+        bytes memory blsPubkey,
+        address validatorAddress
+    )
+        private
+        returns (bytes32 blsPubkeyHash)
+    {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -544,14 +636,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         internal
     {
         ValidatorInfo memory newValidator = ValidatorInfo(
-            blsPubkey,
-            validatorAddress,
-            PENDING_EPOCH,
-            uint32(0),
-            ValidatorStatus.Staked,
-            false,
-            stakeVersion,
-            uint8(0)
+            blsPubkey, validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, stakeVersion, uint8(0)
         );
         validators[validatorAddress] = newValidator;
         balances[validatorAddress] = stakeAmt;
@@ -642,20 +727,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint32 current = currentEpoch;
         uint8 currentEpochPointer = epochPointer;
         address[] storage currentCommittee = _getRecentEpochInfo(current, current, currentEpochPointer).committee;
-        bool ejected = _eject(currentCommittee, validatorAddress);
+        _eject(currentCommittee, validatorAddress);
         uint256 committeeSize = currentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 nextEpoch = current + 1;
         address[] storage nextCommittee = _getFutureEpochInfo(nextEpoch, current, currentEpochPointer).committee;
-        ejected = _eject(nextCommittee, validatorAddress);
+        _eject(nextCommittee, validatorAddress);
         committeeSize = nextCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
         uint32 subsequentEpoch = current + 2;
         address[] storage subsequentCommittee =
         _getFutureEpochInfo(subsequentEpoch, current, currentEpochPointer).committee;
-        ejected = _eject(subsequentCommittee, validatorAddress);
+        _eject(subsequentCommittee, validatorAddress);
         committeeSize = subsequentCommittee.length;
         _checkCommitteeSize(numEligible, committeeSize);
 
@@ -702,7 +787,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // confiscate outstanding stake balance by consolidating it on the Issuance contract
         uint256 confiscatedStake = outstandingBalance < initialStakeAmt ? outstandingBalance : initialStakeAmt;
         (bool r,) = issuance.call{ value: confiscatedStake }("");
-        require(r, "Impossible condition");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
 
         // exit, retire, and unstake + burn validator immediately
         _exit(validator, currentEpoch);
@@ -802,7 +888,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
+    function _isCommitteeMember(
+        address validatorAddress,
+        address[] memory committee
+    )
+        internal
+        pure
+        returns (bool)
+    {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
