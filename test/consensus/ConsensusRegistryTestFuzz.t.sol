@@ -294,4 +294,468 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             }
         }
     }
+
+    function testFuzz_upgradeStakeVersion_increase(uint24 numValidators, uint24 stakeMultiplier) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 400));
+        stakeMultiplier = uint24(bound(uint256(stakeMultiplier), 2, 10));
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        uint256 newStakeAmount = stakeAmount_ * stakeMultiplier;
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+
+        _fuzz_upgradeValidatorStakeVersions(numValidators, newVersion, newStakeAmount, stakeAmount_);
+
+        // assertions
+        uint256 deficit = newStakeAmount - stakeAmount_;
+        assertEq(address(consensusRegistry).balance, registryBalBefore + deficit * numValidators);
+
+        for (uint256 i; i < numValidators; ++i) {
+            address v = _addressFromPrivateKey(i + 5);
+            ValidatorInfo memory info = consensusRegistry.getValidator(v);
+            assertEq(info.stakeVersion, newVersion);
+
+            (uint256 bal,,) = consensusRegistry.getBalanceBreakdown(v);
+            assertEq(bal, newStakeAmount);
+        }
+    }
+
+    function testFuzz_upgradeStakeVersion_decrease(uint24 numValidators, uint256 slashBps, uint256 newStakeRatio) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 400));
+        slashBps = bound(slashBps, 0, 9999);
+        newStakeRatio = bound(newStakeRatio, 1, 99);
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        // apply slashes
+        uint256 slashAmount = stakeAmount_ * slashBps / 10000;
+        if (slashAmount > 0) {
+            Slash[] memory slashes = new Slash[](numValidators);
+            for (uint256 i; i < numValidators; ++i) {
+                address v = _addressFromPrivateKey(i + 5);
+                slashes[i] = Slash(v, slashAmount);
+            }
+            vm.prank(sysAddress);
+            consensusRegistry.applySlashes(slashes);
+        }
+
+        // create lower version
+        uint256 newStakeAmount = stakeAmount_ * newStakeRatio / 100;
+        // skip if newStakeAmount is 0 (would be degenerate)
+        vm.assume(newStakeAmount > 0);
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+
+        // upgrade each validator individually to verify refund tiers
+        for (uint256 i; i < numValidators; ++i) {
+            address v = _addressFromPrivateKey(i + 5);
+
+            // skip validators that were ejected (balance reached 0 via slash)
+            if (consensusRegistry.isRetired(v)) continue;
+
+            (uint256 currentBalance,,) = consensusRegistry.getBalanceBreakdown(v);
+            uint256 recipientBalBefore = v.balance;
+
+            uint256 expectedRefund;
+            if (currentBalance >= stakeAmount_) {
+                // not slashed: full surplus refund
+                expectedRefund = stakeAmount_ - newStakeAmount;
+            } else if (currentBalance > newStakeAmount) {
+                // partially slashed: partial refund
+                expectedRefund = currentBalance - newStakeAmount;
+            }
+            // else: slashed below new stake, no refund
+
+            vm.prank(v);
+            consensusRegistry.upgradeValidatorStakeVersion(v, newVersion);
+
+            ValidatorInfo memory info = consensusRegistry.getValidator(v);
+            assertEq(info.stakeVersion, newVersion);
+
+            if (expectedRefund > 0) {
+                // refund goes through Issuance.distributeStakeReward, which sends to recipient (v)
+                assertEq(v.balance, recipientBalBefore + expectedRefund);
+            }
+
+            (uint256 newBal,,) = consensusRegistry.getBalanceBreakdown(v);
+            if (currentBalance >= stakeAmount_) {
+                assertEq(newBal, newStakeAmount);
+            } else if (currentBalance > newStakeAmount) {
+                assertEq(newBal, newStakeAmount);
+            } else {
+                // slashed below new stake: balance unchanged
+                assertEq(newBal, currentBalance);
+            }
+        }
+    }
+
+    function testFuzz_upgradeStakeVersion_multiVersion(uint24 numValidators, uint8 numVersions) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 200));
+        numVersions = uint8(bound(uint256(numVersions), 2, 10));
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        // create N versions with increasing stake
+        uint8[] memory versionIds = new uint8[](numVersions);
+        uint256[] memory stakeAmounts = new uint256[](numVersions);
+        for (uint256 v; v < numVersions; ++v) {
+            uint256 newStake = stakeAmount_ * (v + 2); // 2x, 3x, 4x, ...
+            versionIds[v] = _fuzz_upgradeGlobalStakeVersion(newStake);
+            stakeAmounts[v] = newStake;
+        }
+
+        uint8 finalVersion = versionIds[numVersions - 1];
+        uint256 finalStake = stakeAmounts[numVersions - 1];
+        uint256 deficit = finalStake - stakeAmount_;
+
+        // each validator jumps from v0 directly to final version
+        for (uint256 i; i < numValidators; ++i) {
+            address v = _addressFromPrivateKey(i + 5);
+            vm.deal(v, deficit);
+            vm.prank(v);
+            consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(v, finalVersion);
+
+            ValidatorInfo memory info = consensusRegistry.getValidator(v);
+            assertEq(info.stakeVersion, finalVersion);
+
+            (uint256 bal,,) = consensusRegistry.getBalanceBreakdown(v);
+            assertEq(bal, finalStake);
+        }
+
+        // verify upgrading to an intermediate (now-lower) version reverts
+        if (numVersions > 1) {
+            uint8 intermediateVersion = versionIds[0];
+            address testValidator = _addressFromPrivateKey(5);
+            vm.prank(testValidator);
+            vm.expectRevert(abi.encodeWithSelector(InvalidStakeVersion.selector, finalVersion, intermediateVersion));
+            consensusRegistry.upgradeValidatorStakeVersion(testValidator, intermediateVersion);
+        }
+    }
+
+    function testFuzz_upgradeStakeVersion_rewardsPreserved(uint24 numValidators, uint24 numRewardees) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 200));
+        numRewardees = uint24(bound(uint256(numRewardees), 1, numValidators));
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        // apply initial incentives to accrue some rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](numRewardees);
+        for (uint256 i; i < numRewardees; ++i) {
+            // use fuzzed validators (secret 5+), give each 1 consensus header for simplicity
+            rewardInfos[i] = RewardInfo(_addressFromPrivateKey(i + 5), 1);
+        }
+
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+
+        // record pre-upgrade rewards
+        uint256[] memory rewardsBefore = new uint256[](numRewardees);
+        for (uint256 i; i < numRewardees; ++i) {
+            rewardsBefore[i] = consensusRegistry.getRewards(rewardInfos[i].validatorAddress);
+        }
+
+        // create new version with higher stake and upgrade first half
+        uint256 newStakeAmount = stakeAmount_ * 2;
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+
+        uint24 halfValidators = numRewardees / 2;
+        // upgrade first half only
+        for (uint256 i; i < halfValidators; ++i) {
+            address v = _addressFromPrivateKey(i + 5);
+            uint256 deficit = newStakeAmount - stakeAmount_;
+            vm.deal(v, deficit);
+            vm.prank(v);
+            consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(v, newVersion);
+        }
+
+        // verify pre-upgrade rewards are preserved (balance includes stake + rewards)
+        for (uint256 i; i < numRewardees; ++i) {
+            uint256 rewardsAfter = consensusRegistry.getRewards(rewardInfos[i].validatorAddress);
+            assertEq(rewardsAfter, rewardsBefore[i], "Rewards should be preserved after version upgrade");
+        }
+
+        // allocate more issuance for next round
+        vm.deal(crOwner, epochIssuance_);
+        vm.prank(crOwner);
+        consensusRegistry.allocateIssuance{value: epochIssuance_}();
+
+        // apply incentives again - now mixed versions should use different weights
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+
+        // verify mixed-version weighting: upgraded validators should earn more
+        if (halfValidators > 0 && numRewardees > halfValidators) {
+            // upgraded validator (version newVersion, weight = newStakeAmount * 1)
+            uint256 upgradedNewRewards = consensusRegistry.getRewards(_addressFromPrivateKey(5)) - rewardsBefore[0];
+            // non-upgraded validator (version 0, weight = stakeAmount_ * 1)
+            uint256 nonUpgradedNewRewards = consensusRegistry.getRewards(_addressFromPrivateKey(halfValidators + 5)) - rewardsBefore[halfValidators];
+
+            // upgraded validators have 2x the stake weight, so should earn ~2x the rewards
+            // use >= since integer division may cause slight variance
+            assertGe(upgradedNewRewards, nonUpgradedNewRewards, "Upgraded validators should earn >= non-upgraded");
+        }
+    }
+
+    function testFuzz_upgradeStakeVersion_concludeEpoch(uint24 numValidators) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 200));
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+
+        // upgrade half to new version
+        uint256 newStakeAmount = stakeAmount_ * 3;
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+
+        uint24 halfValidators = numValidators / 2;
+        if (halfValidators > 0) {
+            uint256 deficit = newStakeAmount - stakeAmount_;
+            for (uint256 i; i < halfValidators; ++i) {
+                address v = _addressFromPrivateKey(i + 5);
+                vm.deal(v, deficit);
+                vm.prank(v);
+                consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(v, newVersion);
+            }
+        }
+
+        // conclude epoch - setup committee size and committee
+        uint256 committeeSize = _fuzz_computeCommitteeSize(numActive, numValidators);
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(committeeSize));
+
+        // first conclude to handle pending activations
+        address[] memory tokenIdCommittee = _createTokenIdCommittee(committeeSize);
+        vm.startPrank(sysAddress);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+
+        // create future committee and conclude again
+        address[] memory futureCommittee = _fuzz_createFutureCommittee(numActive, committeeSize);
+        consensusRegistry.concludeEpoch(futureCommittee);
+        vm.stopPrank();
+
+        // assertions
+        // epoch transition succeeded (no revert)
+        uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
+        EpochInfo memory epochInfo = consensusRegistry.getCurrentEpochInfo();
+
+        // EpochInfo.stakeVersion reflects global version, not individual
+        assertEq(epochInfo.stakeVersion, newVersion, "Epoch stakeVersion should reflect global version");
+
+        // all validators remain Active
+        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        assertEq(numActiveAfter, numActive, "All validators should remain active after epoch transition");
+
+        // verify mixed versions in validator set
+        if (halfValidators > 0) {
+            // upgraded validator
+            ValidatorInfo memory upgraded = consensusRegistry.getValidator(_addressFromPrivateKey(5));
+            assertEq(upgraded.stakeVersion, newVersion);
+            assertEq(uint8(upgraded.currentStatus), uint8(ValidatorStatus.Active));
+
+            // non-upgraded validator (last fuzzed)
+            address lastValidator = _addressFromPrivateKey(numValidators + 4);
+            ValidatorInfo memory nonUpgraded = consensusRegistry.getValidator(lastValidator);
+            assertEq(nonUpgraded.stakeVersion, 0);
+            assertEq(uint8(nonUpgraded.currentStatus), uint8(ValidatorStatus.Active));
+        }
+
+        // committee membership unaffected by version differences
+        // futureCommittee was placed at currentEpoch + 2 by the second concludeEpoch
+        address[] memory committeeMembers = consensusRegistry.getEpochInfo(currentEpoch + 2).committee;
+        assertEq(committeeMembers.length, committeeSize, "Committee size should be correct");
+    }
+
+    function testFuzz_upgradeStakeVersion_invalidInputs(uint24 numValidators, uint256 wrongMsgValue, uint8 invalidVersion) public {
+        numValidators = uint24(bound(uint256(numValidators), 1, 100));
+
+        _fuzz_mint(numValidators);
+        _fuzz_stake(numValidators, stakeAmount_);
+        _fuzz_activate(numValidators);
+
+        uint256 newStakeAmount = stakeAmount_ * 2;
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+        uint256 deficit = newStakeAmount - stakeAmount_;
+
+        address testValidator = _addressFromPrivateKey(5);
+
+        // Sub-test A: Wrong msg.value on increase
+        wrongMsgValue = bound(wrongMsgValue, 0, type(uint128).max);
+        vm.assume(wrongMsgValue != deficit);
+        vm.deal(testValidator, wrongMsgValue);
+        vm.prank(testValidator);
+        vm.expectRevert(abi.encodeWithSelector(InvalidStakeAmount.selector, wrongMsgValue));
+        consensusRegistry.upgradeValidatorStakeVersion{value: wrongMsgValue}(testValidator, newVersion);
+
+        // Sub-test B: Non-zero msg.value on decrease
+        uint256 lowerStake = stakeAmount_ / 2;
+        uint8 lowerVersion = _fuzz_upgradeGlobalStakeVersion(lowerStake);
+        vm.deal(testValidator, 1 ether);
+        vm.prank(testValidator);
+        vm.expectRevert(abi.encodeWithSelector(InvalidStakeAmount.selector, 1 ether));
+        consensusRegistry.upgradeValidatorStakeVersion{value: 1 ether}(testValidator, lowerVersion);
+
+        // Sub-test C: targetVersion <= currentVersion (version 0, same as current)
+        vm.prank(testValidator);
+        vm.expectRevert(abi.encodeWithSelector(InvalidStakeVersion.selector, uint8(0), uint8(0)));
+        consensusRegistry.upgradeValidatorStakeVersion(testValidator, 0);
+
+        // Sub-test D: targetVersion > stakeVersion (too high)
+        uint8 tooHigh = uint8(bound(uint256(invalidVersion), lowerVersion + 1, type(uint8).max));
+        vm.prank(testValidator);
+        vm.expectRevert(abi.encodeWithSelector(InvalidStakeVersion.selector, uint8(0), tooHigh));
+        consensusRegistry.upgradeValidatorStakeVersion(testValidator, tooHigh);
+
+        // Sub-test E: PendingExit status
+        // Use an initial genesis validator (already Active) since fuzzed validators are PendingActivation
+        // beginExit checks numActive > committeeSize; with 4 initial + numValidators fuzzed, we have enough
+        {
+            address exitValidator = validator1; // genesis validator, already Active
+            vm.prank(exitValidator);
+            consensusRegistry.beginExit();
+
+            vm.prank(exitValidator);
+            vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.PendingExit));
+            consensusRegistry.upgradeValidatorStakeVersion(exitValidator, newVersion);
+        }
+
+        // Sub-test F: Unauthorized caller
+        address unauthorized = address(0xdead);
+        vm.prank(unauthorized);
+        vm.expectRevert(abi.encodeWithSelector(NotRecipient.selector, testValidator));
+        consensusRegistry.upgradeValidatorStakeVersion(testValidator, newVersion);
+    }
+
+    function testFuzz_upgradeValidatorStakeVersion_increaseAmount(uint256 newStakeAmt) public {
+        newStakeAmt = bound(newStakeAmt, stakeAmount_ + 1, stakeAmount_ * 100);
+
+        // create new version with the fuzzed stake amount
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+        // fund validator1 with exact deficit and upgrade
+        uint256 deficit = newStakeAmt - stakeAmount_;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+
+        vm.deal(validator1, deficit);
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion{ value: deficit }(validator1, newVersion);
+
+        // assert: balance updated to new stake amount
+        (uint256 bal,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(bal, newStakeAmt, "Validator balance should equal new stake amount");
+
+        // assert: version updated
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.stakeVersion, newVersion, "Validator version should be updated");
+
+        // assert: registry ETH balance increased by deficit
+        assertEq(address(consensusRegistry).balance, registryBalBefore + deficit, "Registry balance should increase by deficit");
+    }
+
+    function testFuzz_upgradeValidatorStakeVersion_decreaseWithSlash(uint256 slashAmount, uint256 newStakeAmt) public {
+        // bound slashAmount to partial slash (avoid ejection)
+        slashAmount = bound(slashAmount, 1, stakeAmount_ - 1);
+        // bound newStakeAmt to ensure a decrease
+        newStakeAmt = bound(newStakeAmt, 1, stakeAmount_ - 1);
+
+        // apply slash to validator1
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, slashAmount);
+        vm.prank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+
+        uint256 balanceAfterSlash = stakeAmount_ - slashAmount;
+
+        // create lower version
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+        // snapshot total ETH across all relevant accounts before upgrade
+        uint256 totalBefore = address(consensusRegistry).balance + issuance.balance + validator1.balance;
+
+        // perform upgrade
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        // snapshot total ETH after upgrade
+        uint256 totalAfter = address(consensusRegistry).balance + issuance.balance + validator1.balance;
+
+        // KEY INVARIANT: total ETH conservation (no ETH created or destroyed)
+        assertEq(totalAfter, totalBefore, "ETH conservation violated: no ETH should be created or destroyed");
+
+        // compute expected refund and verify new balance
+        uint256 expectedRefund;
+        // balanceAfterSlash >= stakeAmount_ is impossible since slashAmount >= 1
+        if (balanceAfterSlash > newStakeAmt) {
+            expectedRefund = balanceAfterSlash - newStakeAmt;
+        }
+        // else: refund = 0
+
+        // verify new balance is min(balanceAfterSlash, newStakeAmt)
+        (uint256 newBal,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        uint256 expectedBal = balanceAfterSlash < newStakeAmt ? balanceAfterSlash : newStakeAmt;
+        assertEq(newBal, expectedBal, "New balance should be min(balanceAfterSlash, newStakeAmt)");
+    }
+
+    function testFuzz_upgradeValidatorStakeVersion_rewardsInteraction(uint256 newStakeAmt, bool isIncrease) public {
+        // earn rewards: apply incentives for all 4 genesis validators, then conclude epoch
+        RewardInfo[] memory rewardInfos = new RewardInfo[](4);
+        rewardInfos[0] = RewardInfo(validator1, 1);
+        rewardInfos[1] = RewardInfo(validator2, 1);
+        rewardInfos[2] = RewardInfo(validator3, 1);
+        rewardInfos[3] = RewardInfo(validator4, 1);
+
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+
+        // conclude epoch to finalize rewards
+        address[] memory committee = new address[](4);
+        committee[0] = validator1;
+        committee[1] = validator2;
+        committee[2] = validator3;
+        committee[3] = validator4;
+        _sortAddresses(committee);
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(committee);
+
+        // record rewards before upgrade
+        uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
+        assertTrue(rewardsBefore > 0, "Validator1 should have earned rewards");
+
+        if (isIncrease) {
+            // stake increase path
+            newStakeAmt = bound(newStakeAmt, stakeAmount_ + 1, stakeAmount_ * 10);
+            uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+            uint256 deficit = newStakeAmt - stakeAmount_;
+            vm.deal(validator1, deficit);
+            vm.prank(validator1);
+            consensusRegistry.upgradeValidatorStakeVersion{ value: deficit }(validator1, newVersion);
+
+            // assert rewards preserved after increase
+            uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
+            assertEq(rewardsAfter, rewardsBefore, "Rewards should be preserved after stake increase");
+        } else {
+            // stake decrease path (no slash case: balance >= oldStakeAmount due to rewards)
+            newStakeAmt = bound(newStakeAmt, 1, stakeAmount_ - 1);
+            uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmt);
+
+            vm.prank(validator1);
+            consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+            // rewards are preserved: balance was above stakeAmount_ due to rewards,
+            // full surplus is refunded, so remaining balance = newStakeAmt + rewards
+            uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
+            assertEq(rewardsAfter, rewardsBefore, "Rewards should be preserved after stake decrease (no slash)");
+        }
+    }
 }
