@@ -185,17 +185,17 @@ interface IConsensusRegistry {
     /// @notice Reverts if the exit queue is full, ie if active validator count would drop too low
     function beginExit() external;
 
-    /// @dev Sets the GSMA region identifier for a validator. Only callable by governance (owner).
+    /// @notice Sets the GSMA region identifier for a validator. Only callable by governance (owner).
     /// @param validatorAddress The address of the validator to update
     /// @param region The GSMA region identifier (uint8; 0=unspecified, 1-8=GSMA regions)
     function setValidatorRegion(address validatorAddress, uint8 region) external;
 
-    /// @dev Set the internal value for the nextCommitteeSize.
+    /// @notice Set the internal value for the nextCommitteeSize.
     /// @dev This is managed off-chain and read by the protocol to shuffle n-validators for `concludeEpoch` call.
     /// @notice Reverts if the newSize is larger than the number of active/pending validators.
     function setNextCommitteeSize(uint16 newSize) external;
 
-    /// @dev Returns the next committee size
+    /// @notice Returns the next committee size
     function getNextCommitteeSize() external view returns (uint16);
 
     /// @dev Returns the current epoch
