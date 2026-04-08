@@ -116,7 +116,7 @@ interface IConsensusRegistry {
     /// @notice Emitted when a stake originator claims accrued rewards or unstakes
     /// @param claimant The address that received the funds (validator or its delegator)
     /// @param rewards The amount of TEL claimed
-    event RewardsClaimed(address claimant, uint256 rewards);
+    event RewardsClaimed(address indexed claimant, uint256 rewards);
     /// @notice Emitted when a validator's stake version is upgraded in-place
     /// @param validatorAddress The validator whose stake version was upgraded
     /// @param oldVersion The validator's previous stake version
