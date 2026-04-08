@@ -248,6 +248,11 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         return rewards;
     }
 
+    /// @dev Returns whether the given validator has a delegator
+    function _isDelegated(address validatorAddress) internal view returns (bool) {
+        return delegations[validatorAddress].delegator != address(0);
+    }
+
     /// @dev Identifies the validator's rewards recipient, ie the stake originator
     /// @return _ Returns the validator's delegator if one exists, else the validator itself
     function _getRecipient(address validatorAddress) internal view returns (address) {

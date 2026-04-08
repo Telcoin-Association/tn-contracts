@@ -71,6 +71,150 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.stakeConfig(0).minWithdrawAmount, minWithdrawAmount_);
     }
 
+    function test_setValidatorRegion() public {
+        // region defaults to 0
+        ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 0);
+
+        // owner sets region
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator1, 5);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 5);
+
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 5);
+
+        // update to different region
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 8);
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 8);
+
+        // reset to unspecified
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 0);
+        info = consensusRegistry.getValidator(validator1);
+        assertEq(info.region, 0);
+    }
+
+    function test_setValidatorRegion_revert_notOwner() public {
+        vm.expectRevert();
+        vm.prank(validator1);
+        consensusRegistry.setValidatorRegion(validator1, 5);
+    }
+
+    function test_setValidatorRegion_revert_noNFT() public {
+        vm.expectRevert();
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(address(0xdead), 5);
+    }
+
+    function test_setValidatorRegion_stakedValidator() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+
+        vm.prank(validator5);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
+
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Staked));
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator5, 3);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator5, 3);
+        assertEq(consensusRegistry.getValidator(validator5).region, 3);
+    }
+
+    function test_setValidatorRegion_pendingActivationValidator() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+
+        vm.prank(validator5);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
+
+        vm.prank(validator5);
+        consensusRegistry.activate();
+
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.PendingActivation));
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator5, 4);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator5, 4);
+        assertEq(consensusRegistry.getValidator(validator5).region, 4);
+    }
+
+    function test_setValidatorRegion_pendingExitValidator() public {
+        // validator1 is Active from genesis
+        vm.prank(validator1);
+        consensusRegistry.beginExit();
+
+        assertEq(uint8(consensusRegistry.getValidator(validator1).currentStatus), uint8(ValidatorStatus.PendingExit));
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator1, 6);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 6);
+        assertEq(consensusRegistry.getValidator(validator1).region, 6);
+    }
+
+    function test_setValidatorRegion_exitedValidator() public {
+        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+
+        // validator1 begins exit
+        vm.prank(validator1);
+        consensusRegistry.beginExit();
+
+        // conclude 3 epochs without validator1 in committee to reach Exited
+        vm.startPrank(sysAddress);
+        address[] memory makeValidator1Wait = _createTokenIdCommittee(numActive);
+        makeValidator1Wait[makeValidator1Wait.length - 1] = validator1;
+        consensusRegistry.concludeEpoch(makeValidator1Wait);
+
+        address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        vm.stopPrank();
+
+        uint256 activeAfterExit = numActive - 1;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(activeAfterExit));
+
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeAfterExit));
+
+        assertEq(uint8(consensusRegistry.getValidator(validator1).currentStatus), uint8(ValidatorStatus.Exited));
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator1, 7);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 7);
+        assertEq(consensusRegistry.getValidator(validator1).region, 7);
+    }
+
+    function test_setValidatorRegion_maxUint8() public {
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRegionUpdated(validator1, 255);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, 255);
+        assertEq(consensusRegistry.getValidator(validator1).region, 255);
+    }
+
     function test_stake() public {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
@@ -89,7 +233,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.expectEmit(true, true, true, true);
         emit ValidatorStaked(ValidatorInfo(
-                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, false, uint8(0)
+                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, uint8(0), uint8(0)
             ));
         vm.prank(validator5);
         consensusRegistry.stake{
@@ -104,7 +248,6 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validators[0].activationEpoch, PENDING_EPOCH);
         assertEq(validators[0].exitEpoch, uint32(0));
         assertEq(validators[0].isRetired, false);
-        assertEq(validators[0].isDelegated, false);
         assertEq(validators[0].stakeVersion, uint8(0));
         assertEq(uint8(validators[0].currentStatus), uint8(ValidatorStatus.Staked));
 
@@ -133,10 +276,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
 
         // Check event emission
-        bool isDelegate = true;
         vm.expectEmit(true, true, true, true);
         emit ValidatorStaked(ValidatorInfo(
-                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, isDelegate, uint8(0)
+                dummyPubkey, validator5, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, uint8(0), uint8(0)
             ));
 
         vm.prank(delegator);
@@ -152,7 +294,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validators[0].activationEpoch, PENDING_EPOCH);
         assertEq(validators[0].exitEpoch, uint32(0));
         assertEq(validators[0].isRetired, false);
-        assertEq(validators[0].isDelegated, true);
+        assertTrue(consensusRegistry.isDelegated(validator5));
         assertEq(validators[0].stakeVersion, uint8(0));
         assertEq(uint8(validators[0].currentStatus), uint8(ValidatorStatus.Staked));
     }
@@ -205,7 +347,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.expectEmit(true, true, true, true);
         emit ValidatorActivated(ValidatorInfo(
-                dummyPubkey, validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, false, uint8(0)
+                dummyPubkey, validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, uint8(0), uint8(0)
             ));
         vm.prank(sysAddress);
         consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeValidators.length));
@@ -293,7 +435,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 PENDING_EPOCH,
                 ValidatorStatus.PendingExit,
                 false,
-                false,
+                uint8(0),
                 uint8(0)
             ));
         // begin exit
@@ -394,7 +536,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 expectedExitEpoch,
                 ValidatorStatus.Exited,
                 false,
-                false,
+                uint8(0),
                 uint8(0)
             ));
 
@@ -482,7 +624,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Attempt to unstake without exiting
         bytes memory err = abi.encodeWithSelector(
             IneligibleUnstake.selector,
-            ValidatorInfo(dummyPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, false, 0)
+            ValidatorInfo(dummyPubkey, validator5, 1, 0, ValidatorStatus.PendingActivation, false, 0, 0)
         );
         vm.expectRevert(err);
         consensusRegistry.unstake(validator5);

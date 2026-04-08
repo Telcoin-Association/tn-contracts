@@ -133,6 +133,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function setValidatorRegion(address validatorAddress, uint8 region) external onlyOwner {
+        _checkConsensusNFTOwner(validatorAddress);
+        validators[validatorAddress].region = region;
+        emit ValidatorRegionUpdated(validatorAddress, region);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function setNextCommitteeSize(uint16 newSize) external onlyOwner {
         if (newSize == 0) {
             revert InvalidCommitteeSize(epochInfo[epochPointer].committee.length, 0);
@@ -235,6 +242,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function isDelegated(address validatorAddress) external view returns (bool) {
+        return _isDelegated(validatorAddress);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function isRetired(address validatorAddress) public view returns (bool) {
         if (_exists(_getTokenId(validatorAddress))) {
             // validator exists but has not yet retired
@@ -328,7 +340,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkValidatorStatus(msg.sender, ValidatorStatus.Undefined);
 
         // enter validator in activation queue
-        _recordStaked(blsPubkey, msg.sender, false, validatorVersion, stakeAmt);
+        _recordStaked(blsPubkey, msg.sender, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc StakeManager
@@ -368,7 +380,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         delegations[validatorAddress] =
             Delegation(blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce + 1);
-        _recordStaked(blsPubkey, validatorAddress, true, validatorVersion, stakeAmt);
+        _recordStaked(blsPubkey, validatorAddress, validatorVersion, stakeAmt);
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -476,7 +488,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // 6. Update state
         validator.stakeVersion = targetVersion;
-        if (validator.isDelegated) {
+        if (_isDelegated(validatorAddress)) {
             delegations[validatorAddress].validatorVersion = targetVersion;
         }
 
@@ -599,7 +611,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
+    function _spendBLSPubkey(
+        bytes memory blsPubkey,
+        address validatorAddress
+    )
+        private
+        returns (bytes32 blsPubkeyHash)
+    {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -612,21 +630,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function _recordStaked(
         bytes calldata blsPubkey,
         address validatorAddress,
-        bool isDelegated,
         uint8 stakeVersion,
         uint256 stakeAmt
     )
         internal
     {
         ValidatorInfo memory newValidator = ValidatorInfo(
-            blsPubkey,
-            validatorAddress,
-            PENDING_EPOCH,
-            uint32(0),
-            ValidatorStatus.Staked,
-            false,
-            isDelegated,
-            stakeVersion
+            blsPubkey, validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, stakeVersion, uint8(0)
         );
         validators[validatorAddress] = newValidator;
         balances[validatorAddress] = stakeAmt;
@@ -878,7 +888,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
+    function _isCommitteeMember(
+        address validatorAddress,
+        address[] memory committee
+    )
+        internal
+        pure
+        returns (bool)
+    {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -1033,11 +1050,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
             if (currentValidator.isRetired != false) {
                 revert InvalidStatus(ValidatorStatus.Exited);
-            }
-            if (currentValidator.isDelegated == true) {
-                // at genesis, only governance delegations are enabled
-                delegations[currentValidator.validatorAddress] =
-                    Delegation(blsPubkeyHash, currentValidator.validatorAddress, owner_, uint8(0), uint64(1));
             }
             if (currentValidator.stakeVersion != 0) {
                 revert InvalidStakeAmount(currentValidator.stakeVersion);
