@@ -59,12 +59,18 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         // safe impl (has storage)
         address simulatedSafeImpl = address(instantiateSafeImpl());
-        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance, "safe impl"));
+        assertTrue(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance, "safe impl"
+            )
+        );
 
         // safe proxy factory (no storage)
         address simulatedSafeFactory = address(instantiateSafeProxyFactory());
         assertFalse(
-            yamlAppendGenesisAccount(dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory")
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory"
+            )
         );
 
         // governance safe (has storage)
@@ -80,6 +86,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         // Multicall3 deterministic deployment
         instantiateMulticall3();
+
+        // Arachnid deterministic deployment proxy (CREATE2)
+        instantiateArachnidFactory();
 
         vm.stopBroadcast();
     }
@@ -151,6 +160,28 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         vm.writeLine(
             dest,
             '"0x05f32B3cC3888453ff71B01135B34FF8e41263F2": # use nonce 0 for creating 0xcA11bde05977b3631167028862bE2a173976CA11'
+        );
+        vm.writeLine(dest, "  nonce: 1");
+        vm.writeLine(dest, "  balance: 0");
+    }
+
+    /// @dev Writes Arachnid deterministic deployment proxy (CREATE2 factory) configuration to yaml
+    function instantiateArachnidFactory() internal {
+        // CREATE2 Factory
+        vm.writeLine(
+            dest, '"0x4e59b44847b379578588920cA78FbF26c0B4956C": # arachnid deterministic deployment proxy (CREATE2)'
+        );
+        vm.writeLine(dest, "  nonce: 0");
+        vm.writeLine(dest, "  balance: 0");
+        vm.writeLine(
+            dest,
+            "  code: 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3"
+        );
+
+        // Keyless deployer nonce
+        vm.writeLine(
+            dest,
+            '"0x3fAB184622Dc19b6109349B94811493BF2a45362": # use nonce 0 for creating 0x4e59b44847b379578588920cA78FbF26c0B4956C'
         );
         vm.writeLine(dest, "  nonce: 1");
         vm.writeLine(dest, "  balance: 0");

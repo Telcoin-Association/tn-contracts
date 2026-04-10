@@ -8,11 +8,6 @@ import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy
 import { Stablecoin } from "../../../src/testnet/Stablecoin.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
 
-/// @dev To deploy the Arachnid deterministic deployment proxy:
-/// `cast send 0x3fab184622dc19b6109349b94811493bf2a45362 --value 0.01ether --rpc-url $TN_RPC_URL \
-/// --private-key $ADMIN_PK`
-/// `cast publish --rpc-url $TN_RPC_URL \
-/// 0xf8a58085174876e800830186a08080b853604580600e600039806000f350fe7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf31ba02222222222222222222222222222222222222222222222222222222222222222a02222222222222222222222222222222222222222222222222222222222222222`
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
 /// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
 // To verify StablecoinImpl: `forge verify-contract 0xd3930b15461fcecff57a4c9bd65abf6fa2a44307
