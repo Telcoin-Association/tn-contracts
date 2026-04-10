@@ -59,12 +59,18 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         // safe impl (has storage)
         address simulatedSafeImpl = address(instantiateSafeImpl());
-        assertTrue(yamlAppendGenesisAccount(dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance, "safe impl"));
+        assertTrue(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance, "safe impl"
+            )
+        );
 
         // safe proxy factory (no storage)
         address simulatedSafeFactory = address(instantiateSafeProxyFactory());
         assertFalse(
-            yamlAppendGenesisAccount(dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory")
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory"
+            )
         );
 
         // governance safe (has storage)
@@ -163,14 +169,13 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateArachnidFactory() internal {
         // CREATE2 Factory
         vm.writeLine(
-            dest,
-            '"0x4e59b44847b379578588920cA78FbF26c0B4956C": # arachnid deterministic deployment proxy (CREATE2)'
+            dest, '"0x4e59b44847b379578588920cA78FbF26c0B4956C": # arachnid deterministic deployment proxy (CREATE2)'
         );
         vm.writeLine(dest, "  nonce: 0");
         vm.writeLine(dest, "  balance: 0");
         vm.writeLine(
             dest,
-            "  code: 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378163019ff3fe"
+            "  code: 0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3"
         );
 
         // Keyless deployer nonce
