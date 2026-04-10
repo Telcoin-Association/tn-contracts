@@ -12,6 +12,7 @@
   "StakeManager": "0x07e17e17e17e17e17e17e17e17e17e17e17e17e1",
   "TANIssuanceHistory": "0xe533911f00f1c3b58bb8d821131c9b6e2452fc27",
   "TANIssuancePlugin": "0xcaa823fd48bec0134c8285fd3c34f9d95cf3280f",
+  "WorkerConfigs": "0xFee0FEe0fee0fEE0FEe0fee0FEE0fEe0feE0FEe0",
   "admin": "0xde9700e89e0999854e5bfd7357a803d8fc476bb0",
   "eXYZs": {
     "eAUD": "0x93eadf90cfd0c092045732746202b687cb194dd7",
