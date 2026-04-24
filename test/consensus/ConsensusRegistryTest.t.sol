@@ -1359,4 +1359,97 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Check total balance equals v2 stake amount
         assertEq(bal2, v2StakeAmt);
     }
+
+    function test_delegatedValidator_voluntaryExit_clearedDelegation() public {
+        // --- setup delegation for validator5 ---
+        uint256 validator5PrivateKey = 5;
+        validator5 = vm.addr(validator5PrivateKey);
+        address delegator = _addressFromPrivateKey(42);
+        vm.deal(delegator, stakeAmount_);
+
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+        bytes32 structHash = consensusRegistry.delegationDigest(dummyPubkey, validator5, delegator);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
+        bytes memory validatorSig = abi.encodePacked(r, s, v);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+
+        vm.prank(delegator);
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig
+        );
+        assertTrue(consensusRegistry.isDelegated(validator5));
+
+        // --- activate validator and conclude epoch ---
+        vm.prank(validator5);
+        consensusRegistry.activate();
+
+        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActiveAfter));
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveAfter));
+
+        // --- begin exit ---
+        vm.prank(validator5);
+        consensusRegistry.beginExit();
+
+        // conclude 2 epochs without validator5 in committee to reach Exited
+        uint256 numActiveBefore = numActiveAfter - 1;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(numActiveBefore));
+        vm.startPrank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+
+        // conclude 1 more epoch for unstake eligibility
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        vm.stopPrank();
+
+        // --- delegator unstakes ---
+        vm.deal(address(consensusRegistry), stakeAmount_);
+        vm.prank(delegator);
+        consensusRegistry.unstake(validator5);
+
+        // delegation must be cleared
+        assertFalse(consensusRegistry.isDelegated(validator5));
+    }
+
+    function test_delegatedValidator_burn_clearedDelegation() public {
+        // --- setup delegation for validator5 ---
+        uint256 validator5PrivateKey = 5;
+        validator5 = vm.addr(validator5PrivateKey);
+        address delegator = _addressFromPrivateKey(42);
+        vm.deal(delegator, stakeAmount_);
+
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory dummyPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+        bytes32 structHash = consensusRegistry.delegationDigest(dummyPubkey, validator5, delegator);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
+        bytes memory validatorSig = abi.encodePacked(r, s, v);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+
+        vm.prank(delegator);
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig
+        );
+        assertTrue(consensusRegistry.isDelegated(validator5));
+
+        // --- owner burns the staked delegated validator ---
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator5);
+
+        // delegation must be cleared
+        assertFalse(consensusRegistry.isDelegated(validator5));
+    }
 }

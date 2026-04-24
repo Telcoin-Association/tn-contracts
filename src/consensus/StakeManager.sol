@@ -199,6 +199,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         _burn(_getTokenId(validatorAddress));
         if (totalSupply() == 0) revert InvalidSupply();
 
+        delete delegations[validatorAddress];
+
         (uint256 bal, uint256 stakeAmt, uint256 rewards) = getBalanceBreakdown(validatorAddress);
         // zero outstanding balance implies burn context, no further action needed- ledgers are already settled
         if (bal == 0) return bal;
