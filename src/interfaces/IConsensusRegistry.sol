@@ -14,7 +14,6 @@ import { RewardInfo, Slash } from "./IStakeManager.sol";
 interface IConsensusRegistry {
     /// @dev Packed struct storing each validator's onchain info
     struct ValidatorInfo {
-        bytes blsPubkey; // using uncompressed BLS public keys in EIP2537 256-byte form
         address validatorAddress;
         uint32 activationEpoch;
         uint32 exitEpoch;
@@ -133,6 +132,12 @@ interface IConsensusRegistry {
 
     /// @dev Fetches the committee for a given epoch
     function getCommitteeValidators(uint32 epoch) external view returns (ValidatorInfo[] memory);
+
+    /// @dev Fetches the BLS pubkey for a given validator address
+    function getBlsPubkey(address validatorAddress) external view returns (bytes memory);
+
+    /// @dev Fetches the BLS pubkeys for the committee of a given epoch
+    function getCommitteeBlsPubkeys(uint32 epoch) external view returns (bytes[] memory);
 
     /// @dev Fetches the `ValidatorInfo` for a given `validatorAddress == ConsensusNFT tokenId`
     function getValidator(address validatorAddress) external view returns (ValidatorInfo memory);
