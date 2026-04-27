@@ -30,9 +30,9 @@
 **stake**
 
 - initial validators' stakes are allocated to the ConsensusRegistry and decremented from the TEL supply allocation directly within the protocol on the rust side (thus not provided to the constructor)
-- the only way to withdraw funds from the ConsensusRegistry and Issuance contract are during reward claim or full validator retirement using `unstake()` which sends stake + rewards
+- the only way to withdraw funds from the ConsensusRegistry and Issuance contract are during reward claim, full validator retirement using `unstake()` which sends stake + rewards, or during stake version upgrade via `upgradeValidatorStakeVersion()` which refunds surplus stake
 - stake configs must take effect in the next epoch, not current
-- stake config versions are set on a per-validator basis at stake time
+- stake config versions are set on a per-validator basis at stake time and may be upgraded in-place via `upgradeValidatorStakeVersion`
 - rewards are weighted by validator version initial stake and the number of consensus headers for the epoch
 - consensus burns must never push committees or validator set to invalid state
 - consensus burned tokenIDs must not cause a revert for system called epoch actions
@@ -45,6 +45,11 @@
 - when claiming or unstaking, rewards are sourced from Issuance
 - claims can revert if Issuance contract runs dry (eg TAO governance problem) but rewards ledger must continue being updated by applyIncentives or applySlahes
 - all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not
+- mid-epoch stake version upgrades cause the entire epoch's rewards to be weighted by the new version's `stakeAmount`, since `applyIncentives` reads `stakeVersion` at epoch end; there is no pro-rata split within an epoch
+- during a stake-decreasing version upgrade on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
+- validators with both accrued rewards and a pending slash should claim rewards before upgrading stake version; a stake-decreasing upgrade on a partially slashed validator may zero claimable rewards (the recipient still receives the correct total ETH via the refund)
+- `upgradeValidatorStakeVersion` only permits forward version upgrades (targetVersion > currentVersion); version downgrades are rejected
+- `upgradeValidatorStakeVersion` is restricted to validators with status Staked, PendingActivation, or Active
 
 **protocol**
 

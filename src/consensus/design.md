@@ -41,7 +41,14 @@ At the epoch boundary, the protocol performs gasless system calls to the Consens
 ## Staking and Delegation
 
 - **Configurable Stake Amounts**: Stake amounts are configurable to support iterative adjustments in early phases based on node operator feedback and protocol updates.
-- **Stake Versions**: Records are kept of validators joining under different versions for accurate stake tracking and weighted reward calculation
+- **Stake Versions**: Records are kept of validators joining under different versions for accurate stake tracking and weighted reward calculation. Stake versions are set on a per-validator basis at stake time and may be upgraded in-place via `upgradeValidatorStakeVersion`.
+  - **In-Place Version Upgrade**: Active, PendingActivation, and Staked validators may upgrade their per-validator stake version forward to any later version. Upgrades are version-forward only; downgrading to an earlier version is not supported.
+    - *Stake increase*: If the new version's `stakeAmount` exceeds the old, the caller must send the exact deficit as `msg.value`.
+    - *Stake decrease*: If the new version's `stakeAmount` is lower, the surplus is refunded to the reward recipient. For partially slashed validators, the refund is reduced: only the balance above `newStakeAmount` is refunded. Any slashed portion of the surplus is sent to Issuance for future epoch rewards.
+    - *Same stake amount*: No value transfer occurs; the upgrade is a metadata-only update.
+  - **Mid-Epoch Reward Weight**: `applyIncentives` reads each validator's `stakeVersion` at epoch end. If a validator upgrades mid-epoch, their entire epoch's rewards use the new version's `stakeAmount` as weight. This is by design: the validator has committed the updated stake, so the weight is economically justified.
+  - **Delegation Version Tracking**: When a delegated validator upgrades their stake version, the `Delegation.validatorVersion` field is also updated to maintain consistency.
+  - **Reward Interaction**: Validators with both accrued rewards and a pending slash should claim rewards before upgrading. A stake-decreasing upgrade on a partially slashed validator may zero claimable rewards since the balance is set to `newStakeAmount`. The recipient still receives the correct total ETH via the refund.
 - **Issuance Contract**: Accepts TEL for rewards distribution, using TEL "burnt" for epoch rewards. For simplicity, the Issuance contract offloads accounting to the EVM native ledger.
 - **Delegation**: DPOS is currently supported though expected to be used sparingly for delegators and validators with ongoing offchain relationships or agreements.
 - **Delegation Rewards**: Delegators receive all stake rewards and the staked balance upon unstaking, so schemas for splitting stake rewards between validator and delegator are assumed to be agreed upon offchain by those parties and settled externally to the protocol

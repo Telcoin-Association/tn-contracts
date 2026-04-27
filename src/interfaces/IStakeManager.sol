@@ -31,28 +31,59 @@ interface IStakeManager {
     /// @notice New StakeConfig versions take effect in the next epoch
     /// ie they are set for each epoch at its start
     struct StakeConfig {
+        /// @notice Required native TEL stake amount per validator for this version
         uint256 stakeAmount;
+        /// @notice Minimum accrued reward threshold required to claim; prevents dust withdrawals
         uint256 minWithdrawAmount;
+        /// @notice Total TEL distributed across all validators as rewards per epoch
         uint256 epochIssuance;
+        /// @notice Duration of each epoch in L2 blocks
         uint32 epochDuration;
     }
 
+    /// @notice Stores delegation state for a validator whose stake was provided by a third party
     struct Delegation {
+        /// @notice keccak256 hash of the validator's 96-byte compressed BLS public key
         bytes32 blsPubkeyHash;
+        /// @notice The validator address this delegation is bound to
         address validatorAddress;
+        /// @notice The third-party address that provided the stake and receives rewards
         address delegator;
+        /// @notice The StakeConfig version at the time of delegation; updated on version upgrade
         uint8 validatorVersion;
+        /// @notice Monotonically increasing counter to prevent EIP-712 signature replay
         uint64 nonce;
     }
 
+    /// @notice Thrown when BLS proof-of-possession signature verification fails
+    /// @param proof The proof of possession that failed verification
+    /// @param message The signed message that was expected
     error InvalidProofOfPossession(BlsG1.ProofOfPossession proof, bytes message);
+    /// @notice Thrown when a token ID is zero, exceeds type(uint160).max, or does not exist
+    /// @param tokenId The invalid token ID
     error InvalidTokenId(uint256 tokenId);
+    /// @notice Thrown when msg.value does not match the required stake amount for the operation
+    /// @param stakeAmount The invalid stake value that was provided
     error InvalidStakeAmount(uint256 stakeAmount);
+    /// @notice Thrown when claimable rewards are zero or below the version's minWithdrawAmount
+    /// @param withdrawAmount The reward amount that was insufficient
     error InsufficientRewards(uint256 withdrawAmount);
+    /// @notice Thrown when the caller is neither the validator nor its delegator
+    /// @param recipient The expected reward recipient (delegator if delegated, else the validator)
     error NotRecipient(address recipient);
+    /// @notice Thrown on transfer, approve, or setApprovalForAll because ConsensusNFTs are soulbound
     error NotTransferable();
+    /// @notice Thrown when the provided address does not own the expected ConsensusNFT
     error RequiresConsensusNFT();
+    /// @notice Thrown when unstaking would reduce ConsensusNFT totalSupply to zero
     error InvalidSupply();
+    /// @notice Thrown when a stake version upgrade targets an invalid version
+    /// @dev Target version must be strictly greater than current and not exceed global `stakeVersion`
+    /// @param currentVersion The validator's current stake version
+    /// @param targetVersion The requested target version that was rejected
+    error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
+    /// @notice Thrown when a low-level ETH transfer to the Issuance contract fails
+    error IssuanceTransferFailed();
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance
@@ -127,4 +158,17 @@ interface IStakeManager {
     /// The only way received TEL can be re-minted is as staking issuance rewards
     /// @notice Only governance may burn TEL in this manner
     function allocateIssuance() external payable;
+
+    /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place.
+    /// Only callable for validators with status Staked, PendingActivation, or Active.
+    /// @param validatorAddress The validator whose stake version should be upgraded
+    /// @param targetVersion The new stake version to upgrade to (must be strictly greater than current)
+    /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit
+    /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient.
+    /// For partially slashed validators, only the balance above `newStakeAmount` is refunded.
+    /// @notice If a validator has been slashed and has accrued rewards, upgrading to a lower
+    /// `stakeAmount` may zero claimable rewards since rewards are derived as `balance - stakeAmount`.
+    /// The recipient still receives the correct total ETH via the refund. Validators should claim
+    /// rewards before upgrading if they have both accrued rewards and pending slashes.
+    function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable;
 }
