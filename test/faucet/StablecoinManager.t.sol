@@ -7,6 +7,7 @@ import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.so
 import { StablecoinHandler } from "../../src/testnet/StablecoinHandler.sol";
 import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { ITELMint } from "../../src/interfaces/ITELMint.sol";
+import { TNFaucet } from "../../src/testnet/TNFaucet.sol";
 import "../../src/testnet/StablecoinManager.sol";
 
 /// @title StablecoinManagerTest
@@ -792,7 +793,32 @@ contract StablecoinManagerTest is Test {
         );
     }
 
-    function testDripToRateLimitPerRecipient() public {
+    /// @dev Regression guard: on the real chain, `0x07e1` has no bytecode (the precompile is
+    /// dispatched by revm before bytecode is consulted), so a Solidity typed-interface call
+    /// reverts on its auto-emitted EXTCODESIZE guard. The `.call()` path must not revert.
+    /// This test intentionally DOES NOT `vm.mockCall` (which would etch dummy code) nor
+    /// `vm.etch` at 0x07e1 — leaving the codesize == 0 and proving the low-level path works.
+    function testNativeCurrencyDrip_LowLevelCall_NoEtch() public {
+        address recipient = address(0xbeefbabe);
+
+        // sanity: 0x07e1 has no code, matching real-chain state
+        assertEq(address(0x7e1).code.length, 0);
+
+        uint256 nativeDripAmt = stablecoinManager.getNativeDripAmount();
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectEmit(true, true, true, true);
+        emit TNFaucet.Drip(address(0), recipient, nativeDripAmt);
+
+        vm.prank(recipient);
+        stablecoinManager.drip(address(0));
+
+        uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
+        assertEq(lastFulfilledDrip, block.timestamp);
+    }
+
+    function testDripTo_RateLimitPerRecipient() public {
         address funderA = address(0xf00d);
         address funderB = address(0xbead);
         address recipient = address(0xbeefbabe);

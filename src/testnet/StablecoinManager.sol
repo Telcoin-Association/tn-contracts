@@ -28,11 +28,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 decimals;
     }
 
-    struct TokenDripAmount {
-        address token;
-        uint256 dripAmount;
-    }
-
     error LowLevelCallFailure(bytes returnData);
     error InvalidOrDisabled(address token);
     error AlreadyEnabled(address token);
@@ -199,6 +194,10 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     ///      at runtime). Mirrors the pattern in `BlsG1.sol`. See PR #95.
     function _drip(address recipient, address token, uint256 amount) internal virtual override {
         if (token == NATIVE_TOKEN_POINTER) {
+            amount = getNativeDripAmount();
+            // Low-level call bypasses Solidity's typed-interface EXTCODESIZE guard, which
+            // would otherwise revert because the TEL precompile at 0x07e1 has no bytecode
+            // in state (revm dispatches it at runtime). Mirrors the BlsG1.sol pattern.
             (bool ok, bytes memory ret) =
                 address(TEL_MINT).call(abi.encodeWithSelector(ITELMint.mint.selector, recipient, amount));
             if (!ok) revert LowLevelCallFailure(ret);
