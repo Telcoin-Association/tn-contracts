@@ -33,7 +33,7 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 dripAmount;
     }
 
-    error LowLevelCallFailure();
+    error LowLevelCallFailure(bytes returnData);
     error InvalidOrDisabled(address token);
     error AlreadyEnabled(address token);
     /// @notice Thrown when callers reach the inherited 4-arg `UpdateXYZ`; they must use the
@@ -193,9 +193,15 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev Dispatches between the TEL precompile (for native, keyed by `NATIVE_TOKEN_POINTER`)
     ///      and the per-eXYZ `IStablecoin.mintTo`. This contract must be given
     ///      `Stablecoin::MINTER_ROLE` on each eXYZ contract.
+    /// @dev The native branch uses a low-level call rather than the typed `TEL_MINT.mint(...)`
+    ///      because Solidity 0.8.x emits an `EXTCODESIZE` guard before typed-interface calls,
+    ///      and the TEL precompile at `0x07e1` has no on-chain bytecode (revm dispatches it
+    ///      at runtime). Mirrors the pattern in `BlsG1.sol`. See PR #95.
     function _drip(address recipient, address token, uint256 amount) internal virtual override {
         if (token == NATIVE_TOKEN_POINTER) {
-            TEL_MINT.mint(recipient, amount);
+            (bool ok, bytes memory ret) =
+                address(TEL_MINT).call(abi.encodeWithSelector(ITELMint.mint.selector, recipient, amount));
+            if (!ok) revert LowLevelCallFailure(ret);
         } else {
             IStablecoin(token).mintTo(recipient, amount);
         }
@@ -267,8 +273,8 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     function rescueCrypto(IERC20 token, uint256 amount) public onlyRole(MAINTAINER_ROLE) {
         if (address(token) == NATIVE_TOKEN_POINTER) {
             // Native Token
-            (bool r,) = _msgSender().call{ value: amount }("");
-            if (!r) revert LowLevelCallFailure();
+            (bool r, bytes memory ret) = _msgSender().call{ value: amount }("");
+            if (!r) revert LowLevelCallFailure(ret);
         } else {
             // ERC20s
             token.safeTransfer(_msgSender(), amount);

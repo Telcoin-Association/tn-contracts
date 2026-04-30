@@ -93,7 +93,10 @@ contract TestnetDeployTokens is Script {
         vm.startBroadcast();
 
         // deploy stablecoin impl and proxies
-        stablecoinSalt = bytes32(bytes("Stablecoin"));
+        // NOTE: salt bumped to avoid CREATE2 collision with the existing Stablecoin impl already
+        // on this chain at 0xA0dF6f97186FA2a8cd819C36296075fa6c1aA39b. The proxies' addresses
+        // also change downstream because their bytecode includes this new impl address.
+        stablecoinSalt = bytes32(bytes("Stablecoin-v2"));
 
         /// @dev Configure as necessary for new / existing deployments
         stablecoinImpl = new Stablecoin{ salt: stablecoinSalt }();

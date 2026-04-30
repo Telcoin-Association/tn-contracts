@@ -1,0 +1,3 @@
+# Shell scripts must always use LF line endings; CRLF breaks `bash` on Windows
+# (e.g. `set -euo pipefail\r` parses as `pipefail<CR>` and errors out).
+*.sh text eol=lf

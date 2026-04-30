@@ -100,7 +100,9 @@ contract TestnetDeployStablecoinManager is Script {
             payable(address(new ERC1967Proxy{ salt: stablecoinManagerSalt }(address(stablecoinManagerImpl), initCall)))
         );
 
-        // grant minter role to StablecoinManager on every stable
+        // grant MINTER_ROLE on every Stablecoin to the new manager. Requires the broadcaster to
+        // hold DEFAULT_ADMIN_ROLE on each Stablecoin, which is true if Stablecoins were
+        // (re)deployed by the same key in TestnetDeployTokens.s.sol earlier in the orchestration.
         bytes32 minterRole = keccak256("MINTER_ROLE");
         for (uint256 i; i < stables.length; ++i) {
             Stablecoin(stables[i]).grantRole(minterRole, address(stablecoinManager));

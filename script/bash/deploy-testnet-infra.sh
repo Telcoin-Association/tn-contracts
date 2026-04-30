@@ -56,9 +56,9 @@ echo ""
 
 # Step 1: Deploy Stablecoin Tokens
 if has_code ".StablecoinImpl"; then
-    echo "[Step 1/6] Stablecoin Tokens already deployed, skipping..."
+    echo "[Step 1/5] Stablecoin Tokens already deployed, skipping..."
 else
-    echo "[Step 1/6] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
+    echo "[Step 1/5] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
     forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -70,9 +70,9 @@ echo ""
 
 # Step 2: Deploy StablecoinManager (Faucet)
 if has_code ".StablecoinManager"; then
-    echo "[Step 2/6] StablecoinManager already deployed, skipping..."
+    echo "[Step 2/5] StablecoinManager already deployed, skipping..."
 else
-    echo "[Step 2/6] Deploying StablecoinManager..."
+    echo "[Step 2/5] Deploying StablecoinManager..."
     forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -84,9 +84,9 @@ echo ""
 
 # Step 3: Deploy GitAttestationRegistry
 if has_code ".GitAttestationRegistry"; then
-    echo "[Step 3/6] GitAttestationRegistry already deployed, skipping..."
+    echo "[Step 3/5] GitAttestationRegistry already deployed, skipping..."
 else
-    echo "[Step 3/6] Deploying GitAttestationRegistry..."
+    echo "[Step 3/5] Deploying GitAttestationRegistry..."
     forge script script/testnet/deploy/TestnetDeployGitAttestationRegistry.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -98,9 +98,9 @@ echo ""
 
 # Step 4: Deploy Uniswap V2
 if has_code ".uniswapV2.UniswapV2Factory"; then
-    echo "[Step 4/6] Uniswap V2 already deployed, skipping..."
+    echo "[Step 4/5] Uniswap V2 already deployed, skipping..."
 else
-    echo "[Step 4/6] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
+    echo "[Step 4/5] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -111,7 +111,7 @@ fi
 echo ""
 
 # Step 5: Grant Roles to Faucet Addresses (idempotent, always run)
-echo "[Step 5/6] Granting roles to faucet addresses..."
+echo "[Step 5/5] Granting roles to faucet addresses..."
 forge script script/testnet/TestnetGrantRole.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \
@@ -120,15 +120,15 @@ forge script script/testnet/TestnetGrantRole.s.sol \
 echo "Roles granted successfully"
 echo ""
 
-# Step 6: Configure Faucet (idempotent, always run)
-echo "[Step 6/6] Configuring faucet (enabling tokens)..."
-forge script script/testnet/TestnetManageFaucet.s.sol \
-    --rpc-url "$TN_RPC_URL" \
-    -vvvv \
-    --private-key "$ADMIN_PK" \
-    --broadcast
-echo "Faucet configured successfully"
-echo ""
+# NOTE: a previous "Step 6" ran TestnetManageFaucet.s.sol to enable / disable tokens on the
+# faucet. Removed because:
+#   1. The script calls the old 4-arg `UpdateXYZ` which the current StablecoinManager has
+#      tombstoned (`UpdateXYZRequiresBaseDripAmount`).
+#   2. Its default config disables every enabled token, which is the opposite of what you want
+#      after a fresh deploy where init already enables all 23 stables + native.
+# If batch enable/disable is needed in the future, port TestnetManageFaucet.s.sol to the 5-arg
+# `UpdateXYZ` signature and re-introduce it as a separately-invoked maintenance script rather
+# than a step in the deploy orchestration.
 
 echo "============================================"
 echo "Testnet Infrastructure Deployment Complete"

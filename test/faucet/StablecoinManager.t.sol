@@ -11,10 +11,23 @@ import "../../src/testnet/StablecoinManager.sol";
 
 /// @title StablecoinManagerTest
 /// @notice Unit tests for the StablecoinManager faucet entry points and TNFaucet scaffolding
-///         it inherits. Covers init, EnumerableSet-backed XYZ enable/disable, per-token max
-///         drip amounts, per-recipient amount/cooldown overrides, drip and dripTo behavior
-///         (including native-token dispatch via the TEL precompile mock), access control on
-///         every maintainer-only setter, and the rescueCrypto support path.
+///         it inherits.
+/// @notice Coverage areas:
+///         - **Init:** baseline cooldown + native drip seed, role grants, with-tokens loop.
+///         - **UpdateXYZ / drippable set:** 5-arg enable/disable, AlreadyEnabled / InvalidOrDisabled
+///           reverts, EnumerableSet membership, the inherited 4-arg tombstone revert, the
+///           `getEnabledXYZs` early-return when native is disabled, and the
+///           `getDrippableTokensWithDripAmount` view (which includes native).
+///         - **Setters:** per-token max amount, baseline cooldown, per-recipient amount and
+///           cooldown overrides, including their `SettingAlreadyConfigured` no-op guards and
+///           access-control gating to MAINTAINER_ROLE.
+///         - **Drip / dripTo:** ERC20 stablecoin path, native-token path (via TEL precompile
+///           mock), recipient-vs-funder cooldown attribution on `dripTo`, sub-cap success,
+///           amount-cap revert, cooldown enforcement, per-recipient overrides taking effect,
+///           and the `getNextEligibleDripTimestamp` view in fresh / post-drip / override states.
+///         - **Support:** ERC20 and native paths of `rescueCrypto`, including the
+///           `LowLevelCallFailure` revert when the maintainer rejects the native send.
+///         - **Upgradeability:** UUPS `_authorizeUpgrade` admin gate via `upgradeToAndCall`.
 contract StablecoinManagerTest is Test {
     StablecoinManager stablecoinManagerImpl;
     StablecoinManager stablecoinManager;
@@ -887,7 +900,9 @@ contract StablecoinManagerTest is Test {
         vm.deal(address(stablecoinManager), 1 ether);
 
         vm.prank(address(rejector));
-        vm.expectRevert(StablecoinManager.LowLevelCallFailure.selector);
+        // RejectsETH has no payable receive/fallback so the inner call fails with empty
+        // return data; LowLevelCallFailure(bytes) carries that empty payload.
+        vm.expectRevert(abi.encodeWithSelector(StablecoinManager.LowLevelCallFailure.selector, bytes("")));
         stablecoinManager.rescueCrypto(IERC20(NATIVE), 1 ether);
     }
 
