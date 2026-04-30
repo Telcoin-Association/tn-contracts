@@ -8,6 +8,7 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgrade
 /**
  * @title Faucet
  * @author Robriks 📯️📯️📯️.eth
+ * @author Huwonk
  * @notice A Telcoin Contract
  *
  * @notice This abstract contract provides unopinionated scaffolding for faucet implementations

@@ -13,6 +13,7 @@ import { ITELMint } from "../interfaces/ITELMint.sol";
 /**
  * @title StablecoinManager
  * @author Robriks 📯️📯️📯️.eth
+ * @author Huwonk
  * @notice A Telcoin Contract
  *
  * @notice This contract extends the StablecoinHandler which manages the minting and burning of stablecoins
