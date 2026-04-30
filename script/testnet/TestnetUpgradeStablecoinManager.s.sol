@@ -15,7 +15,6 @@ contract TestnetUpgradeStablecoinManager is Script {
 
     bytes32 stablecoinManagerSalt; // used for both impl and proxy
     bytes upgradeCall; // optional- configure for each upgrade
-    uint256 dripAmount;
     uint256 nativeDripAmount;
 
     Deployments deployments;
@@ -32,7 +31,6 @@ contract TestnetUpgradeStablecoinManager is Script {
         stablecoinManager = StablecoinManager(payable(deployments.StablecoinManager));
 
         stablecoinManagerSalt = bytes32(bytes("StablecoinManager"));
-        dripAmount = 100e6;
         nativeDripAmount = 1e18; // 1 $TEL
     }
 
@@ -50,10 +48,11 @@ contract TestnetUpgradeStablecoinManager is Script {
         vm.stopBroadcast();
 
         // asserts
-        assert(stablecoinManager.getDripAmount() == 100e6);
-        assert(stablecoinManager.getNativeDripAmount() == nativeDripAmount);
-        assert(stablecoinManager.isEnabledXYZ(address(0x0)));
+        assert(stablecoinManager.getBaselineMaxDripAmount(stablecoinManager.NATIVE_TOKEN_POINTER()) == nativeDripAmount);
+        assert(stablecoinManager.isEnabledXYZ(stablecoinManager.NATIVE_TOKEN_POINTER()));
         assert(stablecoinManager.getEnabledXYZs().length == 0);
         assert(stablecoinManager.getEnabledXYZsWithMetadata().length == 0);
+        // 0 XYZs + NATIVE_TOKEN_POINTER (still enabled by default)
+        assert(stablecoinManager.getDrippableTokensWithDripAmount().length == 1);
     }
 }

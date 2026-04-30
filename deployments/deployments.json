@@ -39,6 +39,10 @@
     "eUSD": "0xa9021a9bc61c4c12a77f79080a06a61cf9a05edb",
     "eZAR": "0x001f2d733b6a4d6f1da22a13e08314b597fca3ff"
   },
+  "magicAddresses": {
+    "NATIVE_TOKEN_POINTER": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+    "TEL_MINT_PRECOMPILE": "0x00000000000000000000000000000000000007e1"
+  },
   "uniswapV2": {
     "UniswapV2Factory": "0xe1cc5e0ae682c9d8ecadbe3d8a6ef74d30a6d41c",
     "UniswapV2Router02": "0xcd4ced43fa94244050f811296e515f94bcddb0c4",
