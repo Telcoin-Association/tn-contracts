@@ -88,11 +88,10 @@ abstract contract TNFaucet {
     /// @dev For use with proxies- implement without code if not using.
     /// @notice Could not be implemented here with the `initializer` modifier due to a clash with
     ///         StablecoinHandler's own initializer; the inheriting contract owns initialization.
-    /// @notice Seeds the baseline cooldown and the native-token max drip amount. Per-eXYZ
-    ///         baseline max drip amounts are set by the inheriting contract as it enables tokens.
-    /// @param nativeDripAmount_ Initial baseline max drip amount for `NATIVE_TOKEN_POINTER`.
+    /// @notice Seeds the baseline cooldown. Baseline max drip amounts (including native) are
+    ///         seeded by the inheriting contract when it enables tokens.
     /// @param baseDripCooldown_ Initial baseline cooldown applied to recipients without an override.
-    function __Faucet_init(uint256 nativeDripAmount_, uint256 baseDripCooldown_) internal virtual;
+    function __Faucet_init(uint256 baseDripCooldown_) internal virtual;
 
     // -------------
     // Faucet
@@ -252,6 +251,7 @@ abstract contract TNFaucet {
     function _setMaxDripAmount(address token, uint256 newDripAmount) internal {
         if (newDripAmount == 0) revert InvalidDripAmount(newDripAmount);
         FaucetStorage storage $ = _faucetStorage();
+        if($._baselineMaxDripAmount[token] == newDripAmount) revert SettingAlreadyConfigured();
         $._baselineMaxDripAmount[token] = newDripAmount;
 
         emit DripAmountUpdated(token, newDripAmount);

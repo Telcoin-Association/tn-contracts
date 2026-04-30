@@ -36,6 +36,9 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     error LowLevelCallFailure();
     error InvalidOrDisabled(address token);
     error AlreadyEnabled(address token);
+    /// @notice Thrown when callers reach the inherited 4-arg `UpdateXYZ`; they must use the
+    ///         5-arg variant on this contract so every enabled token gets a baseline drip amount.
+    error UpdateXYZRequiresBaseDripAmount();
 
     event XYZAdded(address token);
     event XYZRemoved(address token);
@@ -71,28 +74,52 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev Invokes `__Pausable_init()`
     function initialize(StablecoinManagerInitParams calldata initParams) public initializer {
         __StablecoinHandler_init();
-        __Faucet_init(initParams.nativeDripAmount_, initParams.baseDripCooldown_);
+        __Faucet_init(initParams.baseDripCooldown_);
 
         // native token faucet drips are enabled by default
-        UpdateXYZ(NATIVE_TOKEN_POINTER, true, type(uint256).max, 1e18);
+        UpdateXYZ(NATIVE_TOKEN_POINTER, true, type(uint256).max, 1e18, initParams.nativeDripAmount_);
         for (uint256 i; i < initParams.tokens_.length; ++i) {
-            UpdateXYZ(initParams.tokens_[i], true, initParams.initMaxLimit, initParams.initMinLimit);
-            _setMaxDripAmount(initParams.tokens_[i], initParams.dripAmount_);
+            UpdateXYZ(
+                initParams.tokens_[i],
+                true,
+                initParams.initMaxLimit,
+                initParams.initMinLimit,
+                initParams.dripAmount_
+            );
         }
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.admin_);
         _grantRole(MAINTAINER_ROLE, initParams.maintainer_);
     }
 
+    /// @notice Tombstone for the inherited 4-arg `UpdateXYZ`. Maintainers must use the 5-arg
+    ///         variant so every enabled token receives a baseline drip amount in the same call.
+    /// @dev Always reverts. The 5-arg overload below is the primary entry point.
+    function UpdateXYZ(address, bool, uint256, uint256) public pure override {
+        revert UpdateXYZRequiresBaseDripAmount();
+    }
+
+    /// @notice Enables or disables a drippable token, mirroring StablecoinHandler's mint/burn
+    ///         caps and atomically seeding the baseline max drip amount on enable.
+    /// @dev On `validity == true`: validates non-duplicate, records the token in the drippable
+    ///      set, forwards `(maxLimit, minLimit)` to StablecoinHandler, and seeds the faucet's
+    ///      baseline drip amount via `_setMaxDripAmount` (which itself rejects 0).
+    /// @dev On `validity == false`: removes the token from the drippable set and forwards to
+    ///      StablecoinHandler. `baseDripAmount` is ignored on this path.
+    /// @param token Token address to enable or disable. Use `NATIVE_TOKEN_POINTER` for native.
+    /// @param validity True to enable, false to disable.
+    /// @param maxLimit StablecoinHandler max mint cap.
+    /// @param minLimit StablecoinHandler min burn cap.
+    /// @param baseDripAmount Baseline max drip amount for this token (only consumed on enable).
     function UpdateXYZ(
         address token,
         bool validity,
         uint256 maxLimit,
-        uint256 minLimit
+        uint256 minLimit,
+        uint256 baseDripAmount
     )
         public
         virtual
-        override
         onlyRole(MAINTAINER_ROLE)
     {
         // to avoid recording duplicate members in storage set, revert
@@ -100,6 +127,9 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
 
         _recordXYZ(token, validity);
         super.UpdateXYZ(token, validity, maxLimit, minLimit);
+        if (validity) {
+            _setMaxDripAmount(token, baseDripAmount);
+        }
     }
 
     /// @dev Fetches all currently valid stablecoin addresses
@@ -220,17 +250,8 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     }
 
     /// @inheritdoc TNFaucet
-    function __Faucet_init(
-        uint256 maxNativeDripAmount_,
-        uint256 baseDripCooldown_
-    )
-        internal
-        virtual
-        override
-        initializer
-    {
+    function __Faucet_init(uint256 baseDripCooldown_) internal virtual override initializer {
         _setBaselineDripCooldown(baseDripCooldown_);
-        _setMaxDripAmount(NATIVE_TOKEN_POINTER, maxNativeDripAmount_);
     }
 
     // -------------

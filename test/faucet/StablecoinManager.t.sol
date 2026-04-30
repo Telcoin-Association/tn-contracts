@@ -88,13 +88,13 @@ contract StablecoinManagerTest is Test {
 
     function testUpdateXYZ() public {
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
 
         assertEq(stablecoinManager.isXYZ(token1), true, "token1 should be marked XYZ after enable");
         assertEq(stablecoinManager.getMaxLimit(token1), 1000, "token1 maxLimit not stored");
         assertEq(stablecoinManager.getMinLimit(token1), 1, "token1 minLimit not stored");
 
-        stablecoinManager.UpdateXYZ(token1, false, 100, 10);
+        stablecoinManager.UpdateXYZ(token1, false, 100, 10, 0);
         assertEq(stablecoinManager.isXYZ(token1), false, "token1 should be unmarked XYZ after disable");
         assertEq(stablecoinManager.getMaxLimit(token1), 100, "token1 maxLimit not updated on disable");
         assertEq(stablecoinManager.getMinLimit(token1), 10, "token1 minLimit not updated on disable");
@@ -104,16 +104,24 @@ contract StablecoinManagerTest is Test {
 
     function testUpdateXYZRevertsIfAlreadyEnabled() public {
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
         vm.expectRevert(abi.encodeWithSelector(StablecoinManager.AlreadyEnabled.selector, token1));
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
         vm.stopPrank();
     }
 
     function testUpdateXYZRevertsIfDisablingNonExistent() public {
         vm.prank(maintainer);
         vm.expectRevert(abi.encodeWithSelector(StablecoinManager.InvalidOrDisabled.selector, token1));
-        stablecoinManager.UpdateXYZ(token1, false, 0, 0);
+        stablecoinManager.UpdateXYZ(token1, false, 0, 0, 0);
+    }
+
+    function testUpdateXYZ4ArgIsTombstoned() public {
+        // Calling the inherited 4-arg UpdateXYZ must always revert; maintainers must use the
+        // 5-arg variant so every enable seeds a baseline drip amount in the same call.
+        vm.prank(maintainer);
+        vm.expectRevert(StablecoinManager.UpdateXYZRequiresBaseDripAmount.selector);
+        StablecoinHandler(address(stablecoinManager)).UpdateXYZ(token1, true, 1000, 1);
     }
 
     function testAddEnabledXYZ() public {
@@ -125,13 +133,13 @@ contract StablecoinManagerTest is Test {
         assertEq(initEnabledXYZs.length, 0, "getEnabledXYZs should exclude native and start empty");
 
         vm.prank(maintainer);
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
         address[] memory enabledXYZs = stablecoinManager.getEnabledXYZs();
         assertEq(enabledXYZs.length, 1, "one XYZ enabled, expected length 1");
         assertEq(enabledXYZs[0], token1, "first enabled XYZ should be token1");
 
         vm.prank(maintainer);
-        stablecoinManager.UpdateXYZ(token2, true, 2000, 2);
+        stablecoinManager.UpdateXYZ(token2, true, 2000, 2, 100);
         address[] memory moreEnabledXYZs = stablecoinManager.getEnabledXYZs();
         assertEq(moreEnabledXYZs.length, 2, "two XYZs enabled, expected length 2");
 
@@ -150,9 +158,9 @@ contract StablecoinManagerTest is Test {
         assertTrue(stablecoinManager.isEnabledXYZ(NATIVE), "native should be enabled by default");
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
-        stablecoinManager.UpdateXYZ(token2, true, 2000, 2);
-        stablecoinManager.UpdateXYZ(token1, false, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
+        stablecoinManager.UpdateXYZ(token2, true, 2000, 2, 100);
+        stablecoinManager.UpdateXYZ(token1, false, 1000, 1, 0);
         vm.stopPrank();
 
         address[] memory enabledXYZs = stablecoinManager.getEnabledXYZs();
@@ -171,13 +179,13 @@ contract StablecoinManagerTest is Test {
 
         for (uint256 i; i < numTokens; ++i) {
             vm.prank(maintainer);
-            stablecoinManager.UpdateXYZ(tokens[i], true, 1000, 1);
+            stablecoinManager.UpdateXYZ(tokens[i], true, 1000, 1, 100);
             assertTrue(stablecoinManager.isEnabledXYZ(tokens[i]), "token should be enabled after UpdateXYZ(true)");
         }
 
         for (uint256 i; i < numRemove; ++i) {
             vm.prank(maintainer);
-            stablecoinManager.UpdateXYZ(tokens[i], false, 1000, 1);
+            stablecoinManager.UpdateXYZ(tokens[i], false, 1000, 1, 0);
             assertFalse(stablecoinManager.isEnabledXYZ(tokens[i]), "token should be disabled after UpdateXYZ(false)");
         }
 
@@ -196,8 +204,8 @@ contract StablecoinManagerTest is Test {
         tokenB.initialize("0x", "B", 6);
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(tokenA), true, 1000, 1);
-        stablecoinManager.UpdateXYZ(address(tokenB), true, 1000, 1);
+        stablecoinManager.UpdateXYZ(address(tokenA), true, 1000, 1, 100);
+        stablecoinManager.UpdateXYZ(address(tokenB), true, 1000, 1, 100);
         stablecoinManager.setMaxDripAmount(address(tokenA), 111);
         stablecoinManager.setMaxDripAmount(address(tokenB), 222);
         vm.stopPrank();
@@ -234,8 +242,8 @@ contract StablecoinManagerTest is Test {
         tokenB.initialize("BetaCoin", "BETA", 6);
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(tokenA), true, 1000, 1);
-        stablecoinManager.UpdateXYZ(address(tokenB), true, 1000, 1);
+        stablecoinManager.UpdateXYZ(address(tokenA), true, 1000, 1, 100);
+        stablecoinManager.UpdateXYZ(address(tokenB), true, 1000, 1, 100);
         vm.stopPrank();
 
         StablecoinManager.XYZMetadata[] memory metadatas = stablecoinManager.getEnabledXYZsWithMetadata();
@@ -259,8 +267,8 @@ contract StablecoinManagerTest is Test {
     function testGetEnabledXYZsWhenNativeDisabled() public {
         // exercises the early-return branch of getEnabledXYZs (no native filter needed)
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(token1, true, 1000, 1);
-        stablecoinManager.UpdateXYZ(NATIVE, false, 1000, 1);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
+        stablecoinManager.UpdateXYZ(NATIVE, false, 1000, 1, 0);
         vm.stopPrank();
 
         address[] memory enabled = stablecoinManager.getEnabledXYZs();
@@ -347,6 +355,9 @@ contract StablecoinManagerTest is Test {
 
     function testSetMaxDripAmountForNative(uint256 newNativeDripAmount) public {
         vm.assume(newNativeDripAmount != 0);
+        // setUp seeds native baseline to `nativeDripAmount` via `UpdateXYZ` in initialize;
+        // setting it to the same value would revert with `SettingAlreadyConfigured`.
+        vm.assume(newNativeDripAmount != nativeDripAmount);
 
         vm.prank(maintainer);
         stablecoinManager.setMaxDripAmount(NATIVE, newNativeDripAmount);
@@ -355,6 +366,15 @@ contract StablecoinManagerTest is Test {
             newNativeDripAmount,
             "setMaxDripAmount(NATIVE_TOKEN_POINTER, _) did not update native baseline"
         );
+    }
+
+    function testSetMaxDripAmountRevertsIfUnchanged() public {
+        // Seed a baseline, then set the same value again - should hit the no-op guard.
+        vm.startPrank(maintainer);
+        stablecoinManager.setMaxDripAmount(token1, 123);
+        vm.expectRevert(TNFaucet.SettingAlreadyConfigured.selector);
+        stablecoinManager.setMaxDripAmount(token1, 123);
+        vm.stopPrank();
     }
 
     // -------------
@@ -491,8 +511,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
@@ -515,8 +534,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         stablecoinManager.setDripCooldownOverride(recipient, 1 hours);
         vm.stopPrank();
 
@@ -545,10 +563,8 @@ contract StablecoinManagerTest is Test {
         currency.initialize("0x", "test", 6);
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
-        vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), fuzzDripAmount);
-        vm.stopPrank();
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, fuzzDripAmount);
 
         vm.warp(block.timestamp + baseDripCooldown);
 
@@ -572,8 +588,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
@@ -591,8 +606,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
@@ -616,8 +630,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
@@ -646,8 +659,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         // recipient gets a higher per-token cap
         stablecoinManager.setMaxDripAmountOverride(recipient, address(currency), 500);
         vm.stopPrank();
@@ -666,8 +678,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         // recipient has a 1-hour cooldown vs baseline 1-day
         stablecoinManager.setDripCooldownOverride(recipient, 1 hours);
         vm.stopPrank();
@@ -720,10 +731,8 @@ contract StablecoinManagerTest is Test {
         currency.initialize("0x", "test", 6);
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
-        vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), fuzzDripAmount);
-        vm.stopPrank();
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, fuzzDripAmount);
 
         vm.warp(block.timestamp + baseDripCooldown);
 
@@ -780,8 +789,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
@@ -807,8 +815,7 @@ contract StablecoinManagerTest is Test {
         currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
 
         vm.startPrank(maintainer);
-        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1);
-        stablecoinManager.setMaxDripAmount(address(currency), 100);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
         vm.stopPrank();
 
         vm.warp(block.timestamp + baseDripCooldown);
