@@ -735,6 +735,33 @@ contract StablecoinManagerTest is Test {
         );
     }
 
+    /// @dev Regression guard: on the real chain, `0x07e1` has no bytecode (the precompile is
+    /// dispatched by revm before bytecode is consulted), so a Solidity typed-interface call
+    /// reverts on its auto-emitted EXTCODESIZE guard. The `.call()` path in `_drip` must not
+    /// revert. Intentionally does NOT `vm.mockCall` (which would intercept the call before it
+    /// reaches the EVM) nor `vm.etch` at 0x07e1 - leaving `extcodesize == 0` and proving the
+    /// low-level path tolerates the empty target. See PR #95.
+    function testNativeCurrencyDripLowLevelCallNoEtch() public {
+        address recipient = address(0xbeefbabe);
+
+        // sanity: 0x07e1 has no code, matching real-chain state
+        assertEq(address(0x7e1).code.length, 0, "TEL precompile should have no on-chain bytecode");
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.expectEmit(true, true, true, true);
+        emit TNFaucet.Drip(recipient, NATIVE, nativeDripAmount);
+
+        vm.prank(recipient);
+        stablecoinManager.drip(NATIVE, nativeDripAmount);
+
+        assertEq(
+            stablecoinManager.getLastFulfilledDripTimestamp(recipient, NATIVE),
+            block.timestamp,
+            "native drip should record lastFulfilledDripTimestamp"
+        );
+    }
+
     function testDripTo(address funder, address recipient, uint256 fuzzDripAmount) public {
         vm.assume(funder != address(0));
         vm.assume(recipient != address(0));
@@ -791,31 +818,6 @@ contract StablecoinManagerTest is Test {
             block.timestamp,
             "native dripTo should record lastFulfilledDripTimestamp on recipient"
         );
-    }
-
-    /// @dev Regression guard: on the real chain, `0x07e1` has no bytecode (the precompile is
-    /// dispatched by revm before bytecode is consulted), so a Solidity typed-interface call
-    /// reverts on its auto-emitted EXTCODESIZE guard. The `.call()` path must not revert.
-    /// This test intentionally DOES NOT `vm.mockCall` (which would etch dummy code) nor
-    /// `vm.etch` at 0x07e1 — leaving the codesize == 0 and proving the low-level path works.
-    function testNativeCurrencyDrip_LowLevelCall_NoEtch() public {
-        address recipient = address(0xbeefbabe);
-
-        // sanity: 0x07e1 has no code, matching real-chain state
-        assertEq(address(0x7e1).code.length, 0);
-
-        uint256 nativeDripAmt = stablecoinManager.getNativeDripAmount();
-
-        vm.warp(block.timestamp + 1 days);
-
-        vm.expectEmit(true, true, true, true);
-        emit TNFaucet.Drip(address(0), recipient, nativeDripAmt);
-
-        vm.prank(recipient);
-        stablecoinManager.drip(address(0));
-
-        uint256 lastFulfilledDrip = stablecoinManager.getLastFulfilledDripTimestamp(address(0), recipient);
-        assertEq(lastFulfilledDrip, block.timestamp);
     }
 
     function testDripTo_RateLimitPerRecipient() public {
