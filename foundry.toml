@@ -26,7 +26,7 @@ fs_permissions = [
 # locally - that profile is intentionally not wired into any GitHub workflow
 # because 10k runs blows past Actions' 6h job timeout.
 fuzz = { runs = 64 }
-verbosity = 4
+verbosity = 2
 
 [profile.attestation]
 # LOCAL ONLY. Heavy fuzz pass for release attestations and paranoid local checks.
@@ -37,7 +37,7 @@ verbosity = 4
 
 [profile.fast]
 fuzz = { runs = 1 }
-verbosity = 4
+verbosity = 2
 
 [fmt]
 bracket_spacing = true
