@@ -5,6 +5,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, review_requested, ready_for_review]
 
+# Least-privilege GITHUB_TOKEN. Workflow only checks out and runs forge; it
+# does not push commits, open PRs, comment, or modify any other repo state.
+permissions:
+  contents: read
+
 env:
   FOUNDRY_PROFILE: ci
 
@@ -29,13 +34,16 @@ jobs:
         run: |
           forge --version
 
-      # commenting out fmt until we're able to do a larger PR to fully fix fmt and CI
-      #- name: Run Forge fmt
-      #  run: |
-      #    forge fmt --check
-      #  id: fmt
+      # `forge fmt --check` is intentionally NOT run here. Style enforcement
+      # belongs in a dedicated cleanup PR; gating every PR on fmt was producing
+      # large pre-existing diffs unrelated to PR contents. Re-enable once the
+      # codebase has been formatted in a single sweep.
 
       - name: Run Forge build
+        # `--sizes` removed: contracts genesis-injected at magic addresses
+        # (e.g. ConsensusRegistry at 0x07e1...e1) legitimately exceed EIP-170
+        # because they don't go through CREATE; the runtime size gate would
+        # block them despite being deployable. Compile errors are still caught.
         run: |
           forge build
         id: build
