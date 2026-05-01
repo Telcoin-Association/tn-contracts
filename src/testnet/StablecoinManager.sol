@@ -93,13 +93,6 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         _grantRole(MAINTAINER_ROLE, initParams.maintainer_);
     }
 
-    /// @notice Tombstone for the inherited 4-arg `UpdateXYZ`. Maintainers must use the 5-arg
-    ///         variant so every enabled token receives a baseline drip amount in the same call.
-    /// @dev Always reverts. The 5-arg overload below is the primary entry point.
-    function UpdateXYZ(address, bool, uint256, uint256) public pure override {
-        revert UpdateXYZRequiresBaseDripAmount();
-    }
-
     /// @notice Enables or disables a drippable token, mirroring StablecoinHandler's mint/burn
     ///         caps and atomically seeding the baseline max drip amount on enable.
     /// @dev On `validity == true`: validates non-duplicate, records the token in the drippable
