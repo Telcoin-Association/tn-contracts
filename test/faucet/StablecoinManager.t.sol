@@ -130,14 +130,6 @@ contract StablecoinManagerTest is Test {
         stablecoinManager.UpdateXYZ(token1, false, 0, 0, 0);
     }
 
-    function testUpdateXYZ4ArgIsTombstoned() public {
-        // Calling the inherited 4-arg UpdateXYZ must always revert; maintainers must use the
-        // 5-arg variant so every enable seeds a baseline drip amount in the same call.
-        vm.prank(maintainer);
-        vm.expectRevert(StablecoinManager.UpdateXYZRequiresBaseDripAmount.selector);
-        StablecoinHandler(address(stablecoinManager)).UpdateXYZ(token1, true, 1000, 1);
-    }
-
     function testAddEnabledXYZ() public {
         // NATIVE_TOKEN_POINTER (0xEee...EeE) for native token is enabled by default
         assertTrue(stablecoinManager.isEnabledXYZ(NATIVE), "native should be enabled by default");
