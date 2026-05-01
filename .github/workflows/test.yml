@@ -5,6 +5,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, review_requested, ready_for_review]
 
+# Least-privilege GITHUB_TOKEN. Workflow only checks out and runs forge; it
+# does not push commits, open PRs, comment, or modify any other repo state.
+permissions:
+  contents: read
+
 env:
   FOUNDRY_PROFILE: ci
 
