@@ -56,9 +56,9 @@ echo ""
 
 # Step 1: Deploy Stablecoin Tokens
 if has_code ".StablecoinImpl"; then
-    echo "[Step 1/5] Stablecoin Tokens already deployed, skipping..."
+    echo "[Step 1/7] Stablecoin Tokens already deployed, skipping..."
 else
-    echo "[Step 1/5] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
+    echo "[Step 1/7] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
     forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -70,9 +70,9 @@ echo ""
 
 # Step 2: Deploy StablecoinManager (Faucet)
 if has_code ".StablecoinManager"; then
-    echo "[Step 2/5] StablecoinManager already deployed, skipping..."
+    echo "[Step 2/7] StablecoinManager already deployed, skipping..."
 else
-    echo "[Step 2/5] Deploying StablecoinManager..."
+    echo "[Step 2/7] Deploying StablecoinManager..."
     forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -84,9 +84,9 @@ echo ""
 
 # Step 3: Deploy GitAttestationRegistry
 if has_code ".GitAttestationRegistry"; then
-    echo "[Step 3/5] GitAttestationRegistry already deployed, skipping..."
+    echo "[Step 3/7] GitAttestationRegistry already deployed, skipping..."
 else
-    echo "[Step 3/5] Deploying GitAttestationRegistry..."
+    echo "[Step 3/7] Deploying GitAttestationRegistry..."
     forge script script/testnet/deploy/TestnetDeployGitAttestationRegistry.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -98,9 +98,9 @@ echo ""
 
 # Step 4: Deploy Uniswap V2
 if has_code ".uniswapV2.UniswapV2Factory"; then
-    echo "[Step 4/5] Uniswap V2 already deployed, skipping..."
+    echo "[Step 4/7] Uniswap V2 already deployed, skipping..."
 else
-    echo "[Step 4/5] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
+    echo "[Step 4/7] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -110,8 +110,55 @@ else
 fi
 echo ""
 
-# Step 5: Grant Roles to Faucet Addresses (idempotent, always run)
-echo "[Step 5/5] Granting roles to faucet addresses..."
+# BEGIN uniswap-v3-v4 -----------------------------------------------------------
+# These two steps are added by feature/uniswap-v3-v4. The block is bracketed
+# with BEGIN / END markers so rebase or merge conflicts during the eventual
+# merge with the in-flight faucet branch are obvious to resolve. Each step
+# defers gracefully (no error, just a console log) when the underlying deploy
+# inputs aren't yet present:
+#   - V3 defers if external/uniswap/precompiles/v3/UniswapV3FactoryBytecode.sol
+#     does not exist (bytecode files not yet populated).
+#   - V4 defers if lib/v4-core does not exist (forge install not yet run).
+# See script/testnet/deploy/UNISWAP_V3_V4.md for the design + the bytecode
+# refresh recipe.
+
+# Step 5: Deploy Uniswap V3
+if has_code ".uniswapV3.UniswapV3Factory"; then
+    echo "[Step 5/7] Uniswap V3 already deployed, skipping..."
+elif [[ ! -f "external/uniswap/precompiles/v3/UniswapV3FactoryBytecode.sol" ]]; then
+    echo "[Step 5/7] Uniswap V3 bytecode not populated, deferring..."
+    echo "          See external/uniswap/precompiles/v3/README.md for the refresh recipe."
+else
+    echo "[Step 5/7] Deploying Uniswap V3 (Factory + periphery, no pools)..."
+    forge script script/testnet/deploy/TestnetDeployUniswapV3.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "Uniswap V3 deployed successfully"
+fi
+echo ""
+
+# Step 6: Deploy Uniswap V4
+if has_code ".uniswapV4.PoolManager"; then
+    echo "[Step 6/7] Uniswap V4 already deployed, skipping..."
+elif [[ ! -d "lib/v4-core" ]]; then
+    echo "[Step 6/7] Uniswap V4 dependencies not installed, deferring..."
+    echo "          Run: forge install Uniswap/v4-core && forge install Uniswap/v4-periphery"
+else
+    echo "[Step 6/7] Deploying Uniswap V4 (Permit2 + PoolManager + periphery)..."
+    forge script script/testnet/deploy/TestnetDeployUniswapV4.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "Uniswap V4 deployed successfully"
+fi
+echo ""
+# END uniswap-v3-v4 -------------------------------------------------------------
+
+# Step 7: Grant Roles to Faucet Addresses (idempotent, always run)
+echo "[Step 7/7] Granting roles to faucet addresses..."
 forge script script/testnet/TestnetGrantRole.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \

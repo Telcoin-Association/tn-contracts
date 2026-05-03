@@ -22,6 +22,8 @@ struct Deployments {
     EXYZs eXYZs;
     MagicAddresses magicAddresses;
     UniswapV2 uniswapV2;
+    UniswapV3 uniswapV3;
+    UniswapV4 uniswapV4;
 }
 
 /// @notice Documents the magic / sentinel addresses used by Telcoin testnet contracts.
@@ -113,4 +115,46 @@ struct UniswapV2 {
     address eUSD_eSGD_Pool;
     address eUSD_eTRY_Pool;
     address eUSD_eZAR_Pool;
+}
+
+/// @notice Uniswap V3 deployment surface. Periphery contracts are pinned at
+///         a specific Uniswap V3 release (see external/uniswap/precompiles/v3/README.md
+///         for the source recipe and init-code hash).
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+struct UniswapV3 {
+    /// @notice NFTDescriptor library used by NonfungibleTokenPositionDescriptor.
+    address NFTDescriptor;
+    /// @notice ERC721 position-NFT contract for V3 concentrated-liquidity positions.
+    address NonfungiblePositionManager;
+    /// @notice Renders the SVG / metadata for position NFTs.
+    address NonfungibleTokenPositionDescriptor;
+    /// @notice Off-chain quote helper for V3 swaps.
+    address QuoterV2;
+    /// @notice Universal router for V2 + V3 swaps. Constructor-pinned to factoryV2,
+    ///         factoryV3, NonfungiblePositionManager, and wTEL (the TEL_MINT precompile).
+    address SwapRouter02;
+    /// @notice Pagination helper for tick liquidity reads.
+    address TickLens;
+    /// @notice V3 pool factory. Pools are not pre-seeded (see script/testnet/deploy/UNISWAP_V3_V4.md);
+    ///         liquidity providers initialize pools on first mint per fee tier.
+    address UniswapV3Factory;
+}
+
+/// @notice Uniswap V4 deployment surface. V4 core + periphery compile from source
+///         under lib/v4-core and lib/v4-periphery (Solidity 0.8.26).
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+struct UniswapV4 {
+    /// @notice Canonical Permit2 address. Identical on every chain that has Permit2
+    ///         deployed via the canonical Arachnid + salt recipe.
+    address Permit2;
+    /// @notice V4 pool singleton. Holds all pool state for every PoolKey.
+    address PoolManager;
+    /// @notice ERC721 position-NFT contract for V4 positions.
+    address PositionManager;
+    /// @notice Universal router for V2 + V3 + V4 swaps. Constructor-pinned to
+    ///         PoolManager, Permit2, factoryV2, factoryV3, SwapRouter02,
+    ///         PositionManager, and wTEL.
+    address UniversalRouter;
 }
