@@ -5,50 +5,76 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { Permit2Bytecode } from "external/uniswap/precompiles/v4/Permit2Bytecode.sol";
+
+// V4 source imports are intentionally left commented in this commit.
+// lib/v4-core and lib/v4-periphery are installed (see remappings.txt) and
+// ready to compile, but the V4 codebase requires via_ir = true at the solc
+// level. Enabling via_ir at tn-contracts' project level crashes solc's
+// Windows binary with a native stack overflow at our 200-runs setting; the
+// fix needs either a higher optimizer_runs target (v4-core itself uses
+// 44_444_444), a per-path compilation_restrictions block in foundry.toml,
+// or a separate FOUNDRY_PROFILE=uniswap profile. Tracked as a follow-up
+// commit so the V3 bytecode work can land on its own. Once that's resolved,
+// uncomment the imports + the deploy block below.
+//
+// import { PoolManager } from "@uniswap/v4-core/src/PoolManager.sol";
+// import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+// import { PositionManager } from "v4-periphery/src/PositionManager.sol";
+// import { PositionDescriptor } from "v4-periphery/src/PositionDescriptor.sol";
+// import { IPositionDescriptor } from "v4-periphery/src/interfaces/IPositionDescriptor.sol";
+// import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
+// import { IWETH9 } from "v4-periphery/src/interfaces/external/IWETH9.sol";
+// import { V4Quoter } from "v4-periphery/src/lens/V4Quoter.sol";
+// import { StateView } from "v4-periphery/src/lens/StateView.sol";
 
 address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1;
 
-// Permit2's canonical universal address, deployed on every chain via Arachnid + a
-// fixed salt. Identical across mainnet, every L2, and every testnet that has
-// Permit2 deployed correctly. Off-chain tooling (Universal Router, position
-// managers, every wallet that supports Permit2) hardcodes this address.
-address constant PERMIT2_CANONICAL = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-
 /// @title Deploy Uniswap V4 (Permit2 + PoolManager + periphery) on Adiri Testnet
 ///
-/// @notice V4 source is Solidity 0.8.26 - same compiler tn-contracts itself uses - so
-///         V4 contracts compile from source under `lib/v4-core` and `lib/v4-periphery`,
-///         no pre-compiled bytecode files needed. This contrasts with V2 and V3, both
-///         of which ship as bytecode literals because their source language is older.
+/// @notice V4 core + periphery compile from source under lib/v4-core and
+///         lib/v4-periphery (both pinned to canonical Uniswap commits;
+///         see script/testnet/deploy/UNISWAP_V3_V4.md for the recipe).
+///         Permit2 ships as a pre-compiled bytecode literal because the
+///         canonical universal address is recipe-pinned to a specific
+///         compile output that we can't reproduce under tn-contracts'
+///         0.8.26 / 200-runs settings.
 ///
-/// @notice Pools are NOT pre-seeded. Per the V3 / V4 design doc
-///         (`script/testnet/deploy/UNISWAP_V3_V4.md`), liquidity providers initialize
-///         V4 pools by calling `PoolManager.initialize(PoolKey, sqrtPriceX96)` and
-///         then minting their first position via PositionManager. The deploy script
-///         just stands up the singletons.
+/// @notice Pools are NOT pre-seeded. Liquidity providers initialize V4 pools
+///         by calling PoolManager.initialize(PoolKey, sqrtPriceX96) and then
+///         minting their first position via PositionManager. The deploy
+///         script just stands up the singletons.
 ///
-/// @dev Deploy order:
-///        1. Permit2                                   (skip if at PERMIT2_CANONICAL)
-///        2. PoolManager                               (singleton, takes protocol-fee controller)
-///        3. PositionManager                           (constructor: poolManager, permit2, wTEL, descriptor)
-///        4. V4Quoter                                  (constructor: poolManager)
-///        5. StateView                                 (constructor: poolManager)
+/// @dev Deploy order (when fully wired):
+///        1. Permit2                                   (Arachnid CREATE2 + canonical salt + canonical bytecode)
+///        2. PoolManager                               (new PoolManager(admin))
+///        3. PositionDescriptor                        (new PositionDescriptor(poolManager, wTEL, "TEL"))
+///        4. PositionManager                           (new PositionManager(poolManager, permit2, gasLimit, descriptor, wTEL))
+///        5. V4Quoter                                  (new V4Quoter(poolManager))
+///        6. StateView                                 (new StateView(poolManager))
 ///
-/// @notice UniversalRouter is intentionally NOT deployed in this script. As of the
-///         foundation commit, no tagged universal-router release supports V4 routing
-///         (the V4-aware build lives on a non-canonical branch on Uniswap/universal-router).
-///         The swap UI composes V4 swaps via direct PoolManager-unlock callbacks plus
-///         V4Quoter for previews and StateView for state reads. UniversalRouter can be
-///         added in a follow-up once Uniswap tags a release that includes V4.
+/// @notice UniversalRouter is intentionally NOT deployed here. As of the
+///         foundation commit, no tagged release of Uniswap/universal-router
+///         supports V4 routing. Defer until Uniswap tags a release that
+///         includes V4 so we can pin against a canonical mainnet release.
 ///
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployUniswapV4.s.sol -vvvv \
 ///      --rpc-url $TN_RPC_URL --private-key $ADMIN_PK --broadcast`
-contract TestnetDeployUniswapV4 is Script {
+contract TestnetDeployUniswapV4 is Script, Permit2Bytecode {
+    /// @notice Gas limit forwarded to subscriber hooks during unsubscribe.
+    ///         Mainnet PositionManager uses 300_000; we keep the same default
+    ///         to mirror behavior for the swap UI.
+    uint256 constant UNSUBSCRIBE_GAS_LIMIT = 300_000;
+
+    // Native currency label for V4 NFT metadata. Same as V3.
+    bytes32 constant NATIVE_CURRENCY_LABEL = bytes32("TEL");
+
     Deployments deployments;
 
     // Outputs - populated during run().
     address permit2;
     address poolManager;
+    address positionDescriptor;
     address positionManager;
     address v4Quoter;
     address stateView;
@@ -67,69 +93,95 @@ contract TestnetDeployUniswapV4 is Script {
         telPrecompile = TELCOIN_PRECOMPILE;
         admin = deployments.admin;
 
-        // V4 currently does not depend on V2 / V3 having been deployed first; the
-        // V4 surface here (PoolManager, PositionManager, V4Quoter, StateView) is
-        // independent. The swap UI cross-references V2 / V3 separately. Once a
-        // canonical V4-aware UniversalRouter is added, that contract takes the
-        // V2 + V3 factory + SwapRouter02 addresses and a require() will be added
-        // here mirroring the V3 script's V2-factory check.
+        // V4 surface here (PoolManager, PositionManager, V4Quoter, StateView)
+        // is independent of V2 and V3. Once a canonical V4-aware UniversalRouter
+        // is added, it will require V2 / V3 factories at construction time and
+        // a require() will be added here mirroring the V3 script's check.
     }
 
     function run() public {
-        // Idempotency: skip if already deployed. The orchestrator
-        // (script/bash/deploy-testnet-infra.sh) also gates on `has_code` so this
-        // is belt-and-suspenders for direct invocations.
+        // Idempotency: skip if already deployed.
         if (deployments.uniswapV4.PoolManager != address(0)) {
             console2.log("Uniswap V4 already deployed; PoolManager:", deployments.uniswapV4.PoolManager);
             return;
         }
 
-        // V4 contracts compile from source under `lib/v4-core` and `lib/v4-periphery`.
-        // Until those are installed via `forge install` (see
-        // script/testnet/deploy/UNISWAP_V3_V4.md), this script reverts with a clear
-        // message rather than silently no-op'ing.
-        //
-        // Once libs are installed, this revert is removed and replaced with the V4
-        // deploy block below.
+        // Source imports for V4 contracts are pending the foundry-profile work
+        // (see top-of-file note). Until that lands, the deploy block below is
+        // unreachable and this script reverts loudly. The orchestrator
+        // (script/bash/deploy-testnet-infra.sh) gates the V4 step on
+        // PERMIT2_CREATION_BYTECODE being non-empty AND lib/v4-core existing,
+        // and on a fresh chain it prints a "deferred" message rather than
+        // running this script.
         revert(
-            "TestnetDeployUniswapV4: V4 deps not installed. Run `forge install Uniswap/v4-core Uniswap/v4-periphery` and add remappings; see script/testnet/deploy/UNISWAP_V3_V4.md."
+            "TestnetDeployUniswapV4: V4 source imports disabled until via_ir compile config is resolved. See script/testnet/deploy/UNISWAP_V3_V4.md and the top-of-file comment."
         );
 
-        // --- Deploy block (commented until lib/v4-core + lib/v4-periphery land) ----
+        // --- Deploy block (commented while V4 source imports are disabled) -------
         //
         // vm.startBroadcast();
         //
-        // // 1. Permit2 - skip if already deployed at the canonical address.
-        // permit2 = PERMIT2_CANONICAL;
-        // if (permit2.code.length == 0) {
-        //     // Deploy Permit2 via Arachnid with the canonical salt so the address
-        //     // matches every other chain. Bytecode comes from
-        //     // external/uniswap/precompiles/v4/Permit2Bytecode.sol.
-        //     // ...
+        // // 1. Permit2 - if already at the canonical address, reuse. Otherwise
+        // //    deploy via Arachnid + canonical salt + canonical bytecode.
+        // if (PERMIT2_CANONICAL_ADDRESS.code.length > 0) {
+        //     permit2 = PERMIT2_CANONICAL_ADDRESS;
+        //     console2.log("Permit2 already at canonical address:", permit2);
+        // } else {
+        //     require(
+        //         PERMIT2_CREATION_BYTECODE.length > 0,
+        //         "Permit2 creation bytecode not populated. See external/uniswap/precompiles/v4/Permit2Bytecode.sol."
+        //     );
+        //     (bool ok, bytes memory ret) = deployments.ArachnidDeterministicDeployFactory.call(
+        //         bytes.concat(PERMIT2_CANONICAL_SALT, PERMIT2_CREATION_BYTECODE)
+        //     );
+        //     require(ok, "Permit2 CREATE2 deploy failed");
+        //     permit2 = address(bytes20(ret));
+        //     require(
+        //         permit2 == PERMIT2_CANONICAL_ADDRESS,
+        //         "Permit2 deployed at non-canonical address; bytecode or salt drifted from recipe"
+        //     );
         // }
         //
-        // // 2. PoolManager. Constructor takes the protocol-fee controller (typically
-        // //    admin until governance hands it off to a controller contract).
+        // // 2. PoolManager - the V4 singleton.
         // poolManager = address(new PoolManager(admin));
         //
-        // // 3. PositionManager. Constructor: poolManager, permit2, wTEL, descriptor.
-        // positionManager = address(new PositionManager(...));
+        // // 3. PositionDescriptor - intermediate, used by PositionManager for NFT metadata.
+        // positionDescriptor = address(
+        //     new PositionDescriptor(IPoolManager(poolManager), telPrecompile, NATIVE_CURRENCY_LABEL)
+        // );
         //
-        // // 4. V4Quoter. Off-chain quote helper (mirrors V3's QuoterV2).
+        // // 4. PositionManager - the user-facing LP entry point.
+        // positionManager = address(
+        //     new PositionManager(
+        //         IPoolManager(poolManager),
+        //         IAllowanceTransfer(permit2),
+        //         UNSUBSCRIBE_GAS_LIMIT,
+        //         IPositionDescriptor(positionDescriptor),
+        //         IWETH9(telPrecompile)
+        //     )
+        // );
+        //
+        // // 5. V4Quoter - off-chain quote helper.
         // v4Quoter = address(new V4Quoter(IPoolManager(poolManager)));
         //
-        // // 5. StateView. Read-only state accessor.
+        // // 6. StateView - read-only state accessor.
         // stateView = address(new StateView(IPoolManager(poolManager)));
         //
         // vm.stopBroadcast();
         //
+        // assert(permit2.code.length != 0);
+        // assert(poolManager.code.length != 0);
+        // assert(positionDescriptor.code.length != 0);
+        // assert(positionManager.code.length != 0);
+        // assert(v4Quoter.code.length != 0);
+        // assert(stateView.code.length != 0);
+        //
         // _writeDeployments();
         //
-        // ----------------------------------------------------------------------------
+        // -------------------------------------------------------------------------
     }
 
     /// @dev Persists deployed addresses back to `deployments/deployments.json`.
-    ///      Mirrors the writeback pattern in TestnetDeployUniswapV2.s.sol.
     ///      Wired up once the deploy block above is enabled.
     function _writeDeployments() internal {
         string memory root = vm.projectRoot();

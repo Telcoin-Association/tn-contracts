@@ -239,16 +239,34 @@ identifiers first, per Foundry's `vm.parseJson` requirement.
 
 ## Open items (will land in follow-up commits)
 
-- Pre-compiled V3 bytecode files. The skeleton commit only stubs
-  `external/uniswap/precompiles/v3/README.md` describing how to refresh.
-- `forge install Uniswap/v4-core` and `forge install Uniswap/v4-periphery`
-  with pinned tags. The skeleton commit defers this until we land the
-  remappings cleanly so the existing build doesn't churn.
-- Live deploy + writeback to `deployments.json`. The skeleton scripts
-  contain the deploy structure but no live-deploy assertions yet, since
-  there's no V3 bytecode to deploy and no V4 source to compile until the
-  two items above land.
-- Swap UI integration. Tracked separately under `telcoin-network-swap`;
+- **V4 compile config (via_ir).** Uniswap V4 source requires
+  `via_ir = true` at the solc level (their own `foundry.toml` pins it
+  alongside `optimizer_runs = 44_444_444`). Enabling `via_ir` at
+  `tn-contracts`' default profile crashes solc's Windows binary with a
+  native stack overflow at our 200-runs setting. The fix needs one of:
+  - bump `optimizer_runs` high enough that the IR optimizer's stack
+    pressure releases (untested), OR
+  - add a `[[profile.default.compilation_restrictions]]` block scoping
+    `via_ir = true` to `lib/v4-core/**` + `lib/v4-periphery/**`, OR
+  - define a separate `[profile.uniswap]` profile that the orchestrator
+    invokes only for the V4 step.
+
+  Until that lands, `TestnetDeployUniswapV4.s.sol` keeps its V4 source
+  imports commented and reverts at `run()`. The orchestrator gates the
+  V4 step on a non-empty hex literal in `Permit2Bytecode.sol` and prints
+  a "deferred" message on a fresh chain.
+- **Permit2 canonical bytecode.** `Permit2Bytecode.sol` ships with an
+  empty `PERMIT2_CREATION_BYTECODE` constant; the file's header
+  documents the populate recipe (clone Uniswap/permit2 at commit
+  cc306b6, build with their own foundry.toml, paste the artifact's
+  `bytecode.object` as the hex literal). Permit2 must be at the canonical
+  cross-chain address, so we can't compile it under our 0.8.26 / 200-runs
+  settings without losing canonicality.
+- **Live deploy + writeback to `deployments.json`.** The V3 deploy script
+  is structurally complete and should produce real addresses on first
+  invocation; the V4 deploy script unblocks once the via_ir compile work
+  + Permit2 bytecode populate lands.
+- **Swap UI integration.** Tracked separately under `telcoin-network-swap`;
   see that repo's CHANGELOG for V3 / V4 routing, fee-tier picker,
   concentrated-liquidity UI, and the `/positions` page.
 

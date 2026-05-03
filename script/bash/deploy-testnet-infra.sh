@@ -145,6 +145,11 @@ if has_code ".uniswapV4.PoolManager"; then
 elif [[ ! -d "lib/v4-core" ]]; then
     echo "[Step 6/7] Uniswap V4 dependencies not installed, deferring..."
     echo "          Run: forge install Uniswap/v4-core && forge install Uniswap/v4-periphery"
+elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/Permit2Bytecode.sol; then
+    echo "[Step 6/7] Uniswap V4 not ready (Permit2 bytecode unpopulated and / or"
+    echo "          V4 source imports disabled in TestnetDeployUniswapV4.s.sol),"
+    echo "          deferring. See external/uniswap/precompiles/v4/Permit2Bytecode.sol"
+    echo "          and script/testnet/deploy/UNISWAP_V3_V4.md for the unblock recipe."
 else
     echo "[Step 6/7] Deploying Uniswap V4 (Permit2 + PoolManager + periphery)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV4.s.sol \
