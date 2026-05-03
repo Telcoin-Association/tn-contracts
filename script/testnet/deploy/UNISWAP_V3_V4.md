@@ -86,13 +86,48 @@ Run order **inside** `TestnetDeployUniswapV4.s.sol`:
 1. **Permit2** - skip if already at the canonical address
    `0x000000000022D473030F116dDEE9F6B43aC78BA3`. Otherwise deploy via
    Arachnid with the canonical salt so the address matches every other
-   chain.
+   chain. Permit2 ships as a bytecode literal under
+   `external/uniswap/precompiles/v4/Permit2Bytecode.sol` because the
+   canonical CREATE2 address is recipe-pinned to a specific compiled
+   bytecode hash; recompiling the source under our 0.8.26 settings would
+   shift the deterministic address off canonical.
 2. `PoolManager` (singleton, constructor: protocol fee controller).
 3. `PositionManager` (constructor: pool manager, permit2, wTEL, descriptor).
-4. `UniversalRouter` (constructor: pool manager, permit2, factory v2,
-   factory v3, swap router 02, position manager, wTEL).
+4. `V4Quoter` (constructor: pool manager). Off-chain price-impact /
+   amount-out preview, mirrors V3 `QuoterV2`'s role.
+5. `StateView` (constructor: pool manager). Read-only state accessor for
+   slot0, liquidity, ticks, and positions; lets the swap UI fetch state
+   without entering the PoolManager unlock pattern.
+
+**UniversalRouter is intentionally NOT deployed here.** As of this
+foundation commit, no tagged release of `Uniswap/universal-router`
+includes V4 routing - the V4-aware build lives on a non-canonical
+branch (`add-v4-routing` and similar). We defer UniversalRouter until
+Uniswap tags a V4-aware release so we can pin against canonical mainnet
+rather than a moving branch HEAD. The swap UI in the meantime composes
+V4 swaps via direct `PoolManager.unlock` callbacks plus V4Quoter for
+previews and StateView for state reads. UniversalRouter will land in a
+later commit that adds it to `Deployments.sol` + `deployments.json` +
+this script + the orchestrator.
 
 V4 hook ecosystem is not deployed here - hooks are tenant-deployed.
+
+## Pinning recipe (canonical Uniswap release versions)
+
+| Repo | Pin | Why |
+|---|---|---|
+| `@uniswap/v3-core` | npm `1.0.0` | Canonical mainnet V3 core |
+| `@uniswap/v3-periphery` | npm `1.4.4` | Canonical mainnet V3 periphery |
+| `@uniswap/swap-router-contracts` | npm `1.3.0` | Canonical mainnet `SwapRouter02` |
+| `Uniswap/v4-core` | tag `v4.0.0` (commit `e50237c43811bd9b526eff40f26772152a42daba`) | Canonical mainnet V4 core |
+| `Uniswap/v4-periphery` | commit `9dafaaecc1e2e1e824eda9d941085f96517d827b` (no release tags exist; pinned to `main` HEAD as of 2026-05-03) | Best available canonical reference |
+| `Uniswap/permit2` | tag `0x000000000022D473030F116dDEE9F6B43aC78BA3` (commit `cc306b601f172c51bc04334a109e98340456620b`) | Tag name IS the canonical universal address |
+| `Uniswap/universal-router` | DEFERRED | No tagged release includes V4 yet |
+
+The V3 + Permit2 pins ship as pre-compiled bytecode literals under
+`external/uniswap/precompiles/`. The V4 pins ship as forge-installed
+submodules under `lib/v4-core` and `lib/v4-periphery`, compiled inline
+since their source language is 0.8.x.
 
 ## Orchestrator integration
 

@@ -145,16 +145,25 @@ struct UniswapV3 {
 ///         under lib/v4-core and lib/v4-periphery (Solidity 0.8.26).
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 ///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+/// @notice UniversalRouter is intentionally not in this struct yet. As of the foundation
+///         commit, no tagged universal-router release includes V4 routing; the V4-aware
+///         build lives on a non-canonical branch. We deploy V4Quoter + StateView from
+///         v4-periphery so the swap UI can compose V4 swaps via direct PoolManager-unlock
+///         callbacks until Uniswap tags a V4-aware UniversalRouter we can pin against.
 struct UniswapV4 {
     /// @notice Canonical Permit2 address. Identical on every chain that has Permit2
-    ///         deployed via the canonical Arachnid + salt recipe.
+    ///         deployed via the canonical Arachnid + salt recipe (commit cc306b6 on
+    ///         Uniswap/permit2; the tag name on that repo IS the canonical address).
     address Permit2;
     /// @notice V4 pool singleton. Holds all pool state for every PoolKey.
     address PoolManager;
-    /// @notice ERC721 position-NFT contract for V4 positions.
+    /// @notice ERC721 position-NFT contract for V4 positions. Lives in v4-periphery.
     address PositionManager;
-    /// @notice Universal router for V2 + V3 + V4 swaps. Constructor-pinned to
-    ///         PoolManager, Permit2, factoryV2, factoryV3, SwapRouter02,
-    ///         PositionManager, and wTEL.
-    address UniversalRouter;
+    /// @notice Read-only pool state accessor (v4-periphery `src/lens/StateView.sol`).
+    ///         Lets clients fetch slot0, liquidity, ticks, and positions without
+    ///         entering the PoolManager unlock pattern.
+    address StateView;
+    /// @notice Off-chain quote helper (v4-periphery `src/lens/V4Quoter.sol`). Mirrors
+    ///         V3's QuoterV2 role for the V4 price-impact / amount-out preview.
+    address V4Quoter;
 }
