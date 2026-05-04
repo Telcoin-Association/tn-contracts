@@ -13,6 +13,12 @@ import { StateViewBytecode } from "../../external/uniswap/precompiles/v4/StateVi
 import { MockTelMintPrecompile } from "./MockTelMintPrecompile.sol";
 import { Currency, PoolKey, IPoolManager, IPositionManager, IV4Quoter, IStateView } from "./IV4Test.sol";
 
+/// @dev Local interface used only by V4IntegrationFork for the descriptor
+///      lookup on a live-deployed PositionManager.
+interface IPositionManagerWithDescriptor {
+    function tokenDescriptor() external view returns (address);
+}
+
 /// @title Fork integration test for Uniswap V4 on Adiri
 ///
 /// @notice Forks Adiri at the latest block, etches a `MockTelMintPrecompile`
@@ -101,18 +107,36 @@ contract V4IntegrationFork is
         }
 
         // 2. PoolManager - constructor: admin (protocol-fee controller).
-        poolManager = _create2(arachnid, bytes32(bytes("PoolManager")), bytes.concat(POOL_MANAGER_BYTECODE, abi.encode(ADMIN)));
+        poolManager = _deployOrReuse(
+            deployments.uniswapV4.PoolManager,
+            arachnid,
+            bytes32(bytes("PoolManager")),
+            bytes.concat(POOL_MANAGER_BYTECODE, abi.encode(ADMIN))
+        );
 
         // 3. PositionDescriptor - constructor: (poolManager, wTEL, native label).
-        positionDescriptor = _create2(
-            arachnid,
-            bytes32(bytes("PositionDescriptor")),
-            bytes.concat(POSITION_DESCRIPTOR_BYTECODE, abi.encode(poolManager, wTEL, NATIVE_CURRENCY_LABEL))
-        );
+        // PositionDescriptor isn't tracked in deployments.json (it's intermediate
+        // and the swap UI reads it via PositionManager.tokenDescriptor()), so
+        // always deploy fresh on a clean fork. If it's already on-chain at the
+        // deterministic address, _create2 reverts and we explicitly catch that
+        // here by reading the on-chain address from PositionManager itself.
+        if (deployments.uniswapV4.PositionManager.code.length > 0) {
+            // Live PositionManager on-chain - read its descriptor so the test
+            // mirrors live state instead of a fresh sub-deploy.
+            positionDescriptor =
+                IPositionManagerWithDescriptor(deployments.uniswapV4.PositionManager).tokenDescriptor();
+        } else {
+            positionDescriptor = _create2(
+                arachnid,
+                bytes32(bytes("PositionDescriptor")),
+                bytes.concat(POSITION_DESCRIPTOR_BYTECODE, abi.encode(poolManager, wTEL, NATIVE_CURRENCY_LABEL))
+            );
+        }
 
         // 4. PositionManager - constructor:
         //    (poolManager, permit2, unsubscribeGasLimit, descriptor, weth9).
-        positionManager = _create2(
+        positionManager = _deployOrReuse(
+            deployments.uniswapV4.PositionManager,
             arachnid,
             bytes32(bytes("PositionManager")),
             bytes.concat(
@@ -122,16 +146,43 @@ contract V4IntegrationFork is
         );
 
         // 5. V4Quoter.
-        v4Quoter = _create2(arachnid, bytes32(bytes("V4Quoter")), bytes.concat(V4_QUOTER_BYTECODE, abi.encode(poolManager)));
+        v4Quoter = _deployOrReuse(
+            deployments.uniswapV4.V4Quoter,
+            arachnid,
+            bytes32(bytes("V4Quoter")),
+            bytes.concat(V4_QUOTER_BYTECODE, abi.encode(poolManager))
+        );
 
         // 6. StateView.
-        stateView = _create2(arachnid, bytes32(bytes("StateView")), bytes.concat(STATE_VIEW_BYTECODE, abi.encode(poolManager)));
+        stateView = _deployOrReuse(
+            deployments.uniswapV4.StateView,
+            arachnid,
+            bytes32(bytes("StateView")),
+            bytes.concat(STATE_VIEW_BYTECODE, abi.encode(poolManager))
+        );
     }
 
     function _create2(address arachnid, bytes32 salt, bytes memory initcode) internal returns (address deployed) {
         (bool ok, bytes memory ret) = arachnid.call(bytes.concat(salt, initcode));
         require(ok, "_create2 failed");
         deployed = address(bytes20(ret));
+    }
+
+    /// @dev Same self-bootstrapping shape as V3IntegrationFork: reuse on-chain
+    ///      address if it exists, else CREATE2-deploy.
+    function _deployOrReuse(
+        address existing,
+        address arachnid,
+        bytes32 salt,
+        bytes memory initcode
+    )
+        internal
+        returns (address)
+    {
+        if (existing != address(0) && existing.code.length > 0) {
+            return existing;
+        }
+        return _create2(arachnid, salt, initcode);
     }
 
     // ---------- Tests ----------

@@ -96,41 +96,96 @@ contract V3IntegrationFork is
         deal(eUSD, ADMIN, 1_000_000 * 10 ** IERC20Min(eUSD).decimals());
     }
 
+    /// @dev Self-bootstrapping deploy: if the address is already populated in
+    ///      `deployments.json` AND has on-chain code at fork time, reuse it
+    ///      instead of trying to redeploy via Arachnid (which would revert on
+    ///      address-collision). This makes the same test work both pre-deploy
+    ///      (deploys fresh on a chain that doesn't yet have V3) and post-deploy
+    ///      (validates against the live on-chain V3).
     function _deployV3() internal {
         address arachnid = deployments.ArachnidDeterministicDeployFactory;
 
         // 1. UniswapV3Factory
-        uniswapV3Factory = _create2(arachnid, bytes32(bytes("UniswapV3Factory")), UNISWAPV3FACTORY_BYTECODE);
+        uniswapV3Factory = _deployOrReuse(
+            deployments.uniswapV3.UniswapV3Factory,
+            arachnid,
+            bytes32(bytes("UniswapV3Factory")),
+            UNISWAPV3FACTORY_BYTECODE
+        );
 
         // 2. NFTDescriptor library
-        nftDescriptor = _create2(arachnid, bytes32(bytes("NFTDescriptor")), NFTDESCRIPTOR_BYTECODE);
+        nftDescriptor = _deployOrReuse(
+            deployments.uniswapV3.NFTDescriptor,
+            arachnid,
+            bytes32(bytes("NFTDescriptor")),
+            NFTDESCRIPTOR_BYTECODE
+        );
 
         // 3. NonfungibleTokenPositionDescriptor (library-linked to NFTDescriptor).
         bytes memory descLinked = _linkNFTDescriptor(NONFUNGIBLE_TOKEN_POSITION_DESCRIPTOR_BYTECODE, nftDescriptor);
         bytes memory descInitcode = bytes.concat(descLinked, abi.encode(wTEL, NATIVE_CURRENCY_LABEL));
-        nonfungibleTokenPositionDescriptor =
-            _create2(arachnid, bytes32(bytes("NFTPositionDescriptor")), descInitcode);
+        nonfungibleTokenPositionDescriptor = _deployOrReuse(
+            deployments.uniswapV3.NonfungibleTokenPositionDescriptor,
+            arachnid,
+            bytes32(bytes("NFTPositionDescriptor")),
+            descInitcode
+        );
 
         // 4. NonfungiblePositionManager(_factory, _WETH9, _tokenDescriptor)
         bytes memory npmInitcode = bytes.concat(
             NONFUNGIBLE_POSITION_MANAGER_BYTECODE,
             abi.encode(uniswapV3Factory, wTEL, nonfungibleTokenPositionDescriptor)
         );
-        nonfungiblePositionManager = _create2(arachnid, bytes32(bytes("NonfungiblePositionManager")), npmInitcode);
+        nonfungiblePositionManager = _deployOrReuse(
+            deployments.uniswapV3.NonfungiblePositionManager,
+            arachnid,
+            bytes32(bytes("NonfungiblePositionManager")),
+            npmInitcode
+        );
 
         // 5. SwapRouter02(_factoryV2, _factoryV3, _positionManager, _WETH9)
         bytes memory swapRouterInitcode = bytes.concat(
             SWAP_ROUTER_02_BYTECODE,
             abi.encode(deployments.uniswapV2.UniswapV2Factory, uniswapV3Factory, nonfungiblePositionManager, wTEL)
         );
-        swapRouter02 = _create2(arachnid, bytes32(bytes("SwapRouter02")), swapRouterInitcode);
+        swapRouter02 = _deployOrReuse(
+            deployments.uniswapV3.SwapRouter02,
+            arachnid,
+            bytes32(bytes("SwapRouter02")),
+            swapRouterInitcode
+        );
 
         // 6. QuoterV2(_factory, _WETH9)
         bytes memory quoterInitcode = bytes.concat(QUOTER_V2_BYTECODE, abi.encode(uniswapV3Factory, wTEL));
-        quoterV2 = _create2(arachnid, bytes32(bytes("QuoterV2")), quoterInitcode);
+        quoterV2 = _deployOrReuse(
+            deployments.uniswapV3.QuoterV2,
+            arachnid,
+            bytes32(bytes("QuoterV2")),
+            quoterInitcode
+        );
 
         // 7. TickLens
-        tickLens = _create2(arachnid, bytes32(bytes("TickLens")), TICK_LENS_BYTECODE);
+        tickLens = _deployOrReuse(
+            deployments.uniswapV3.TickLens,
+            arachnid,
+            bytes32(bytes("TickLens")),
+            TICK_LENS_BYTECODE
+        );
+    }
+
+    function _deployOrReuse(
+        address existing,
+        address arachnid,
+        bytes32 salt,
+        bytes memory initcode
+    )
+        internal
+        returns (address)
+    {
+        if (existing != address(0) && existing.code.length > 0) {
+            return existing;
+        }
+        return _create2(arachnid, salt, initcode);
     }
 
     function _create2(address arachnid, bytes32 salt, bytes memory initcode) internal returns (address deployed) {
