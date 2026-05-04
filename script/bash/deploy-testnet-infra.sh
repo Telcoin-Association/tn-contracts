@@ -115,19 +115,27 @@ echo ""
 # with BEGIN / END markers so rebase or merge conflicts during the eventual
 # merge with the in-flight faucet branch are obvious to resolve. Each step
 # defers gracefully (no error, just a console log) when the underlying deploy
-# inputs aren't yet present:
-#   - V3 defers if external/uniswap/precompiles/v3/UniswapV3FactoryBytecode.sol
-#     does not exist (bytecode files not yet populated).
-#   - V4 defers if lib/v4-core does not exist (forge install not yet run).
+# inputs aren't yet present: each step checks every required bytecode file
+# under external/uniswap/precompiles/v3/ or v4/ for a populated hex literal,
+# and bypasses the deploy if any file is empty.
 # See script/testnet/deploy/UNISWAP_V3_V4.md for the design + the bytecode
 # refresh recipe.
 
 # Step 5: Deploy Uniswap V3
+# All V3 contracts ship as bytecode literals. Gate checks each file has a
+# populated hex literal (rather than just file presence, since the README
+# also lives in this directory).
 if has_code ".uniswapV3.UniswapV3Factory"; then
     echo "[Step 5/7] Uniswap V3 already deployed, skipping..."
-elif [[ ! -f "external/uniswap/precompiles/v3/UniswapV3FactoryBytecode.sol" ]]; then
-    echo "[Step 5/7] Uniswap V3 bytecode not populated, deferring..."
-    echo "          See external/uniswap/precompiles/v3/README.md for the refresh recipe."
+elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/UniswapV3Factory.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NFTDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NonfungibleTokenPositionDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NonfungiblePositionManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/SwapRouter02.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/QuoterV2.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/TickLens.sol; then
+    echo "[Step 5/7] Uniswap V3 bytecode unpopulated, deferring..."
+    echo "          See script/bash/fetch-uniswap-v3-bytecode.sh to populate."
 else
     echo "[Step 5/7] Deploying Uniswap V3 (Factory + periphery, no pools)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV3.s.sol \
