@@ -56,4 +56,4 @@
 "0x00000000000000000000000000000000000007e1": # TEL precompile
   nonce: 0
   balance: 0
-  code: 0xfe
+  code: "0xfe"
