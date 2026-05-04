@@ -38,18 +38,34 @@ without waiting on a chain-side bytecode-stub deploy.
 |---|---|---|
 | V2 (already deployed) | 0.5.16 / 0.6.6 | Pre-compiled bytecode literals under `external/uniswap/precompiles/` |
 | V3 (this branch) | 0.7.6 | Pre-compiled bytecode literals under `external/uniswap/precompiles/v3/` |
-| V4 (this branch) | 0.8.26 | Compiled from source under `lib/v4-core` and `lib/v4-periphery`, installed via `forge install` |
+| V4 (this branch) | 0.8.26 | Pre-compiled bytecode literals under `external/uniswap/precompiles/v4/` |
+| Permit2 (this branch) | 0.8.17 | Pre-compiled bytecode literal under `external/uniswap/precompiles/v4/Permit2Bytecode.sol` |
 
 `foundry.toml` pins `solc = "0.8.26"` and `auto_detect_solc = false`. We do
-not change either. V2 and V3 cannot compile under 0.8.26, so they ship as
-deterministic CREATE2 deployments of pre-compiled bytecode. V4 was written
-in 0.8.x and compiles inline.
+not change either. Every Uniswap layer therefore ships as deterministic
+CREATE2 deployments of pre-compiled bytecode via Arachnid.
 
-The bytecode files under `external/uniswap/precompiles/v3/` are extracted
-from a pinned Uniswap release (see the README in that directory for the
-exact tag and the optimizer settings used to compile). The init-code hashes
-must match canonical mainnet so any indexer or analytics tool that knows
-Uniswap pool address derivation works against this chain unchanged.
+V4 *can* compile under 0.8.26 in principle, but Uniswap's own
+`foundry.toml` for v4-periphery requires `via_ir = true` plus a
+44_444_444 optimizer-runs target (with per-file overrides for
+`PositionManager` and `PositionDescriptor` via `compilation_restrictions`).
+Enabling `via_ir = true` at tn-contracts' project level crashes solc on
+Windows; scoping `via_ir` to the v4 paths via Foundry's
+`compilation_restrictions` errors with "Missing profile satisfying
+settings restrictions" because the V4 deploy script's imports drag
+type definitions across compile-unit boundaries that Foundry can't
+reconcile under our pinned version. Treating V4 the way we treat V2
+and V3 (CREATE2-deploy of pre-compiled bytecode) sidesteps the
+compile-config problem entirely while preserving the canonical Uniswap
+mainnet release behavior.
+
+The bytecode files are extracted from canonical Uniswap sources via
+`fetch-uniswap-v3-bytecode.sh` and `fetch-uniswap-v4-bytecode.sh`. The
+V3 fetch pulls from npm (canonical 1.0.0 / 1.4.4 / 1.3.0 packages); the
+V4 fetch builds `lib/v4-periphery` in place under its own `foundry.toml`
+and pulls the resulting artifacts. Init-code hashes must match canonical
+mainnet so any indexer or analytics tool that knows Uniswap pool address
+derivation works against this chain unchanged.
 
 ## Deployment ordering
 
@@ -187,6 +203,78 @@ Operationally this means:
   we leave V2 in place after V3 / V4 ship, the bytecode stub is still
   worth landing for V2's sake.
 
+## Precompile capability matrix (verified on Adiri 2026-05-04)
+
+The TEL_MINT precompile at `0x07e1` was probed via `cast call` and
+Multicall3-chained `eth_call` against the live chain. Findings:
+
+| Method | Behavior | V3 / V4 implication |
+|---|---|---|
+| `name()` | returns `"Telcoin"` | Used by NFT descriptor, fine |
+| `symbol()` | returns `"TEL"` | Used by NFT descriptor, fine |
+| `decimals()` | returns `18` | Required by V3 NFT descriptor + V4 PositionDescriptor |
+| `totalSupply()` | returns small number (~11e18 at probe time, not actual circulating) | Not consumed by V3 / V4 hot paths |
+| `balanceOf(addr)` | returns `addr`'s **native** balance | "balance == native" semantics; users already have wTEL by holding TEL |
+| `approve(spender, amount)` | returns true, **persists allowance** in precompile storage | OK |
+| `allowance(owner, spender)` | reads back exactly what `approve` set | OK |
+| `transferFrom(from, to, amount)` | **moves native balance** from `from` to `to`, decrements allowance | OK |
+| `transfer(to, amount)` | moves native, no approval needed | OK |
+| `deposit() payable` | **REVERTS with `PrecompileError`** | UI must NOT call wrap-in-flight paths |
+| `withdraw(uint256)` | **REVERTS with `PrecompileError`** | UI must NOT call unwrap paths |
+
+The deposit / withdraw reverts are the load-bearing constraint for the
+swap UI design. Because the precompile uses "balance == native"
+semantics, users implicitly have wTEL just by holding TEL - no wrap
+step is needed or possible. Any V3 / V4 router code path that internally
+calls `IWETH9.deposit{value:}` or `IWETH9.withdraw` will revert against
+this precompile.
+
+The integration test under `test/uniswap/V3IntegrationFork.t.sol` etches
+a `MockTelMintPrecompile` at `0x07e1` whose `deposit` / `withdraw` DO
+work, so don't read fork-test green as proof that wrap-in-flight paths
+work on the real chain. The test's actual LP and swap operations do not
+exercise deposit / withdraw, only `transferFrom` + `balanceOf`, so those
+results are faithful to real-chain behavior.
+
+### Forbidden V3 router calls on the swap UI side
+
+The swap UI for V3 MUST avoid every router function that wraps or
+unwraps in flight, since each calls `IWETH9.deposit` or
+`IWETH9.withdraw` internally:
+
+- `SwapRouter02.exactInputSingle{value: X}(...)` with native TEL input
+- `SwapRouter02.exactInput{value: X}(...)` with native TEL input
+- `SwapRouter02.unwrapWETH9(...)` and `unwrapWETH9WithFee(...)`
+- `SwapRouter02.refundETH()`
+- `NonfungiblePositionManager.createAndInitializePoolIfNecessary{value: X}(...)` with native TEL
+- `NonfungiblePositionManager.mint{value: X}(...)` with native TEL leg
+- `NonfungiblePositionManager.unwrapWETH9(...)` and `refundETH()`
+- Any `multicall(...)` that bundles the above
+
+### Permitted V3 calls
+
+- `SwapRouter02.exactInputSingle(...)` and `exactInput(...)` without `value`
+- `NonfungiblePositionManager.mint(MintParams { token0: wTEL, token1: eUSD, ... })` without `value`
+- `NonfungiblePositionManager.increaseLiquidity(...)` without `value`
+- `NonfungiblePositionManager.decreaseLiquidity(...)` and `collect(...)` (these don't touch IWETH9)
+- `NonfungiblePositionManager.burn(...)`
+- `QuoterV2.quoteExactInputSingle(...)` (off-chain quotes)
+
+User flow becomes simpler than V2 - no wrap modal, no extra
+transaction:
+1. User calls `precompile.approve(router, amount)` once per token-pair-per-router
+2. User calls `router.exactInputSingle({tokenIn: precompile, ...})` directly
+3. Router pulls native via `transferFrom`, performs swap, returns the
+   non-native side to the user
+
+### V4 expectations
+
+V4's `PoolManager.unlock` callback pattern uses low-level calls and the
+PositionManager / V4Router intentionally don't have IWETH9 wrap helpers
+(V4 prefers explicit Permit2 + token operations over wrap-in-flight),
+so V4 should be similarly safe. The same caveats apply: avoid any path
+that calls `deposit` or `withdraw` on the wTEL token.
+
 ## deployments.json schema
 
 Pre-existing layout is preserved. New nested objects sit alongside
@@ -239,33 +327,19 @@ identifiers first, per Foundry's `vm.parseJson` requirement.
 
 ## Open items (will land in follow-up commits)
 
-- **V4 compile config (via_ir).** Uniswap V4 source requires
-  `via_ir = true` at the solc level (their own `foundry.toml` pins it
-  alongside `optimizer_runs = 44_444_444`). Enabling `via_ir` at
-  `tn-contracts`' default profile crashes solc's Windows binary with a
-  native stack overflow at our 200-runs setting. The fix needs one of:
-  - bump `optimizer_runs` high enough that the IR optimizer's stack
-    pressure releases (untested), OR
-  - add a `[[profile.default.compilation_restrictions]]` block scoping
-    `via_ir = true` to `lib/v4-core/**` + `lib/v4-periphery/**`, OR
-  - define a separate `[profile.uniswap]` profile that the orchestrator
-    invokes only for the V4 step.
-
-  Until that lands, `TestnetDeployUniswapV4.s.sol` keeps its V4 source
-  imports commented and reverts at `run()`. The orchestrator gates the
-  V4 step on a non-empty hex literal in `Permit2Bytecode.sol` and prints
-  a "deferred" message on a fresh chain.
-- **Permit2 canonical bytecode.** `Permit2Bytecode.sol` ships with an
-  empty `PERMIT2_CREATION_BYTECODE` constant; the file's header
-  documents the populate recipe (clone Uniswap/permit2 at commit
-  cc306b6, build with their own foundry.toml, paste the artifact's
-  `bytecode.object` as the hex literal). Permit2 must be at the canonical
-  cross-chain address, so we can't compile it under our 0.8.26 / 200-runs
-  settings without losing canonicality.
-- **Live deploy + writeback to `deployments.json`.** The V3 deploy script
-  is structurally complete and should produce real addresses on first
-  invocation; the V4 deploy script unblocks once the via_ir compile work
-  + Permit2 bytecode populate lands.
+- **Live deploy + writeback to `deployments.json`.** Both V3 and V4
+  deploy scripts are structurally complete and should produce real
+  addresses on first invocation. V3 has been sim'd against the Adiri
+  fork (7 CREATE2 succeeded, ~17 TEL gas estimate) and against an
+  etched-mock-precompile fork integration test (LP mint + swap pass).
+  V4 has been sim'd against the Adiri fork (6 CREATE2 succeeded,
+  ~14 TEL gas estimate). Live deploy is the next step.
+- **V4 fork integration test.** A V4-specific counterpart to
+  `test/uniswap/V3IntegrationFork.t.sol` would etch the mock precompile,
+  run the V4 deploy logic, initialize a `PoolKey` for wTEL/eUSD via
+  `PoolManager.initialize`, mint a position via `PositionManager`, and
+  exercise a swap via `PoolManager.unlock`. Skipped from this commit
+  to keep scope focused on the deploy plumbing.
 - **Swap UI integration.** Tracked separately under `telcoin-network-swap`;
   see that repo's CHANGELOG for V3 / V4 routing, fee-tier picker,
   concentrated-liquidity UI, and the `/positions` page.

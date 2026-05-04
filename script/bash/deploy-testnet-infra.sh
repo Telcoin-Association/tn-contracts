@@ -140,16 +140,18 @@ fi
 echo ""
 
 # Step 6: Deploy Uniswap V4
+# All V4 contracts ship as bytecode literals (same shape as V2 / V3 / Permit2).
+# The gate checks each bytecode file has a populated hex literal.
 if has_code ".uniswapV4.PoolManager"; then
     echo "[Step 6/7] Uniswap V4 already deployed, skipping..."
-elif [[ ! -d "lib/v4-core" ]]; then
-    echo "[Step 6/7] Uniswap V4 dependencies not installed, deferring..."
-    echo "          Run: forge install Uniswap/v4-core && forge install Uniswap/v4-periphery"
-elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/Permit2Bytecode.sol; then
-    echo "[Step 6/7] Uniswap V4 not ready (Permit2 bytecode unpopulated and / or"
-    echo "          V4 source imports disabled in TestnetDeployUniswapV4.s.sol),"
-    echo "          deferring. See external/uniswap/precompiles/v4/Permit2Bytecode.sol"
-    echo "          and script/testnet/deploy/UNISWAP_V3_V4.md for the unblock recipe."
+elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/Permit2Bytecode.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PoolManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PositionManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PositionDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/V4Quoter.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/StateView.sol; then
+    echo "[Step 6/7] Uniswap V4 bytecode unpopulated, deferring..."
+    echo "          See script/bash/fetch-uniswap-v4-bytecode.sh to populate."
 else
     echo "[Step 6/7] Deploying Uniswap V4 (Permit2 + PoolManager + periphery)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV4.s.sol \
