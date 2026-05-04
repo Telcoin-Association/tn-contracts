@@ -115,6 +115,14 @@ struct UniswapV2 {
     address eUSD_eSGD_Pool;
     address eUSD_eTRY_Pool;
     address eUSD_eZAR_Pool;
+    /// @notice wTEL pool entries. Listed after the eXxx_* fields because lex
+    ///         order on uppercase 'w' vs lowercase 'e' has 'w' (0x77) > 'e' (0x65).
+    ///         These were already present in deployments.json from the V2 deploy
+    ///         but were missing from the struct, causing a 2-field misalignment
+    ///         in abi.decode that shifted reads of uniswapV3 and uniswapV4
+    ///         downstream and produced false "already deployed" idempotency hits.
+    address wTEL_eEUR_Pool;
+    address wTEL_eUSD_Pool;
 }
 
 /// @notice Uniswap V3 deployment surface. Periphery contracts are pinned at
