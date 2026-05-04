@@ -10,13 +10,17 @@ import { Permit2Bytecode } from "external/uniswap/precompiles/v4/Permit2Bytecode
 // V4 source imports are intentionally left commented in this commit.
 // lib/v4-core and lib/v4-periphery are installed (see remappings.txt) and
 // ready to compile, but the V4 codebase requires via_ir = true at the solc
-// level. Enabling via_ir at tn-contracts' project level crashes solc's
-// Windows binary with a native stack overflow at our 200-runs setting; the
-// fix needs either a higher optimizer_runs target (v4-core itself uses
-// 44_444_444), a per-path compilation_restrictions block in foundry.toml,
-// or a separate FOUNDRY_PROFILE=uniswap profile. Tracked as a follow-up
-// commit so the V3 bytecode work can land on its own. Once that's resolved,
-// uncomment the imports + the deploy block below.
+// level. Both compilation_restrictions paths fail under tn-contracts'
+// current Foundry version (1.6.0-nightly): scoping via_ir to v4 paths only
+// errors with "Missing profile satisfying settings restrictions" because
+// the deploy script imports types from v4-core / v4-periphery and Foundry
+// can't reconcile the script's settings with the imported files'
+// settings into a single solc invocation. Enabling via_ir at the project
+// level instead crashes solc's Windows binary with a native stack overflow
+// at our default optimizer_runs setting.
+//
+// Tracked as a follow-up. Once the compile config is resolved, restore the
+// imports below and uncomment the deploy block in run().
 //
 // import { PoolManager } from "@uniswap/v4-core/src/PoolManager.sol";
 // import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
@@ -111,8 +115,9 @@ contract TestnetDeployUniswapV4 is Script, Permit2Bytecode {
         // unreachable and this script reverts loudly. The orchestrator
         // (script/bash/deploy-testnet-infra.sh) gates the V4 step on
         // PERMIT2_CREATION_BYTECODE being non-empty AND lib/v4-core existing,
-        // and on a fresh chain it prints a "deferred" message rather than
-        // running this script.
+        // so once the compile config lands the orchestrator will run this
+        // script. Permit2 bytecode is already populated, so a separate
+        // Permit2-only deploy can run today via direct invocation if needed.
         revert(
             "TestnetDeployUniswapV4: V4 source imports disabled until via_ir compile config is resolved. See script/testnet/deploy/UNISWAP_V3_V4.md and the top-of-file comment."
         );
