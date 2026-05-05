@@ -72,6 +72,12 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     // TN-custom precompile
     ITELMint public constant TEL_MINT = ITELMint(address(0x7e1));
 
+    /// @notice Divisor used to derive the minimum acceptable drip from the effective max:
+    ///         `minAmount = effectiveMax / MIN_DRIP_DIVISOR`. Forces a `dripTo` caller to mint
+    ///         at least 1/Nth of the cap to a recipient, raising the cost of dust-grief on
+    ///         the recipient's cooldown without preventing larger-amount griefing.
+    uint256 internal constant MIN_DRIP_DIVISOR = 10;
+
     /// @dev Invokes `__Pausable_init()`
     function initialize(StablecoinManagerInitParams calldata initParams) public initializer {
         __StablecoinHandler_init();
@@ -98,8 +104,11 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev On `validity == true`: validates non-duplicate, records the token in the drippable
     ///      set, forwards `(maxLimit, minLimit)` to StablecoinHandler, and seeds the faucet's
     ///      baseline drip amount via `_setMaxDripAmount` (which itself rejects 0).
-    /// @dev On `validity == false`: removes the token from the drippable set and forwards to
-    ///      StablecoinHandler. `baseDripAmount` is ignored on this path.
+    /// @dev On `validity == false`: removes the token from the drippable set, forwards to
+    ///      StablecoinHandler, and clears the faucet's baseline drip slot via
+    ///      `_resetMaxDripAmount` so a future re-enable can pass any `baseDripAmount`
+    ///      (including the previous one) without a `SettingAlreadyConfigured` revert.
+    ///      `baseDripAmount` is ignored on this path.
     /// @param token Token address to enable or disable. Use `NATIVE_TOKEN_POINTER` for native.
     /// @param validity True to enable, false to disable.
     /// @param maxLimit StablecoinHandler max mint cap.
@@ -123,6 +132,8 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         super.UpdateXYZ(token, validity, maxLimit, minLimit);
         if (validity) {
             _setMaxDripAmount(token, baseDripAmount);
+        } else {
+            _resetMaxDripAmount(token);
         }
     }
 
@@ -215,6 +226,11 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         // amount check, applies per-recipient override if set
         uint256 maxAmount = getMaxDripAmount(recipient, token);
         if (amount > maxAmount) revert RequestedAmountTooHigh(amount, maxAmount);
+
+        // floor at MIN_DRIP_DIVISOR; explicit `amount == 0` guard catches the rounding edge
+        // where `maxAmount < MIN_DRIP_DIVISOR` would otherwise let zero-amount drips through.
+        uint256 minAmount = maxAmount / MIN_DRIP_DIVISOR;
+        if (amount == 0 || amount < minAmount) revert RequestedAmountTooLow(amount, minAmount);
     }
 
     /// @inheritdoc TNFaucet
