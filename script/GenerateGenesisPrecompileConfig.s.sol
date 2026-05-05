@@ -90,6 +90,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         // Arachnid deterministic deployment proxy (CREATE2)
         instantiateArachnidFactory();
 
+        // TEL precompile (native Rust handler at 0x7e1, needs code for EXTCODESIZE check)
+        instantiateTelPrecompile();
+
         vm.stopBroadcast();
     }
 
@@ -186,6 +189,14 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         );
         vm.writeLine(dest, "  nonce: 1");
         vm.writeLine(dest, "  balance: 0");
+    }
+
+    /// @dev Writes TEL precompile genesis account so EXTCODESIZE returns non-zero
+    function instantiateTelPrecompile() internal {
+        vm.writeLine(dest, '"0x00000000000000000000000000000000000007e1": # TEL precompile');
+        vm.writeLine(dest, "  nonce: 0");
+        vm.writeLine(dest, "  balance: 0");
+        vm.writeLine(dest, "  code: 0xfe");
     }
 
     /// @dev Writes EIP-2935 and EIP-4788 system contracts configuration directly to the yaml
