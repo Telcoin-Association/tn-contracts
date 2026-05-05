@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { StablecoinHandler } from "./StablecoinHandler.sol";
 import { IStablecoin } from "./IStablecoin.sol";
 import { TNFaucet } from "./TNFaucet.sol";
@@ -12,12 +13,14 @@ import { ITELMint } from "../interfaces/ITELMint.sol";
 /**
  * @title StablecoinManager
  * @author Robriks 📯️📯️📯️.eth
+ * @author Huwonk
  * @notice A Telcoin Contract
  *
  * @notice This contract extends the StablecoinHandler which manages the minting and burning of stablecoins
  */
 contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     struct XYZMetadata {
         address token;
@@ -26,10 +29,17 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 decimals;
     }
 
+    struct TokenDripAmount {
+        address token;
+        uint256 dripAmount;
+    }
+
     error LowLevelCallFailure(bytes returnData);
     error InvalidOrDisabled(address token);
     error AlreadyEnabled(address token);
-    error InvalidDripAmount(uint256 dripAmount);
+    /// @notice Thrown when callers reach the inherited 4-arg `UpdateXYZ`; they must use the
+    ///         5-arg variant on this contract so every enabled token gets a baseline drip amount.
+    error UpdateXYZRequiresBaseDripAmount();
 
     event XYZAdded(address token);
     event XYZRemoved(address token);
@@ -42,19 +52,17 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 initMinLimit;
         uint256 dripAmount_;
         uint256 nativeDripAmount_;
+        uint256 baseDripCooldown_;
     }
 
     /// @custom:storage-location erc7201:telcoin.storage.StablecoinManager
     struct StablecoinManagerStorage {
-        address[] _enabledXYZs;
-        uint256 _dripAmount;
-        uint256 _nativeDripAmount;
+        /// @notice Tokens this faucet will drip. Despite the public-facing "XYZ" naming
+        ///         on related views (`isEnabledXYZ`, `getEnabledXYZs`, etc.), this set
+        ///         also includes `NATIVE_TOKEN_POINTER` when native drips are enabled.
+        ///         The XYZ-specific views filter native back out for downstream consumers.
+        EnumerableSet.AddressSet _drippableTokens;
     }
-
-    // keccak256(abi.encode(uint256(keccak256("erc7201.telcoin.storage.StablecoinHandler")) - 1))
-    //   & ~bytes32(uint256(0xff))
-    bytes32 internal constant StablecoinHandlerStorageSlot =
-        0x38361881985b0f585e6124dca158a3af102bffba0feb9c42b0b40825f41a3300;
 
     // keccak256(abi.encode(uint256(keccak256("erc7201.telcoin.storage.StablecoinManager")) - 1))
     //   & ~bytes32(uint256(0xff))
@@ -64,64 +72,86 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     // TN-custom precompile
     ITELMint public constant TEL_MINT = ITELMint(address(0x7e1));
 
-    address public constant NATIVE_TOKEN_POINTER = address(0x0);
+    /// @notice Divisor used to derive the minimum acceptable drip from the effective max:
+    ///         `minAmount = effectiveMax / MIN_DRIP_DIVISOR`. Forces a `dripTo` caller to mint
+    ///         at least 1/Nth of the cap to a recipient, raising the cost of dust-grief on
+    ///         the recipient's cooldown without preventing larger-amount griefing.
+    uint256 internal constant MIN_DRIP_DIVISOR = 10;
 
     /// @dev Invokes `__Pausable_init()`
     function initialize(StablecoinManagerInitParams calldata initParams) public initializer {
         __StablecoinHandler_init();
-        __Faucet_init(initParams.dripAmount_, initParams.nativeDripAmount_);
+        __Faucet_init(initParams.baseDripCooldown_);
 
         // native token faucet drips are enabled by default
-        UpdateXYZ(NATIVE_TOKEN_POINTER, true, type(uint256).max, 1);
+        UpdateXYZ(NATIVE_TOKEN_POINTER, true, type(uint256).max, 1e18, initParams.nativeDripAmount_);
         for (uint256 i; i < initParams.tokens_.length; ++i) {
-            UpdateXYZ(initParams.tokens_[i], true, initParams.initMaxLimit, initParams.initMinLimit);
+            UpdateXYZ(
+                initParams.tokens_[i],
+                true,
+                initParams.initMaxLimit,
+                initParams.initMinLimit,
+                initParams.dripAmount_
+            );
         }
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.admin_);
         _grantRole(MAINTAINER_ROLE, initParams.maintainer_);
     }
 
+    /// @notice Enables or disables a drippable token, mirroring StablecoinHandler's mint/burn
+    ///         caps and atomically seeding the baseline max drip amount on enable.
+    /// @dev On `validity == true`: validates non-duplicate, records the token in the drippable
+    ///      set, forwards `(maxLimit, minLimit)` to StablecoinHandler, and seeds the faucet's
+    ///      baseline drip amount via `_setMaxDripAmount` (which itself rejects 0).
+    /// @dev On `validity == false`: removes the token from the drippable set, forwards to
+    ///      StablecoinHandler, and clears the faucet's baseline drip slot via
+    ///      `_resetMaxDripAmount` so a future re-enable can pass any `baseDripAmount`
+    ///      (including the previous one) without a `SettingAlreadyConfigured` revert.
+    ///      `baseDripAmount` is ignored on this path.
+    /// @param token Token address to enable or disable. Use `NATIVE_TOKEN_POINTER` for native.
+    /// @param validity True to enable, false to disable.
+    /// @param maxLimit StablecoinHandler max mint cap.
+    /// @param minLimit StablecoinHandler min burn cap.
+    /// @param baseDripAmount Baseline max drip amount for this token (only consumed on enable).
     function UpdateXYZ(
         address token,
         bool validity,
         uint256 maxLimit,
-        uint256 minLimit
+        uint256 minLimit,
+        uint256 baseDripAmount
     )
         public
         virtual
-        override
         onlyRole(MAINTAINER_ROLE)
     {
-        // to avoid recording duplicate members in storage array, revert
+        // to avoid recording duplicate members in storage set, revert
         if (validity && isEnabledXYZ(token)) revert AlreadyEnabled(token);
 
         _recordXYZ(token, validity);
         super.UpdateXYZ(token, validity, maxLimit, minLimit);
+        if (validity) {
+            _setMaxDripAmount(token, baseDripAmount);
+        } else {
+            _resetMaxDripAmount(token);
+        }
     }
 
     /// @dev Fetches all currently valid stablecoin addresses
     /// @notice Excludes `NATIVE_TOKEN_POINTER` if it is enabled
     function getEnabledXYZs() public view returns (address[] memory enabledXYZs) {
         StablecoinManagerStorage storage $ = _stablecoinManagerStorage();
-        address[] memory unfilteredEnabledXYZs = $._enabledXYZs;
-        // avoid underflow condition by terminating early if all tokens are disabled
-        if (unfilteredEnabledXYZs.length == 0) return new address[](0);
+        address[] memory all = $._drippableTokens.values();
 
-        (bool nativeFound, uint256 nativeIndex) = _findNativeTokenIndex(unfilteredEnabledXYZs);
-        if (!nativeFound) {
-            return unfilteredEnabledXYZs;
-        } else {
-            // filter out `NATIVE_TOKEN_POINTER`
-            uint256 filteredLen = unfilteredEnabledXYZs.length - 1;
-            enabledXYZs = new address[](filteredLen);
+        if (!$._drippableTokens.contains(NATIVE_TOKEN_POINTER)) return all;
 
-            uint256 dynCounter;
-            for (uint256 i; i < unfilteredEnabledXYZs.length; ++i) {
-                if (i == nativeIndex) continue;
-
-                enabledXYZs[dynCounter] = unfilteredEnabledXYZs[i];
-                ++dynCounter;
-            }
+        // filter out `NATIVE_TOKEN_POINTER`
+        enabledXYZs = new address[](all.length - 1);
+        uint256 dynCounter;
+        for (uint256 i; i < all.length; ++i) {
+            if (all[i] == NATIVE_TOKEN_POINTER) continue;
+            enabledXYZs[dynCounter] = all[i];
+            ++dynCounter;
         }
     }
 
@@ -141,41 +171,39 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         }
     }
 
-    /// @notice To identify if faucet has the native token enabled, pass in `address(0x0)`
+    /// @dev Fetches every drippable token (XYZ stablecoins **plus** `NATIVE_TOKEN_POINTER` when
+    ///      enabled) paired with its baseline max drip amount.
+    /// @notice Intended for use in a view context to save on RPC calls
+    function getDrippableTokensWithDripAmount() public view returns (TokenDripAmount[] memory dripAmounts) {
+        StablecoinManagerStorage storage $ = _stablecoinManagerStorage();
+        address[] memory drippable = $._drippableTokens.values();
+
+        dripAmounts = new TokenDripAmount[](drippable.length);
+        for (uint256 i; i < drippable.length; ++i) {
+            dripAmounts[i] = TokenDripAmount(drippable[i], getBaselineMaxDripAmount(drippable[i]));
+        }
+    }
+
+    /// @notice To identify if faucet has the native token enabled, pass in `NATIVE_TOKEN_POINTER`
     function isEnabledXYZ(address eXYZ) public view returns (bool isEnabled) {
         StablecoinManagerStorage storage $ = _stablecoinManagerStorage();
-        address[] memory enabledXYZs = $._enabledXYZs;
-        for (uint256 i; i < enabledXYZs.length; ++i) {
-            if (enabledXYZs[i] == eXYZ) return true;
-        }
-
-        return false;
+        return $._drippableTokens.contains(eXYZ);
     }
 
-    /**
-     *
-     *   faucet
-     *
-     */
-
-    /// @dev Faucet function defining this contract as the onchain entrypoint for minting testnet tokens to users
-    /// @dev To mint the chain's native token, use `NATIVE_TOKEN_POINTER == address(0x0)`
-    /// @notice This contract must be given `Stablecoin::MINTER_ROLE` on each eXYZ contract
-    /// @notice Permissionless: rate-limited by cooldown (1 day per token per recipient)
-    function dripTo(address token, address recipient) public virtual override {
-        super.dripTo(token, recipient);
-    }
-
-    /// @dev Convenience wrapper: drips to msg.sender. See `dripTo` for dripping to others.
-    function drip(address token) public virtual override {
-        super.drip(token);
-    }
+    // -------------
+    // Faucet
+    // -------------
 
     /// @inheritdoc TNFaucet
-    function _drip(address token, address recipient) internal virtual override {
-        uint256 amount;
+    /// @dev Dispatches between the TEL precompile (for native, keyed by `NATIVE_TOKEN_POINTER`)
+    ///      and the per-eXYZ `IStablecoin.mintTo`. This contract must be given
+    ///      `Stablecoin::MINTER_ROLE` on each eXYZ contract.
+    /// @dev The native branch uses a low-level call rather than the typed `TEL_MINT.mint(...)`
+    ///      because Solidity 0.8.x emits an `EXTCODESIZE` guard before typed-interface calls,
+    ///      and the TEL precompile at `0x07e1` has no on-chain bytecode (revm dispatches it
+    ///      at runtime). Mirrors the pattern in `BlsG1.sol`. See PR #95.
+    function _drip(address recipient, address token, uint256 amount) internal virtual override {
         if (token == NATIVE_TOKEN_POINTER) {
-            amount = getNativeDripAmount();
             // Low-level call bypasses Solidity's typed-interface EXTCODESIZE guard, which
             // would otherwise revert because the TEL precompile at 0x07e1 has no bytecode
             // in state (revm dispatches it at runtime). Mirrors the BlsG1.sol pattern.
@@ -183,61 +211,80 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
                 address(TEL_MINT).call(abi.encodeWithSelector(ITELMint.mint.selector, recipient, amount));
             if (!ok) revert LowLevelCallFailure(ret);
         } else {
-            amount = getDripAmount();
             IStablecoin(token).mintTo(recipient, amount);
         }
-
-        emit Drip(token, recipient, amount);
     }
 
     /// @inheritdoc TNFaucet
-    function _checkDrip(address token, address recipient) internal virtual override {
+    function _checkDrip(address recipient, address token, uint256 amount) internal virtual override {
         if (!isEnabledXYZ(token)) revert InvalidOrDisabled(token);
 
-        uint256 lastFulfilledDrip = getLastFulfilledDripTimestamp(token, recipient);
-        if (block.timestamp < lastFulfilledDrip + 1 days) {
-            revert RequestIneligibleUntil(lastFulfilledDrip + 1 days);
-        }
+        // cooldown check, applies per-recipient override if set
+        uint256 nextEligibleAt = getNextEligibleDripTimestamp(recipient, token);
+        if (block.timestamp < nextEligibleAt) revert RequestIneligibleUntil(nextEligibleAt);
+
+        // amount check, applies per-recipient override if set
+        uint256 maxAmount = getMaxDripAmount(recipient, token);
+        if (amount > maxAmount) revert RequestedAmountTooHigh(amount, maxAmount);
+
+        // floor at MIN_DRIP_DIVISOR; explicit `amount == 0` guard catches the rounding edge
+        // where `maxAmount < MIN_DRIP_DIVISOR` would otherwise let zero-amount drips through.
+        uint256 minAmount = maxAmount / MIN_DRIP_DIVISOR;
+        if (amount == 0 || amount < minAmount) revert RequestedAmountTooLow(amount, minAmount);
     }
 
-    /// @dev Provides a way for Telcoin maintainers to alter the faucet's eXYZ drip amount onchain
-    /// @notice Rather than set `dripAmount` to 0, disable the token
     /// @inheritdoc TNFaucet
-    function setDripAmount(uint256 newDripAmount) external override onlyRole(MAINTAINER_ROLE) {
-        if (newDripAmount == 0) revert InvalidDripAmount(newDripAmount);
-
-        _setDripAmount(newDripAmount);
+    function setMaxDripAmount(address token, uint256 newDripAmount) external override onlyRole(MAINTAINER_ROLE) {
+        _setMaxDripAmount(token, newDripAmount);
     }
 
-    /// @dev Provides a way for Telcoin maintainers to alter the faucet's native token drip amount onchain
-    /// @notice Rather than set `nativeDripAmount` to 0, disable the token
     /// @inheritdoc TNFaucet
-    function setNativeDripAmount(uint256 newNativeDripAmount) external override onlyRole(MAINTAINER_ROLE) {
-        if (newNativeDripAmount == 0) {
-            revert InvalidDripAmount(newNativeDripAmount);
-        }
-        _setNativeDripAmount(newNativeDripAmount);
+    function setBaselineDripCooldown(uint256 amountInSeconds) external override onlyRole(MAINTAINER_ROLE) {
+        _setBaselineDripCooldown(amountInSeconds);
     }
 
-    function __Faucet_init(uint256 dripAmount_, uint256 nativeDripAmount_) internal virtual override initializer {
-        _setDripAmount(dripAmount_);
-        _setNativeDripAmount(nativeDripAmount_);
+    /// @inheritdoc TNFaucet
+    function setMaxDripAmountOverride(
+        address overrideAddress,
+        address token,
+        uint256 amount
+    )
+        external
+        override
+        onlyRole(MAINTAINER_ROLE)
+    {
+        _setMaxDripAmountOverride(overrideAddress, token, amount);
     }
 
-    /**
-     *
-     *   support
-     *
-     */
+    /// @inheritdoc TNFaucet
+    function setDripCooldownOverride(
+        address overrideAddress,
+        uint256 amountInSeconds
+    )
+        external
+        override
+        onlyRole(MAINTAINER_ROLE)
+    {
+        _setDripCooldownOverride(overrideAddress, amountInSeconds);
+    }
+
+    /// @inheritdoc TNFaucet
+    function __Faucet_init(uint256 baseDripCooldown_) internal virtual override initializer {
+        _setBaselineDripCooldown(baseDripCooldown_);
+    }
+
+    // -------------
+    // Support
+    // -------------
 
     /**
      * @notice Rescues crypto assets mistakenly sent to the contract.
      * @dev Allows for the recovery of both ERC20 tokens and native token sent to the contract.
-     * @param token The token to rescue. Use `address(0x0)` for native token.
+     * @param token The token to rescue. Use `NATIVE_TOKEN_POINTER` for native token.
      * @param amount The amount of the token to rescue.
      */
     function rescueCrypto(IERC20 token, uint256 amount) public onlyRole(MAINTAINER_ROLE) {
-        if (address(token) == address(0x0)) {
+        if (address(token) == NATIVE_TOKEN_POINTER) {
             // Native Token
             (bool r, bytes memory ret) = _msgSender().call{ value: amount }("");
             if (!r) revert LowLevelCallFailure(ret);
@@ -247,11 +294,9 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         }
     }
 
-    /**
-     *
-     *   internals
-     *
-     */
+    // -------------
+    // Internals
+    // -------------
     function _recordXYZ(address token, bool validity) internal virtual {
         if (validity == true) {
             _addEnabledXYZ(token);
@@ -262,64 +307,21 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
 
     function _addEnabledXYZ(address token) internal {
         StablecoinManagerStorage storage $ = _stablecoinManagerStorage();
-        $._enabledXYZs.push(token);
+        $._drippableTokens.add(token);
 
         emit XYZAdded(token);
     }
 
     function _removeEnabledXYZ(address token) internal {
         StablecoinManagerStorage storage $ = _stablecoinManagerStorage();
-
-        // cache in memory
-        address[] memory enabledXYZs = $._enabledXYZs;
-        // find matching index in memory
-        uint256 matchingIndex = type(uint256).max;
-        for (uint256 i; i < enabledXYZs.length; ++i) {
-            if (enabledXYZs[i] == token) matchingIndex = i;
-        }
-
-        // in the case no match was found, revert with info detailing invalid state
-        if (matchingIndex == type(uint256).max) revert InvalidOrDisabled(token);
-
-        // if match is not the final array member, write final array member into the matching index
-        uint256 lastIndex = enabledXYZs.length - 1;
-        if (matchingIndex != lastIndex) {
-            $._enabledXYZs[matchingIndex] = enabledXYZs[lastIndex];
-        }
-        // pop member which is no longer relevant off end of array
-        $._enabledXYZs.pop();
+        if (!$._drippableTokens.remove(token)) revert InvalidOrDisabled(token);
 
         emit XYZRemoved(token);
     }
 
-    /// @notice Returns the index of the NATIVE_TOKEN_POINTER in storage array if found, otherwise `0xfffffff...`
-    function _findNativeTokenIndex(address[] memory _enabledXYZs)
-        internal
-        pure
-        returns (bool found, uint256 _enabledXYZsIndex)
-    {
-        for (uint256 i; i < _enabledXYZs.length; ++i) {
-            if (_enabledXYZs[i] == NATIVE_TOKEN_POINTER) {
-                found = true;
-                _enabledXYZsIndex = i;
-                break;
-            }
-        }
-
-        if (!found) _enabledXYZsIndex = type(uint256).max;
-    }
-
-    /// @notice Despite having similar names, `StablecoinManagerStorage` != `StablecoinHandlerStorage` !!
     function _stablecoinManagerStorage() internal pure returns (StablecoinManagerStorage storage $) {
         assembly {
             $.slot := StablecoinManagerStorageSlot
-        }
-    }
-
-    /// @notice Despite having similar names, `StablecoinHandlerStorage` != `StablecoinManagerStorage` !!
-    function _stablecoinHandlerStorage() internal pure returns (StablecoinHandlerStorage storage $) {
-        assembly {
-            $.slot := StablecoinHandlerStorageSlot
         }
     }
 
