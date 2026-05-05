@@ -65,7 +65,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo2 = ValidatorInfo(
@@ -75,7 +75,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo3 = ValidatorInfo(
@@ -85,7 +85,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo4 = ValidatorInfo(
@@ -95,7 +95,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         initialValidators.push(validatorInfo1);
