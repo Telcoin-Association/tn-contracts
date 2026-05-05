@@ -57,6 +57,16 @@
 - protocol reads `nextCommitteeSize` from contract storage to determine committee size for the future committee passed to `concludeEpoch`
 - `nextCommitteeSize` serves as the source of truth for committee sizing, eliminating need for protocol hard forks to adjust committee sizes
 
+**region**
+
+- validator region is a uint8 stored on ValidatorInfo, representing a GSMA region identifier
+- region defaults to 0 (unspecified) when a validator stakes via _recordStaked
+- region accepts any uint8 value (0-255); no maximum constraint is enforced on-chain
+- only governance (contract owner) can set or update a validator's region via setValidatorRegion
+- setValidatorRegion requires the target address to hold a ConsensusNFT (not burned/retired)
+- region assignment does not affect validator status or lifecycle transitions
+- region is used by the protocol's Rust-side committee shuffle algorithm, not by Solidity logic
+
 **worker configs**
 
 - every worker 0..numWorkers-1 must have a config with value >= MIN_GAS (7 wei)

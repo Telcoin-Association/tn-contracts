@@ -11,7 +11,7 @@ import { StablecoinManager } from "../../../src/testnet/StablecoinManager.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
-/// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
+/// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK || --`
 contract TestnetDeployStablecoinManager is Script {
     StablecoinManager stablecoinManagerImpl;
     StablecoinManager stablecoinManager;
@@ -25,6 +25,7 @@ contract TestnetDeployStablecoinManager is Script {
 
     uint256 dripAmount;
     uint256 nativeDripAmount;
+    uint256 baseDripCooldown;
     Deployments deployments;
     address admin; // admin, support, minter, burner role
 
@@ -42,6 +43,7 @@ contract TestnetDeployStablecoinManager is Script {
         minLimit = 1000;
         dripAmount = 100e6; // 100 units of the stablecoin (decimals == 6)
         nativeDripAmount = 1e18; // 1 $TEL
+        baseDripCooldown = 1 days;
 
         // populate stables array
         stables.push(deployments.eXYZs.eAUD);
@@ -77,45 +79,51 @@ contract TestnetDeployStablecoinManager is Script {
 
         vm.startBroadcast();
 
-        // deploy the deterministic faucet proxy pointing to latest faucet version
+        // deploy the deterministic faucet proxy pointing to latest faucet version. When
+        // `enableAllXYZs` is true the init loop seeds each token in `tokens_` with the baseline
+        // drip amount; we pass an empty array here and rely on the post-init loop below otherwise.
+        address[] memory initTokens = enableAllXYZs ? stables : new address[](0);
+
         stablecoinManagerImpl = new StablecoinManager{ salt: stablecoinManagerSalt }();
         StablecoinManager.StablecoinManagerInitParams memory initParams = StablecoinManager.StablecoinManagerInitParams(
-            admin, admin, new address[](0), maxLimit, minLimit, dripAmount, nativeDripAmount
+            admin,
+            admin,
+            initTokens,
+            maxLimit,
+            minLimit,
+            dripAmount,
+            nativeDripAmount,
+            baseDripCooldown
         );
         bytes memory initCall = abi.encodeWithSelector(StablecoinManager.initialize.selector, initParams);
         stablecoinManager = StablecoinManager(
             payable(address(new ERC1967Proxy{ salt: stablecoinManagerSalt }(address(stablecoinManagerImpl), initCall)))
         );
 
-        // set configs (TEL is enabled by default)
-        stablecoinManager.setNativeDripAmount(nativeDripAmount);
-        stablecoinManager.setDripAmount(dripAmount);
-
-        // grant minter role to StablecoinManager on all tokens and disables XYZs if `!enableAllXYZs`
+        // grant MINTER_ROLE on every Stablecoin to the new manager. Requires the broadcaster to
+        // hold DEFAULT_ADMIN_ROLE on each Stablecoin, which is true if Stablecoins were
+        // (re)deployed by the same key in TestnetDeployTokens.s.sol earlier in the orchestration.
         bytes32 minterRole = keccak256("MINTER_ROLE");
         for (uint256 i; i < stables.length; ++i) {
             Stablecoin(stables[i]).grantRole(minterRole, address(stablecoinManager));
-
-            if (!enableAllXYZs && stablecoinManager.isEnabledXYZ(stables[i])) {
-                stablecoinManager.UpdateXYZ(stables[i], false, maxLimit, minLimit);
-            } else if (enableAllXYZs && !stablecoinManager.isEnabledXYZ(stables[i])) {
-                stablecoinManager.UpdateXYZ(stables[i], true, maxLimit, minLimit);
-            }
         }
 
         vm.stopBroadcast();
 
         // asserts
-        assert(stablecoinManager.isEnabledXYZ(address(0x0)));
+        assert(stablecoinManager.isEnabledXYZ(stablecoinManager.NATIVE_TOKEN_POINTER()));
         assert(stablecoinManager.getEnabledXYZs().length == 23);
         assert(stablecoinManager.getEnabledXYZsWithMetadata().length == 23);
+        // 23 stablecoins + NATIVE_TOKEN_POINTER
+        assert(stablecoinManager.getDrippableTokensWithDripAmount().length == 24);
         assert(minterRole == Stablecoin(stables[0]).MINTER_ROLE());
         for (uint256 i; i < stables.length; ++i) {
             assert(Stablecoin(stables[i]).hasRole(minterRole, address(stablecoinManager)));
             assert(stablecoinManager.isEnabledXYZ(stables[i]) == enableAllXYZs);
+            assert(stablecoinManager.getBaselineMaxDripAmount(stables[i]) == dripAmount);
         }
-        assert(stablecoinManager.getDripAmount() == dripAmount);
-        assert(stablecoinManager.getNativeDripAmount() == nativeDripAmount);
+        assert(stablecoinManager.getBaselineMaxDripAmount(stablecoinManager.NATIVE_TOKEN_POINTER()) == nativeDripAmount);
+        assert(stablecoinManager.getBaselineDripCooldown() == baseDripCooldown);
 
         // logs
         string memory root = vm.projectRoot();

@@ -254,6 +254,14 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         vm.stopPrank();
     }
 
+    function testFuzz_setValidatorRegion(uint8 region) public {
+        vm.expectEmit(true, true, true, true);
+        emit IConsensusRegistry.ValidatorRegionUpdated(validator1, region);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, region);
+        assertEq(consensusRegistry.getValidator(validator1).region, region);
+    }
+
     function testFuzz_claimStakeRewards(uint24 numValidators, uint24 numRewardees) public {
         numValidators = uint24(bound(uint256(numValidators), 1, 800));
         numRewardees = uint24(bound(uint256(numRewardees), 1, numValidators));

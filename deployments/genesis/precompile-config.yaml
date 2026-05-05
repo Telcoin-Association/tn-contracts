@@ -53,3 +53,7 @@
 "0x3fAB184622Dc19b6109349B94811493BF2a45362": # use nonce 0 for creating 0x4e59b44847b379578588920cA78FbF26c0B4956C
   nonce: 1
   balance: 0
+"0x00000000000000000000000000000000000007e1": # TEL precompile
+  nonce: 0
+  balance: 0
+  code: "0xfe"

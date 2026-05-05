@@ -20,7 +20,21 @@ struct Deployments {
     address WorkerConfigs;
     address admin;
     EXYZs eXYZs;
+    MagicAddresses magicAddresses;
     UniswapV2 uniswapV2;
+}
+
+/// @notice Documents the magic / sentinel addresses used by Telcoin testnet contracts.
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+struct MagicAddresses {
+    /// @notice Sentinel for the chain's native token (TEL). Uses the conventional EEEE
+    ///         magic address (popularised by 1inch / Aave) so callers can pass it
+    ///         intentionally rather than relying on the zero address.
+    address NATIVE_TOKEN_POINTER;
+    /// @notice TN-custom precompile that mints the chain's native token (TEL). Called
+    ///         by `StablecoinManager._drip` when the requested token is `NATIVE_TOKEN_POINTER`.
+    address TEL_MINT_PRECOMPILE;
 }
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering

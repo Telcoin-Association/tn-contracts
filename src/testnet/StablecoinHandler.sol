@@ -38,6 +38,7 @@ abstract contract StablecoinHandler is
         // stablecoin fee amount
         uint256 feeAmount;
     }
+    
 
     struct eXYZ {
         // status of address as stablecoin

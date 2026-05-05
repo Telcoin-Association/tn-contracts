@@ -1,6 +1,7 @@
 # Compiler files
 cache/
 out/
+lcov.info
 
 # Compiler output
 dist/
