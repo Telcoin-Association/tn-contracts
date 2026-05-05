@@ -26,7 +26,7 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 decimals;
     }
 
-    error LowLevelCallFailure();
+    error LowLevelCallFailure(bytes returnData);
     error InvalidOrDisabled(address token);
     error AlreadyEnabled(address token);
     error InvalidDripAmount(uint256 dripAmount);
@@ -176,7 +176,12 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
         uint256 amount;
         if (token == NATIVE_TOKEN_POINTER) {
             amount = getNativeDripAmount();
-            TEL_MINT.mint(recipient, amount);
+            // Low-level call bypasses Solidity's typed-interface EXTCODESIZE guard, which
+            // would otherwise revert because the TEL precompile at 0x07e1 has no bytecode
+            // in state (revm dispatches it at runtime). Mirrors the BlsG1.sol pattern.
+            (bool ok, bytes memory ret) =
+                address(TEL_MINT).call(abi.encodeWithSelector(ITELMint.mint.selector, recipient, amount));
+            if (!ok) revert LowLevelCallFailure(ret);
         } else {
             amount = getDripAmount();
             IStablecoin(token).mintTo(recipient, amount);
@@ -234,8 +239,8 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     function rescueCrypto(IERC20 token, uint256 amount) public onlyRole(MAINTAINER_ROLE) {
         if (address(token) == address(0x0)) {
             // Native Token
-            (bool r,) = _msgSender().call{ value: amount }("");
-            if (!r) revert LowLevelCallFailure();
+            (bool r, bytes memory ret) = _msgSender().call{ value: amount }("");
+            if (!r) revert LowLevelCallFailure(ret);
         } else {
             // ERC20s
             token.safeTransfer(_msgSender(), amount);
