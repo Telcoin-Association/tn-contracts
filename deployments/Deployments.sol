@@ -137,7 +137,7 @@ struct UniswapV3 {
     /// @notice Off-chain quote helper for V3 swaps.
     address QuoterV2;
     /// @notice Universal router for V2 + V3 swaps. Constructor-pinned to factoryV2,
-    ///         factoryV3, NonfungiblePositionManager, and wTEL (the TEL_MINT precompile).
+    ///         factoryV3, NonfungiblePositionManager, and wTEL (the WTEL contract).
     address SwapRouter02;
     /// @notice Pagination helper for tick liquidity reads.
     address TickLens;

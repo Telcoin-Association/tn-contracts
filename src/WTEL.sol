@@ -18,6 +18,13 @@ contract WTEL is IWETH9 {
     event Deposit(address indexed dst, uint256 wad);
     event Withdrawal(address indexed src, uint256 wad);
 
+    /// @dev `available` is the caller / `src` balance; `required` is the wad asked for.
+    error InsufficientBalance(uint256 available, uint256 required);
+    /// @dev `available` is the spender's current allowance; `required` is the wad asked for.
+    error InsufficientAllowance(uint256 available, uint256 required);
+    /// @dev Raised when the low-level native send in `withdraw` returns ok=false (recipient rejected ETH).
+    error NativeSendFailed();
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
@@ -32,10 +39,11 @@ contract WTEL is IWETH9 {
     }
 
     function withdraw(uint256 wad) public {
-        require(balanceOf[msg.sender] >= wad, "WTEL: balance");
-        balanceOf[msg.sender] -= wad;
+        uint256 available = balanceOf[msg.sender];
+        if (available < wad) revert InsufficientBalance(available, wad);
+        balanceOf[msg.sender] = available - wad;
         (bool ok,) = payable(msg.sender).call{ value: wad }("");
-        require(ok, "WTEL: native send");
+        if (!ok) revert NativeSendFailed();
         emit Withdrawal(msg.sender, wad);
     }
 
@@ -55,16 +63,20 @@ contract WTEL is IWETH9 {
     }
 
     function transferFrom(address src, address dst, uint256 wad) public returns (bool) {
-        require(balanceOf[src] >= wad, "WTEL: balance");
+        uint256 srcBalance = balanceOf[src];
+        if (srcBalance < wad) revert InsufficientBalance(srcBalance, wad);
 
         // Max-allowance optimization: skip the decrement when the spender holds the
         // sentinel `type(uint256).max` allowance. Matches canonical WETH9 + OZ.
-        if (src != msg.sender && allowance[src][msg.sender] != type(uint256).max) {
-            require(allowance[src][msg.sender] >= wad, "WTEL: allowance");
-            allowance[src][msg.sender] -= wad;
+        if (src != msg.sender) {
+            uint256 allowed = allowance[src][msg.sender];
+            if (allowed != type(uint256).max) {
+                if (allowed < wad) revert InsufficientAllowance(allowed, wad);
+                allowance[src][msg.sender] = allowed - wad;
+            }
         }
 
-        balanceOf[src] -= wad;
+        balanceOf[src] = srcBalance - wad;
         balanceOf[dst] += wad;
 
         emit Transfer(src, dst, wad);

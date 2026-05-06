@@ -105,7 +105,7 @@ contract WTELTest is Test {
         vm.startPrank(alice);
         wtel.deposit{ value: 1 ether }();
 
-        vm.expectRevert(bytes("WTEL: balance"));
+        vm.expectRevert(abi.encodeWithSelector(WTEL.InsufficientBalance.selector, 1 ether, 2 ether));
         wtel.withdraw(2 ether);
         vm.stopPrank();
     }
@@ -117,7 +117,7 @@ contract WTELTest is Test {
         vm.deal(address(rejecter), 5 ether);
         rejecter.depositTo(wtel, 5 ether);
 
-        vm.expectRevert(bytes("WTEL: native send"));
+        vm.expectRevert(WTEL.NativeSendFailed.selector);
         rejecter.withdrawFrom(wtel, 1 ether);
     }
 
@@ -142,7 +142,7 @@ contract WTELTest is Test {
         vm.prank(alice);
         wtel.deposit{ value: 1 ether }();
 
-        vm.expectRevert(bytes("WTEL: balance"));
+        vm.expectRevert(abi.encodeWithSelector(WTEL.InsufficientBalance.selector, 1 ether, 2 ether));
         vm.prank(alice);
         wtel.transfer(bob, 2 ether);
     }
@@ -209,7 +209,7 @@ contract WTELTest is Test {
         wtel.approve(bob, 1 ether);
         vm.stopPrank();
 
-        vm.expectRevert(bytes("WTEL: allowance"));
+        vm.expectRevert(abi.encodeWithSelector(WTEL.InsufficientAllowance.selector, 1 ether, 2 ether));
         vm.prank(bob);
         wtel.transferFrom(alice, carol, 2 ether);
     }
@@ -220,7 +220,7 @@ contract WTELTest is Test {
         wtel.approve(bob, type(uint256).max);
         vm.stopPrank();
 
-        vm.expectRevert(bytes("WTEL: balance"));
+        vm.expectRevert(abi.encodeWithSelector(WTEL.InsufficientBalance.selector, 1 ether, 2 ether));
         vm.prank(bob);
         wtel.transferFrom(alice, carol, 2 ether);
     }

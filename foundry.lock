@@ -24,10 +24,7 @@
     }
   },
   "lib/v4-core": {
-    "tag": {
-      "name": "v4.0.0",
-      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
-    }
+    "rev": "59d3ecf53afa9264a16bba0e38f4c5d2231f80bc"
   },
   "lib/v4-periphery": {
     "rev": "9dafaaecc1e2e1e824eda9d941085f96517d827b"
