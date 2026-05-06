@@ -18,7 +18,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         vm.startStateDiffRecording();
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBlsPubkeys, initialBLSPops, crOwner);
         Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(tempRegistry), records);
         copyContractState(address(tempRegistry), address(consensusRegistry), slots);
@@ -252,6 +252,14 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         }
 
         vm.stopPrank();
+    }
+
+    function testFuzz_setValidatorRegion(uint8 region) public {
+        vm.expectEmit(true, true, true, true);
+        emit IConsensusRegistry.ValidatorRegionUpdated(validator1, region);
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator1, region);
+        assertEq(consensusRegistry.getValidator(validator1).region, region);
     }
 
     function testFuzz_claimStakeRewards(uint24 numValidators, uint24 numRewardees) public {

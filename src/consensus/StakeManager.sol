@@ -199,6 +199,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         _burn(_getTokenId(validatorAddress));
         if (totalSupply() == 0) revert InvalidSupply();
 
+        delete delegations[validatorAddress];
+
         (uint256 bal, uint256 stakeAmt, uint256 rewards) = getBalanceBreakdown(validatorAddress);
         // zero outstanding balance implies burn context, no further action needed- ledgers are already settled
         if (bal == 0) return bal;
@@ -246,6 +248,11 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         uint256 rewards = balance > initialStake ? balance - initialStake : 0;
 
         return rewards;
+    }
+
+    /// @dev Returns whether the given validator has a delegator
+    function _isDelegated(address validatorAddress) internal view returns (bool) {
+        return delegations[validatorAddress].delegator != address(0);
     }
 
     /// @dev Identifies the validator's rewards recipient, ie the stake originator

@@ -26,6 +26,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     ValidatorInfo validatorInfo4;
 
     ValidatorInfo[] initialValidators; // contains validatorInfo1-4
+    bytes[] initialBlsPubkeys;
     BlsG1.ProofOfPossession[] initialBLSPops;
 
     address public sysAddress;
@@ -48,6 +49,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         ConsensusRegistry(
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_),
             _populateInitialValidators(),
+            _populateInitialBlsPubkeys(),
             _populateinitialBLSPops(),
             crOwner
         )
@@ -59,43 +61,39 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     function _populateInitialValidators() internal returns (ValidatorInfo[] memory) {
         // provide initial validator set as the network will launch with at least four validators
         validatorInfo1 = ValidatorInfo(
-            _blsDummyPubkeyFromSecret(1),
             validator1,
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo2 = ValidatorInfo(
-            _blsDummyPubkeyFromSecret(2),
             validator2,
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo3 = ValidatorInfo(
-            _blsDummyPubkeyFromSecret(3),
             validator3,
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         validatorInfo4 = ValidatorInfo(
-            _blsDummyPubkeyFromSecret(4),
             validator4,
             uint32(0),
             uint32(0),
             ValidatorStatus.Active,
             false,
-            false,
+            uint8(0),
             uint8(0)
         );
         initialValidators.push(validatorInfo1);
@@ -104,6 +102,16 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         initialValidators.push(validatorInfo4);
 
         return initialValidators;
+    }
+
+    // convenience fn for constructor
+    function _populateInitialBlsPubkeys() internal returns (bytes[] memory) {
+        initialBlsPubkeys.push(_blsDummyPubkeyFromSecret(1));
+        initialBlsPubkeys.push(_blsDummyPubkeyFromSecret(2));
+        initialBlsPubkeys.push(_blsDummyPubkeyFromSecret(3));
+        initialBlsPubkeys.push(_blsDummyPubkeyFromSecret(4));
+
+        return initialBlsPubkeys;
     }
 
     // convenience fn for constructor

@@ -175,6 +175,56 @@ contract StablecoinManagerTest is Test {
         assertFalse(stablecoinManager.isEnabledXYZ(token1), "token1 should not be enabled after removal");
     }
 
+    function testUpdateXYZDisableClearsBaseline() public {
+        vm.startPrank(maintainer);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
+        assertEq(stablecoinManager.getBaselineMaxDripAmount(token1), 100, "baseline should equal seeded amount");
+
+        vm.expectEmit(true, true, true, true);
+        emit TNFaucet.DripAmountUpdated(token1, 0);
+        stablecoinManager.UpdateXYZ(token1, false, 1000, 1, 0);
+        vm.stopPrank();
+
+        assertEq(
+            stablecoinManager.getBaselineMaxDripAmount(token1),
+            0,
+            "disable should clear baseline slot to 0"
+        );
+    }
+
+    function testReEnableAfterDisableWithSameBaseDripAmountSucceeds() public {
+        // regression: prior to the disable-path reset, re-enabling with the same baseDripAmount
+        // would revert with `SettingAlreadyConfigured` because the slot still held the old value.
+        vm.startPrank(maintainer);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
+        stablecoinManager.UpdateXYZ(token1, false, 1000, 1, 0);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 100);
+        vm.stopPrank();
+
+        assertTrue(stablecoinManager.isEnabledXYZ(token1), "token1 should be re-enabled");
+        assertEq(
+            stablecoinManager.getBaselineMaxDripAmount(token1),
+            100,
+            "baseline should match the re-enable value"
+        );
+    }
+
+    function testDisableSucceedsWhenBaselineWasOneWei() public {
+        // edge case: a token enabled with baseDripAmount=1 must still be disableable.
+        // (Earlier "set to 1 on disable" approach would have made this token undisableable.)
+        vm.startPrank(maintainer);
+        stablecoinManager.UpdateXYZ(token1, true, 1000, 1, 1);
+        stablecoinManager.UpdateXYZ(token1, false, 1000, 1, 0);
+        vm.stopPrank();
+
+        assertFalse(stablecoinManager.isEnabledXYZ(token1), "token1 should be disabled");
+        assertEq(
+            stablecoinManager.getBaselineMaxDripAmount(token1),
+            0,
+            "baseline should be cleared even when prior value was 1"
+        );
+    }
+
     function testFuzzUpdateXYZ(uint8 numTokens, uint8 numRemove) public {
         vm.assume(numTokens >= numRemove);
 
@@ -622,6 +672,97 @@ contract StablecoinManagerTest is Test {
         stablecoinManager.drip(address(currency), 101);
     }
 
+    function testDripRevertsWhenAmountBelowMin() public {
+        address recipient = address(0xbeef);
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        // min = 100 / MIN_DRIP_DIVISOR (10) = 10. Requesting 9 should revert.
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(TNFaucet.RequestedAmountTooLow.selector, 9, 10));
+        stablecoinManager.drip(address(currency), 9);
+    }
+
+    function testDripSucceedsAtMinThreshold() public {
+        address recipient = address(0xbeef);
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.prank(recipient);
+        stablecoinManager.drip(address(currency), 10);
+        assertEq(currency.balanceOf(recipient), 10, "drip at the exact min threshold should succeed");
+    }
+
+    function testDripRevertsOnZeroAmount() public {
+        address recipient = address(0xbeef);
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(TNFaucet.RequestedAmountTooLow.selector, 0, 10));
+        stablecoinManager.drip(address(currency), 0);
+    }
+
+    function testDripRevertsOnZeroAmountWithSubDivisorMax() public {
+        // when effectiveMax < MIN_DRIP_DIVISOR, the floor `maxAmount / 10` rounds to 0; the
+        // explicit `amount == 0` guard must still reject zero-amount drips.
+        address recipient = address(0xbeef);
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.prank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 5);
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(TNFaucet.RequestedAmountTooLow.selector, 0, 0));
+        stablecoinManager.drip(address(currency), 0);
+    }
+
+    function testMinDripUsesPerRecipientAmountOverride() public {
+        // override raises the effective max for `recipient`, which should also raise the floor:
+        // baseline-derived min would be 10, but override-derived min is 50.
+        address recipient = address(0xbeef);
+        Stablecoin currency = new Stablecoin();
+        currency.initialize("0x", "test", 6);
+        currency.grantRole(currency.MINTER_ROLE(), address(stablecoinManager));
+
+        vm.startPrank(maintainer);
+        stablecoinManager.UpdateXYZ(address(currency), true, 1000, 1, 100);
+        stablecoinManager.setMaxDripAmountOverride(recipient, address(currency), 500);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(TNFaucet.RequestedAmountTooLow.selector, 49, 50));
+        stablecoinManager.drip(address(currency), 49);
+
+        vm.prank(recipient);
+        stablecoinManager.drip(address(currency), 50);
+        assertEq(currency.balanceOf(recipient), 50, "drip at override-derived min should succeed");
+    }
+
     function testDripRevertsOnDisabledToken() public {
         vm.warp(block.timestamp + baseDripCooldown);
         vm.prank(address(0xbeef));
@@ -752,6 +893,25 @@ contract StablecoinManagerTest is Test {
             block.timestamp,
             "native drip should record lastFulfilledDripTimestamp"
         );
+    }
+
+    function testNativeCurrencyDripRevertsOnLowLevelCallFailure() public {
+        // forces the TEL precompile call in `_drip` to revert, exercising the
+        // `LowLevelCallFailure` branch on the native path.
+        address recipient = address(0xbeefbabe);
+        bytes memory revertData = bytes("nope");
+
+        vm.mockCallRevert(
+            address(0x7e1),
+            abi.encodeWithSelector(ITELMint.mint.selector, recipient, nativeDripAmount),
+            revertData
+        );
+
+        vm.warp(block.timestamp + baseDripCooldown);
+
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(StablecoinManager.LowLevelCallFailure.selector, revertData));
+        stablecoinManager.drip(NATIVE, nativeDripAmount);
     }
 
     function testDripTo(address funder, address recipient, uint256 fuzzDripAmount) public {

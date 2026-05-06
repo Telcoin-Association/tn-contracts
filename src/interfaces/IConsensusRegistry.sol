@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { RewardInfo, Slash } from "./IStakeManager.sol";
+import {RewardInfo, Slash} from "./IStakeManager.sol";
 
 /**
  * @title ConsensusRegistry Interface
@@ -14,8 +14,6 @@ import { RewardInfo, Slash } from "./IStakeManager.sol";
 interface IConsensusRegistry {
     /// @dev Packed struct storing each validator's onchain info
     struct ValidatorInfo {
-        /// @notice Uncompressed BLS12-381 G2 public key in 256-byte EIP-2537 encoding
-        bytes blsPubkey;
         /// @notice The validator's execution-layer address; doubles as its ConsensusNFT tokenId
         address validatorAddress;
         /// @notice Epoch at which this validator became or will become active
@@ -26,10 +24,10 @@ interface IConsensusRegistry {
         ValidatorStatus currentStatus;
         /// @notice Once true, this validator address can never rejoin the network
         bool isRetired;
-        /// @notice True if a third-party delegator provided this validator's stake
-        bool isDelegated;
         /// @notice Index into the `versions` mapping identifying this validator's StakeConfig
         uint8 stakeVersion;
+        /// @notice The geographic region assigned to the validator by governance (0=unspecified, 1-255 available)
+        uint8 region;
     }
 
     /// @dev Stores each epoch's validator committee and starting block height
@@ -109,10 +107,14 @@ interface IConsensusRegistry {
     /// @notice Emitted at epoch conclusion when a new epoch begins
     /// @param epoch The new epoch's full configuration including committee and block height
     event NewEpoch(EpochInfo epoch);
+    /// @notice Emitted when governance updates a validator's geographic region assignment
+    /// @param validatorAddress The validator whose region was updated
+    /// @param region The new geographic region identifier
+    event ValidatorRegionUpdated(address indexed validatorAddress, uint8 region);
     /// @notice Emitted when a stake originator claims accrued rewards or unstakes
     /// @param claimant The address that received the funds (validator or its delegator)
     /// @param rewards The amount of TEL claimed
-    event RewardsClaimed(address claimant, uint256 rewards);
+    event RewardsClaimed(address indexed claimant, uint256 rewards);
     /// @notice Emitted when a validator's stake version is upgraded in-place
     /// @param validatorAddress The validator whose stake version was upgraded
     /// @param oldVersion The validator's previous stake version
@@ -181,12 +183,17 @@ interface IConsensusRegistry {
     /// @notice Reverts if the exit queue is full, ie if active validator count would drop too low
     function beginExit() external;
 
-    /// @dev Set the internal value for the nextCommitteeSize.
+    /// @notice Sets the GSMA region identifier for a validator. Only callable by governance (owner).
+    /// @param validatorAddress The address of the validator to update
+    /// @param region The GSMA region identifier (uint8; 0=unspecified, 1-8=GSMA regions)
+    function setValidatorRegion(address validatorAddress, uint8 region) external;
+
+    /// @notice Set the internal value for the nextCommitteeSize.
     /// @dev This is managed off-chain and read by the protocol to shuffle n-validators for `concludeEpoch` call.
     /// @notice Reverts if the newSize is larger than the number of active/pending validators.
     function setNextCommitteeSize(uint16 newSize) external;
 
-    /// @dev Returns the next committee size
+    /// @notice Returns the next committee size
     function getNextCommitteeSize() external view returns (uint16);
 
     /// @dev Returns the current epoch
@@ -208,6 +215,14 @@ interface IConsensusRegistry {
     /// @dev Fetches the committee for a given epoch
     function getCommitteeValidators(uint32 epoch) external view returns (ValidatorInfo[] memory);
 
+    /// @dev Fetches the BLS pubkey for a given validator address
+    /// @notice Reverts with `BlsPubkeyNotFound` if no pubkey is stored for `validatorAddress`
+    /// (including the zero-address case)
+    function getBlsPubkey(address validatorAddress) external view returns (bytes memory);
+
+    /// @dev Fetches the BLS pubkeys for the committee of a given epoch
+    function getCommitteeBlsPubkeys(uint32 epoch) external view returns (bytes[] memory);
+
     /// @dev Fetches the `ValidatorInfo` for a given `validatorAddress == ConsensusNFT tokenId`
     function getValidator(address validatorAddress) external view returns (ValidatorInfo memory);
 
@@ -216,16 +231,16 @@ interface IConsensusRegistry {
     /// @return bool True if the validator exists and is not retired, false otherwise
     function isValidator(bytes calldata blsPubkey) external view returns (bool);
 
+    /// @dev Returns whether a validator's stake was delegated (ie has a delegator)
+    function isDelegated(address validatorAddress) external view returns (bool);
+
     /// @dev Returns whether a validator is exited && unstaked, ie "retired"
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
 
     /// @dev Returns the BLS12-381 proof of possession message for given params
     /// @param blsPubkeyUncompressed Must provide the 192-byte uncompressed bls pubkey
-    function proofOfPossessionMessage(
-        bytes calldata blsPubkeyUncompressed,
-        address validatorAddress
-    )
+    function proofOfPossessionMessage(bytes calldata blsPubkeyUncompressed, address validatorAddress)
         external
         view
         returns (bytes memory);

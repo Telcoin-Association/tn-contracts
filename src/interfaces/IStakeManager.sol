@@ -84,6 +84,11 @@ interface IStakeManager {
     error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
     /// @notice Thrown when a low-level ETH transfer to the Issuance contract fails
     error IssuanceTransferFailed();
+    /// @notice Thrown when no BLS public key is stored for the queried validator address
+    /// @dev Covers both the zero-address case and addresses that have never staked
+    /// (or have been burned/retired and had their pubkey state cleared)
+    /// @param validatorAddress The address whose BLS pubkey lookup failed
+    error BlsPubkeyNotFound(address validatorAddress);
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance

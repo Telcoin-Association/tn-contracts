@@ -32,6 +32,14 @@ abstract contract TNFaucet {
     /// @param maxAmount The cap that was effective for this `(recipient, token)` pair.
     error RequestedAmountTooHigh(uint256 requestedAmount, uint256 maxAmount);
 
+    /// @notice Thrown when the requested drip is below the recipient's effective minimum drip
+    ///         amount. Raises the cost of dust-grief on `dripTo` (a third-party caller can still
+    ///         burn the recipient's cooldown, but is forced to mint a non-trivial amount to do
+    ///         so) and rejects zero-amount drips outright.
+    /// @param requestedAmount The amount the caller asked for.
+    /// @param minAmount The minimum that was effective for this `(recipient, token)` pair.
+    error RequestedAmountTooLow(uint256 requestedAmount, uint256 minAmount);
+
     /// @notice Thrown when a setter would be a no-op (the new value equals the existing one).
     error SettingAlreadyConfigured();
 
@@ -221,7 +229,8 @@ abstract contract TNFaucet {
 
     /// @notice Validates a pending drip for `recipient` on `token` for `amount`. Revert paths:
     ///         `RequestIneligibleUntil` (cooldown not elapsed), `RequestedAmountTooHigh` (over
-    ///         cap), or any subclass-specific rejection (e.g. token not enabled).
+    ///         cap), `RequestedAmountTooLow` (under the effective minimum), or any
+    ///         subclass-specific rejection (e.g. token not enabled).
     /// @dev Implementer is expected to handle access control / token enablement checks.
     /// @param recipient The wallet whose eligibility and cap are being checked.
     /// @param token The token to drip (use `NATIVE_TOKEN_POINTER` for native).
@@ -252,10 +261,25 @@ abstract contract TNFaucet {
     function _setMaxDripAmount(address token, uint256 newDripAmount) internal {
         if (newDripAmount == 0) revert InvalidDripAmount(newDripAmount);
         FaucetStorage storage $ = _faucetStorage();
-        if($._baselineMaxDripAmount[token] == newDripAmount) revert SettingAlreadyConfigured();
+        if ($._baselineMaxDripAmount[token] == newDripAmount) revert SettingAlreadyConfigured();
         $._baselineMaxDripAmount[token] = newDripAmount;
 
         emit DripAmountUpdated(token, newDripAmount);
+    }
+
+    /// @notice Internal: clears a token's baseline max drip amount slot, bypassing both the
+    ///         `InvalidDripAmount(0)` and `SettingAlreadyConfigured` guards of
+    ///         `_setMaxDripAmount`. Emits `DripAmountUpdated(token, 0)`.
+    /// @dev Intended for inheriting contracts to call on the disable path of a token's enable/
+    ///      disable lifecycle. Clearing to 0 lets a subsequent re-enable write any baseline
+    ///      (including the prior value) without tripping the no-op guard. Drips against a
+    ///      cleared token are still blocked by the inheriting contract's enablement check
+    ///      before the amount check runs.
+    /// @param token The token whose baseline is being cleared (use `NATIVE_TOKEN_POINTER` for native).
+    function _resetMaxDripAmount(address token) internal {
+        FaucetStorage storage $ = _faucetStorage();
+        delete $._baselineMaxDripAmount[token];
+        emit DripAmountUpdated(token, 0);
     }
 
     /// @notice Internal: writes a per-recipient max-amount override. Reverts on no-op writes.
