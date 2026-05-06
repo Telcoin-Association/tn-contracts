@@ -100,6 +100,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
         safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
         safeOwners.push(0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA);
+        safeOwners.push(0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248);
         safeThreshold = 3;
     }
 
