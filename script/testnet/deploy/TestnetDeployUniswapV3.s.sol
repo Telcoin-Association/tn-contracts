@@ -15,19 +15,15 @@ import { QuoterV2Bytecode } from "external/uniswap/precompiles/v3/QuoterV2.sol";
 import { TickLensBytecode } from "external/uniswap/precompiles/v3/TickLens.sol";
 import { SwapRouter02Bytecode } from "external/uniswap/precompiles/v3/SwapRouter02.sol";
 
-address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1;
-
 /// @title Deploy Uniswap V3 (factory + periphery) on Adiri Testnet
 ///
 /// @notice Mirrors the deploy shape of TestnetDeployUniswapV2.s.sol: pre-compiled
 ///         bytecode literals deployed via Arachnid CREATE2 with addresses written
 ///         back to `deployments/deployments.json`.
 ///
-/// @notice Pools are NOT pre-seeded. Per the V3 / V4 design doc
-///         (`script/testnet/deploy/UNISWAP_V3_V4.md`), liquidity providers
-///         initialize pools on first mint per fee tier through the swap UI.
-///         This contrasts with the V2 deploy script, which proactively
-///         creates 45 pairs.
+/// @notice Pools are NOT pre-seeded. Liquidity providers initialize pools
+///         on first mint per fee tier through the swap UI. This contrasts
+///         with the V2 deploy script, which proactively creates 45 pairs.
 ///
 /// @dev Deploy order:
 ///        1. UniswapV3Factory                          (CREATE2, no constructor args)
@@ -80,18 +76,26 @@ contract TestnetDeployUniswapV3 is
     address tickLens;
 
     // Config
-    address telPrecompile;
+    address wTEL;
     address admin;
 
     // Salts for the deterministic CREATE2 deployer (Arachnid). Each is a unique
     // bytes32 derived from the contract name so re-runs land at the same address.
-    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory"));
-    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor"));
-    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor"));
-    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager"));
-    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02"));
-    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2"));
-    bytes32 tickLensSalt = bytes32(bytes("TickLens"));
+    // _v2 suffix forces fresh CREATE2 destinations so the WTEL-aware redeploy
+    // doesn't collide with the legacy Adiri V3 stack (factory / NFTDescriptor /
+    // TickLens have no WTEL dependency, so without a salt bump they'd hash to
+    // the existing live addresses and CREATE2 would revert on already-occupied
+    // code). The WTEL-dependent contracts get fresh addresses by virtue of
+    // their constructor args changing, but bumping all salts uniformly keeps
+    // the on-chain story coherent: every V3 contract for the new stack lives
+    // at a "_v2" address.
+    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory_v2"));
+    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor_v2"));
+    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor_v2"));
+    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager_v2"));
+    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02_v2"));
+    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2_v2"));
+    bytes32 tickLensSalt = bytes32(bytes("TickLens_v2"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
@@ -100,8 +104,13 @@ contract TestnetDeployUniswapV3 is
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        telPrecompile = TELCOIN_PRECOMPILE;
+        wTEL = deployments.WTEL;
         admin = deployments.admin;
+
+        require(
+            wTEL != address(0),
+            "TestnetDeployUniswapV3: WTEL not deployed; run TestnetDeployWTEL first"
+        );
 
         // V3's SwapRouter02 takes the V2 factory as a constructor arg so a single
         // router can route across both V2 and V3 pools.
@@ -134,13 +143,13 @@ contract TestnetDeployUniswapV3 is
         //    address into the bytecode placeholder before deploying.
         bytes memory descLinked = _linkNFTDescriptor(NONFUNGIBLE_TOKEN_POSITION_DESCRIPTOR_BYTECODE, nftDescriptor);
         bytes memory descInitcode =
-            bytes.concat(descLinked, abi.encode(telPrecompile, NATIVE_CURRENCY_LABEL));
+            bytes.concat(descLinked, abi.encode(wTEL, NATIVE_CURRENCY_LABEL));
         nonfungibleTokenPositionDescriptor = _deployCreate2(arachnid, descSalt, descInitcode);
 
         // 4. NonfungiblePositionManager - constructor args: (factory, wTEL, descriptor).
         bytes memory npmInitcode = bytes.concat(
             NONFUNGIBLE_POSITION_MANAGER_BYTECODE,
-            abi.encode(uniswapV3Factory, telPrecompile, nonfungibleTokenPositionDescriptor)
+            abi.encode(uniswapV3Factory, wTEL, nonfungibleTokenPositionDescriptor)
         );
         nonfungiblePositionManager = _deployCreate2(arachnid, npmSalt, npmInitcode);
 
@@ -151,14 +160,14 @@ contract TestnetDeployUniswapV3 is
                 deployments.uniswapV2.UniswapV2Factory,
                 uniswapV3Factory,
                 nonfungiblePositionManager,
-                telPrecompile
+                wTEL
             )
         );
         swapRouter02 = _deployCreate2(arachnid, swapRouter02Salt, swapRouterInitcode);
 
         // 6. QuoterV2 - constructor args: (factory, wTEL).
         bytes memory quoterInitcode =
-            bytes.concat(QUOTER_V2_BYTECODE, abi.encode(uniswapV3Factory, telPrecompile));
+            bytes.concat(QUOTER_V2_BYTECODE, abi.encode(uniswapV3Factory, wTEL));
         quoterV2 = _deployCreate2(arachnid, quoterV2Salt, quoterInitcode);
 
         // 7. TickLens - no constructor args.

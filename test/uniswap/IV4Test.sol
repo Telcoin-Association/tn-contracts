@@ -2,9 +2,10 @@
 pragma solidity 0.8.26;
 
 // Minimal V4 interface set for fork-test interactions. Hand-rolled because
-// V4 source ships as bytecode literals in this repo (compile-config
-// constraints; see UNISWAP_V3_V4.md). These mirror the canonical V4 ABIs
-// at Uniswap/v4-core (commit 59d3ecf) + Uniswap/v4-periphery (commit 9dafaae).
+// V4 source ships as bytecode literals in this repo (V4 needs via_ir +
+// 44M optimizer-runs which can't be reconciled with this project's pinned
+// solc settings). These mirror the canonical V4 ABIs at Uniswap/v4-core
+// (commit 59d3ecf) + Uniswap/v4-periphery (commit 9dafaae).
 
 /// @notice V4 currency type. The canonical v4-core uses a `Currency` user-defined
 ///         value type wrapping `address`. For test purposes we treat it as address.

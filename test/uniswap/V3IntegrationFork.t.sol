@@ -13,7 +13,7 @@ import { NonfungiblePositionManagerBytecode } from
 import { QuoterV2Bytecode } from "../../external/uniswap/precompiles/v3/QuoterV2.sol";
 import { TickLensBytecode } from "../../external/uniswap/precompiles/v3/TickLens.sol";
 import { SwapRouter02Bytecode } from "../../external/uniswap/precompiles/v3/SwapRouter02.sol";
-import { MockTelMintPrecompile } from "./MockTelMintPrecompile.sol";
+import { WTEL } from "../../src/WTEL.sol";
 import {
     IUniswapV3Factory,
     IUniswapV3Pool,
@@ -24,14 +24,14 @@ import {
 
 /// @title Fork integration test for Uniswap V3 on Adiri
 ///
-/// @notice Forks Adiri at the latest block, etches a `MockTelMintPrecompile`
-///         at the canonical TEL_MINT precompile address (0x07e1) so the
-///         local EVM can dispatch wTEL methods, then runs the same V3
-///         deploy logic the testnet script would execute and exercises
-///         the full LP-create + LP-mint + swap lifecycle. Without the etch,
-///         any wTEL method dispatch would fail because Foundry's fork mode
-///         doesn't replicate Telcoin's chain-specific Go-level precompile
-///         dispatch.
+/// @notice Forks Adiri at the latest block, deploys WTEL + the V3 stack via
+///         Arachnid CREATE2 (mirroring TestnetDeployWTEL + TestnetDeployUniswapV3),
+///         and exercises the full LP-create + LP-mint + swap lifecycle against
+///         the real wrapped-native contract. WTEL is funded by ADMIN's native
+///         balance via `deposit()` so LP / swap flows have wrapped tokens to
+///         move; no precompile-mock etching is needed because every wTEL
+///         interaction now resolves to plain ERC20 calls on the deployed WTEL
+///         contract.
 ///
 /// @dev Run: `forge test --match-contract V3IntegrationFork --fork-url $TN_RPC_URL -vv`
 ///      A live RPC URL is required; the test does not function under unit-test mode.
@@ -46,7 +46,6 @@ contract V3IntegrationFork is
     TickLensBytecode,
     SwapRouter02Bytecode
 {
-    address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1;
     bytes32 constant NATIVE_CURRENCY_LABEL = bytes32("TEL");
     uint256 constant DESC_LIB_LINK_OFFSET = 1681;
 
@@ -79,21 +78,34 @@ contract V3IntegrationFork is
         deployments = abi.decode(data, (Deployments));
 
         eUSD = deployments.eXYZs.eUSD;
-        wTEL = TELCOIN_PRECOMPILE;
 
-        // Etch the mock at 0x07e1 so the local EVM has bytecode to execute
-        // when V3 contracts call IERC20(wTEL).balanceOf / transferFrom / etc.
-        MockTelMintPrecompile mockImpl = new MockTelMintPrecompile();
-        vm.etch(TELCOIN_PRECOMPILE, address(mockImpl).code);
+        // Skip the entire suite when running outside a fork (e.g. CI's default
+        // `forge test` without TN_RPC_URL). Without a fork neither eUSD nor
+        // the Arachnid factory have on-chain code, so every cross-contract
+        // call below would revert with "call to non-contract address". With
+        // a fork URL, eUSD has code and the suite runs as before.
+        if (eUSD.code.length == 0) {
+            vm.skip(true);
+            return;
+        }
 
-        // Deploy V3 contracts via the same Arachnid CREATE2 path the production
-        // deploy script uses. Replicates TestnetDeployUniswapV3.run() inline so
-        // we don't have to deal with the script's vm.writeJson side effect.
+        // Deploy WTEL via Arachnid (or reuse if deployments.WTEL is populated),
+        // then deploy V3 against it. Mirrors TestnetDeployWTEL + TestnetDeployUniswapV3.
+        wTEL = _deployOrReuse(
+            deployments.WTEL,
+            deployments.ArachnidDeterministicDeployFactory,
+            bytes32(bytes("WTEL")),
+            type(WTEL).creationCode
+        );
+
         _deployV3();
 
-        // Fund the admin with native TEL (used as wTEL via the mock) and eUSD.
+        // Fund the admin with native TEL + eUSD, then wrap a chunk so LP / swap
+        // tests have a positive WTEL balance to move.
         vm.deal(ADMIN, 1_000_000 ether);
         deal(eUSD, ADMIN, 1_000_000 * 10 ** IERC20Min(eUSD).decimals());
+        vm.prank(ADMIN);
+        WTEL(payable(wTEL)).deposit{ value: 500_000 ether }();
     }
 
     /// @dev Self-bootstrapping deploy: if the address is already populated in
@@ -109,7 +121,7 @@ contract V3IntegrationFork is
         uniswapV3Factory = _deployOrReuse(
             deployments.uniswapV3.UniswapV3Factory,
             arachnid,
-            bytes32(bytes("UniswapV3Factory")),
+            bytes32(bytes("UniswapV3Factory_v2")),
             UNISWAPV3FACTORY_BYTECODE
         );
 
@@ -117,7 +129,7 @@ contract V3IntegrationFork is
         nftDescriptor = _deployOrReuse(
             deployments.uniswapV3.NFTDescriptor,
             arachnid,
-            bytes32(bytes("NFTDescriptor")),
+            bytes32(bytes("NFTDescriptor_v2")),
             NFTDESCRIPTOR_BYTECODE
         );
 
@@ -127,7 +139,7 @@ contract V3IntegrationFork is
         nonfungibleTokenPositionDescriptor = _deployOrReuse(
             deployments.uniswapV3.NonfungibleTokenPositionDescriptor,
             arachnid,
-            bytes32(bytes("NFTPositionDescriptor")),
+            bytes32(bytes("NFTPositionDescriptor_v2")),
             descInitcode
         );
 
@@ -139,7 +151,7 @@ contract V3IntegrationFork is
         nonfungiblePositionManager = _deployOrReuse(
             deployments.uniswapV3.NonfungiblePositionManager,
             arachnid,
-            bytes32(bytes("NonfungiblePositionManager")),
+            bytes32(bytes("NonfungiblePositionManager_v2")),
             npmInitcode
         );
 
@@ -151,7 +163,7 @@ contract V3IntegrationFork is
         swapRouter02 = _deployOrReuse(
             deployments.uniswapV3.SwapRouter02,
             arachnid,
-            bytes32(bytes("SwapRouter02")),
+            bytes32(bytes("SwapRouter02_v2")),
             swapRouterInitcode
         );
 
@@ -160,7 +172,7 @@ contract V3IntegrationFork is
         quoterV2 = _deployOrReuse(
             deployments.uniswapV3.QuoterV2,
             arachnid,
-            bytes32(bytes("QuoterV2")),
+            bytes32(bytes("QuoterV2_v2")),
             quoterInitcode
         );
 
@@ -168,7 +180,7 @@ contract V3IntegrationFork is
         tickLens = _deployOrReuse(
             deployments.uniswapV3.TickLens,
             arachnid,
-            bytes32(bytes("TickLens")),
+            bytes32(bytes("TickLens_v2")),
             TICK_LENS_BYTECODE
         );
     }

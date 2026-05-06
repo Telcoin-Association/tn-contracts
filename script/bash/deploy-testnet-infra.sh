@@ -96,11 +96,27 @@ else
 fi
 echo ""
 
-# Step 4: Deploy Uniswap V2
-if has_code ".uniswapV2.UniswapV2Factory"; then
-    echo "[Step 4/7] Uniswap V2 already deployed, skipping..."
+# Step 4a: Deploy WTEL (wrapped-native ERC20)
+# Must run before V2 / V3 / V4: those scripts consume deployments.WTEL as the
+# wrapped-native constructor arg (formerly TELCOIN_PRECOMPILE).
+if has_code ".WTEL"; then
+    echo "[Step 4a/7] WTEL already deployed, skipping..."
 else
-    echo "[Step 4/7] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
+    echo "[Step 4a/7] Deploying WTEL..."
+    forge script script/testnet/deploy/TestnetDeployWTEL.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "WTEL deployed successfully"
+fi
+echo ""
+
+# Step 4b: Deploy Uniswap V2
+if has_code ".uniswapV2.UniswapV2Factory"; then
+    echo "[Step 4b/7] Uniswap V2 already deployed, skipping..."
+else
+    echo "[Step 4b/7] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -117,9 +133,9 @@ echo ""
 # defers gracefully (no error, just a console log) when the underlying deploy
 # inputs aren't yet present: each step checks every required bytecode file
 # under external/uniswap/precompiles/v3/ or v4/ for a populated hex literal,
-# and bypasses the deploy if any file is empty.
-# See script/testnet/deploy/UNISWAP_V3_V4.md for the design + the bytecode
-# refresh recipe.
+# and bypasses the deploy if any file is empty. See the bytecode refresh
+# recipes in script/bash/fetch-uniswap-v3-bytecode.sh and
+# script/bash/fetch-uniswap-v4-bytecode.sh.
 
 # Step 5: Deploy Uniswap V3
 # All V3 contracts ship as bytecode literals. Gate checks each file has a

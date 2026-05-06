@@ -17,6 +17,7 @@ struct Deployments {
     address StakeManager;
     address TANIssuanceHistory;
     address TANIssuancePlugin;
+    address WTEL;
     address WorkerConfigs;
     address admin;
     EXYZs eXYZs;
@@ -68,8 +69,6 @@ struct EXYZs {
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 struct UniswapV2 {
-    address TEL_eEUR_Pool;
-    address TEL_eUSD_Pool;
     address UniswapV2Factory;
     address UniswapV2Router02;
     address eEUR_eAUD_Pool;
@@ -116,11 +115,9 @@ struct UniswapV2 {
     address eUSD_eTRY_Pool;
     address eUSD_eZAR_Pool;
     /// @notice wTEL pool entries. Listed after the eXxx_* fields because lex
-    ///         order on uppercase 'w' vs lowercase 'e' has 'w' (0x77) > 'e' (0x65).
-    ///         These were already present in deployments.json from the V2 deploy
-    ///         but were missing from the struct, causing a 2-field misalignment
-    ///         in abi.decode that shifted reads of uniswapV3 and uniswapV4
-    ///         downstream and produced false "already deployed" idempotency hits.
+    ///         order on lowercase 'w' (0x77) > 'e' (0x65). Deployed by
+    ///         TestnetDeployUniswapV2 against the WTEL contract (not the
+    ///         legacy TEL precompile address).
     address wTEL_eEUR_Pool;
     address wTEL_eUSD_Pool;
 }
@@ -144,8 +141,8 @@ struct UniswapV3 {
     address SwapRouter02;
     /// @notice Pagination helper for tick liquidity reads.
     address TickLens;
-    /// @notice V3 pool factory. Pools are not pre-seeded (see script/testnet/deploy/UNISWAP_V3_V4.md);
-    ///         liquidity providers initialize pools on first mint per fee tier.
+    /// @notice V3 pool factory. Pools are not pre-seeded; liquidity providers
+    ///         initialize pools on first mint per fee tier through the swap UI.
     address UniswapV3Factory;
 }
 
@@ -174,4 +171,9 @@ struct UniswapV4 {
     /// @notice Off-chain quote helper (v4-periphery `src/lens/V4Quoter.sol`). Mirrors
     ///         V3's QuoterV2 role for the V4 price-impact / amount-out preview.
     address V4Quoter;
+    /// @notice Mediator that lets EOAs call V4 swap. Implements PoolManager's
+    ///         IUnlockCallback and exposes a V3-SwapRouter02-shaped
+    ///         `exactInputSingle` so the swap UI can keep one ABI across
+    ///         V2 / V3 / V4. Constructor-pinned to `PoolManager`.
+    address V4SwapHelper;
 }

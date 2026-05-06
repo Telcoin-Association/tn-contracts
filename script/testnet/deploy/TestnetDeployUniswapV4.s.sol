@@ -11,8 +11,8 @@ import { PositionDescriptorBytecode } from "external/uniswap/precompiles/v4/Posi
 import { PositionManagerBytecode } from "external/uniswap/precompiles/v4/PositionManager.sol";
 import { V4QuoterBytecode } from "external/uniswap/precompiles/v4/V4Quoter.sol";
 import { StateViewBytecode } from "external/uniswap/precompiles/v4/StateView.sol";
-
-address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1;
+import { V4SwapHelper } from "../../../src/uniswap/V4SwapHelper.sol";
+import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 
 /// @title Deploy Uniswap V4 (Permit2 + PoolManager + periphery) on Adiri Testnet
 ///
@@ -38,11 +38,9 @@ address constant TELCOIN_PRECOMPILE = 0x00000000000000000000000000000000000007E1
 ///         problem entirely while preserving canonical Uniswap mainnet
 ///         release behavior.
 ///
-/// @notice Pools are NOT pre-seeded. Per the V3 / V4 design doc
-///         (script/testnet/deploy/UNISWAP_V3_V4.md), liquidity providers
-///         initialize V4 pools by calling
-///         PoolManager.initialize(PoolKey, sqrtPriceX96) and then minting
-///         their first position via PositionManager.
+/// @notice Pools are NOT pre-seeded. Liquidity providers initialize V4 pools
+///         by calling PoolManager.initialize(PoolKey, sqrtPriceX96) and then
+///         minting their first position via PositionManager.
 ///
 /// @dev Deploy order:
 ///        1. Permit2                                   (Arachnid CREATE2 + canonical salt; skip if at canonical address)
@@ -83,18 +81,25 @@ contract TestnetDeployUniswapV4 is
     address positionManager;
     address v4Quoter;
     address stateView;
+    address v4SwapHelper;
 
     // Config
-    address telPrecompile;
+    address wTEL;
     address admin;
 
     // Salts for Arachnid CREATE2. Each is a unique bytes32 derived from the
-    // contract name so re-runs land at the same address.
-    bytes32 poolManagerSalt = bytes32(bytes("PoolManager"));
-    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor"));
-    bytes32 positionManagerSalt = bytes32(bytes("PositionManager"));
-    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter"));
-    bytes32 stateViewSalt = bytes32(bytes("StateView"));
+    // contract name so re-runs land at the same address. _v2 suffix forces
+    // fresh CREATE2 destinations so the WTEL-aware redeploy doesn't collide
+    // with the legacy Adiri V4 stack (PoolManager / V4Quoter / StateView have
+    // no WTEL dependency in their constructors, so without a salt bump they'd
+    // hash to the existing live addresses and CREATE2 would revert on
+    // already-occupied code).
+    bytes32 poolManagerSalt = bytes32(bytes("PoolManager_v2"));
+    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor_v2"));
+    bytes32 positionManagerSalt = bytes32(bytes("PositionManager_v2"));
+    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter_v2"));
+    bytes32 stateViewSalt = bytes32(bytes("StateView_v2"));
+    bytes32 v4SwapHelperSalt = bytes32(bytes("V4SwapHelper_v2"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
@@ -103,8 +108,13 @@ contract TestnetDeployUniswapV4 is
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
 
-        telPrecompile = TELCOIN_PRECOMPILE;
+        wTEL = deployments.WTEL;
         admin = deployments.admin;
+
+        require(
+            wTEL != address(0),
+            "TestnetDeployUniswapV4: WTEL not deployed; run TestnetDeployWTEL first"
+        );
 
         // V4 surface here (PoolManager, PositionManager, V4Quoter, StateView)
         // is independent of V2 and V3. Once a canonical V4-aware
@@ -113,8 +123,16 @@ contract TestnetDeployUniswapV4 is
     }
 
     function run() public {
-        // Idempotency: skip if already deployed.
+        // Idempotency: if PoolManager is deployed, the V4 core stack is already
+        // live. Late-added contracts (e.g. V4SwapHelper, introduced after the
+        // initial V4 deploy) still need to land on the chain - run those
+        // standalone instead of skipping the whole script.
         if (deployments.uniswapV4.PoolManager != address(0)) {
+            if (deployments.uniswapV4.V4SwapHelper == address(0)) {
+                console2.log("V4 core already deployed; running V4SwapHelper-only deploy");
+                _deployV4SwapHelperOnly();
+                return;
+            }
             console2.log("Uniswap V4 already deployed; PoolManager:", deployments.uniswapV4.PoolManager);
             return;
         }
@@ -149,7 +167,7 @@ contract TestnetDeployUniswapV4 is
 
         // 3. PositionDescriptor - constructor: (poolManager, wTEL, native label).
         bytes memory descInitcode = bytes.concat(
-            POSITION_DESCRIPTOR_BYTECODE, abi.encode(poolManager, telPrecompile, NATIVE_CURRENCY_LABEL)
+            POSITION_DESCRIPTOR_BYTECODE, abi.encode(poolManager, wTEL, NATIVE_CURRENCY_LABEL)
         );
         positionDescriptor = _create2(arachnid, positionDescriptorSalt, descInitcode);
 
@@ -157,7 +175,7 @@ contract TestnetDeployUniswapV4 is
         //    (poolManager, permit2, unsubscribeGasLimit, descriptor, weth9).
         bytes memory posmInitcode = bytes.concat(
             POSITION_MANAGER_BYTECODE,
-            abi.encode(poolManager, permit2, UNSUBSCRIBE_GAS_LIMIT, positionDescriptor, telPrecompile)
+            abi.encode(poolManager, permit2, UNSUBSCRIBE_GAS_LIMIT, positionDescriptor, wTEL)
         );
         positionManager = _create2(arachnid, positionManagerSalt, posmInitcode);
 
@@ -169,6 +187,15 @@ contract TestnetDeployUniswapV4 is
         bytes memory stateViewInitcode = bytes.concat(STATE_VIEW_BYTECODE, abi.encode(poolManager));
         stateView = _create2(arachnid, stateViewSalt, stateViewInitcode);
 
+        // 7. V4SwapHelper - mediator that lets EOAs call V4 swap. Compiled in-project
+        //    (its v4-core deps are interface / value-type / TickMath / SafeCast only,
+        //    none of which require via_ir), so we use type(...).creationCode rather
+        //    than a hex-literal bytecode dependency.
+        bytes memory helperInitcode = bytes.concat(
+            type(V4SwapHelper).creationCode, abi.encode(IPoolManager(poolManager))
+        );
+        v4SwapHelper = _create2(arachnid, v4SwapHelperSalt, helperInitcode);
+
         vm.stopBroadcast();
 
         // Sanity assertions before writing back.
@@ -178,8 +205,32 @@ contract TestnetDeployUniswapV4 is
         assert(positionManager.code.length != 0);
         assert(v4Quoter.code.length != 0);
         assert(stateView.code.length != 0);
+        assert(v4SwapHelper.code.length != 0);
 
         _writeDeployments();
+    }
+
+    /// @dev Deploys only V4SwapHelper using the already-on-chain PoolManager
+    ///      address. Used when re-running this script against a chain that
+    ///      already has the original V4 core deployed but predates the helper.
+    function _deployV4SwapHelperOnly() internal {
+        vm.startBroadcast();
+        bytes memory helperInitcode = bytes.concat(
+            type(V4SwapHelper).creationCode,
+            abi.encode(IPoolManager(deployments.uniswapV4.PoolManager))
+        );
+        v4SwapHelper = _create2(
+            deployments.ArachnidDeterministicDeployFactory, v4SwapHelperSalt, helperInitcode
+        );
+        vm.stopBroadcast();
+
+        assert(v4SwapHelper.code.length != 0);
+
+        string memory root = vm.projectRoot();
+        string memory dest = string.concat(root, "/deployments/deployments.json");
+        vm.writeJson(_addrStr(v4SwapHelper), dest, ".uniswapV4.V4SwapHelper");
+
+        console2.log("V4SwapHelper deployed at:", v4SwapHelper);
     }
 
     /// @dev Deploys arbitrary initcode through Arachnid's deterministic deployer.
@@ -200,6 +251,7 @@ contract TestnetDeployUniswapV4 is
         vm.writeJson(_addrStr(positionManager), dest, ".uniswapV4.PositionManager");
         vm.writeJson(_addrStr(stateView), dest, ".uniswapV4.StateView");
         vm.writeJson(_addrStr(v4Quoter), dest, ".uniswapV4.V4Quoter");
+        vm.writeJson(_addrStr(v4SwapHelper), dest, ".uniswapV4.V4SwapHelper");
     }
 
     function _addrStr(address a) internal pure returns (string memory) {

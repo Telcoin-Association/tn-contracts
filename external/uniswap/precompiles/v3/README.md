@@ -72,5 +72,3 @@ and lights up automatically when the bytecode files land.
 
 - `external/uniswap/precompiles/UniswapV2FactoryBytecode.sol` and
   `UniswapV2Router02Bytecode.sol` are the format template; mirror them.
-- See `script/testnet/deploy/UNISWAP_V3_V4.md` for the broader deploy strategy
-  and the collision-avoidance plan with the in-flight faucet branch.
