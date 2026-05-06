@@ -31,6 +31,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     mapping(bytes32 => address) private blsPubkeyHashToValidator;
     EpochInfo[4] public epochInfo;
     EpochInfo[4] public futureEpochInfo;
+    mapping(address => bytes) private blsPubkeys;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
@@ -208,6 +209,24 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         return committeeValidators;
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function getBlsPubkey(address validatorAddress) public view returns (bytes memory) {
+        bytes memory pubkey = blsPubkeys[validatorAddress];
+        if (pubkey.length == 0) revert BlsPubkeyNotFound(validatorAddress);
+        return pubkey;
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function getCommitteeBlsPubkeys(uint32 epoch) public view returns (bytes[] memory) {
+        address[] memory committee = getEpochInfo(epoch).committee;
+        bytes[] memory pubkeys = new bytes[](committee.length);
+        for (uint256 i; i < pubkeys.length; ++i) {
+            pubkeys[i] = blsPubkeys[committee[i]];
+        }
+
+        return pubkeys;
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -611,13 +630,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
-    function _spendBLSPubkey(
-        bytes memory blsPubkey,
-        address validatorAddress
-    )
-        private
-        returns (bytes32 blsPubkeyHash)
-    {
+    function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
         blsPubkeyHash = keccak256(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
@@ -636,9 +649,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         internal
     {
         ValidatorInfo memory newValidator = ValidatorInfo(
-            blsPubkey, validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, stakeVersion, uint8(0)
+            validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Staked, false, stakeVersion, uint8(0)
         );
         validators[validatorAddress] = newValidator;
+        blsPubkeys[validatorAddress] = blsPubkey;
         balances[validatorAddress] = stakeAmt;
 
         emit ValidatorStaked(newValidator);
@@ -888,14 +902,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(
-        address validatorAddress,
-        address[] memory committee
-    )
-        internal
-        pure
-        returns (bool)
-    {
+    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
         // cache len to memory
         uint256 committeeLen = committee.length;
         for (uint256 i; i < committeeLen; ++i) {
@@ -998,13 +1005,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     constructor(
         StakeConfig memory genesisConfig_,
         ValidatorInfo[] memory initialValidators_,
+        bytes[] memory blsPubkeys_,
         BlsG1.ProofOfPossession[] memory proofsOfPossession,
         address owner_
     )
         Ownable(owner_)
         StakeManager("ConsensusNFT", "CNFT")
     {
-        if (initialValidators_.length == 0 || initialValidators_.length != proofsOfPossession.length) {
+        if (
+            initialValidators_.length == 0 || initialValidators_.length != blsPubkeys_.length
+                || initialValidators_.length != proofsOfPossession.length
+        ) {
             revert GenesisArityMismatch();
         }
 
@@ -1031,9 +1042,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // set initial validators
         for (uint256 i; i < initialValidators_.length; ++i) {
             ValidatorInfo memory currentValidator = initialValidators_[i];
-            bytes32 blsPubkeyHash = _verifyProofOfPossession(
-                proofsOfPossession[i], currentValidator.validatorAddress, currentValidator.blsPubkey
-            );
+            bytes32 blsPubkeyHash =
+                _verifyProofOfPossession(proofsOfPossession[i], currentValidator.validatorAddress, blsPubkeys_[i]);
 
             // assert `validatorIndex` struct members match expected value
             if (currentValidator.validatorAddress == address(0x0)) {
@@ -1061,6 +1071,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 futureEpochInfo[j].committee.push(currentValidator.validatorAddress);
             }
 
+            blsPubkeys[currentValidator.validatorAddress] = blsPubkeys_[i];
             validators[currentValidator.validatorAddress] = currentValidator;
             balances[currentValidator.validatorAddress] = genesisConfig_.stakeAmount;
             blsPubkeyHashToValidator[blsPubkeyHash] = currentValidator.validatorAddress;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { RewardInfo, Slash } from "./IStakeManager.sol";
+import {RewardInfo, Slash} from "./IStakeManager.sol";
 
 /**
  * @title ConsensusRegistry Interface
@@ -14,8 +14,6 @@ import { RewardInfo, Slash } from "./IStakeManager.sol";
 interface IConsensusRegistry {
     /// @dev Packed struct storing each validator's onchain info
     struct ValidatorInfo {
-        /// @notice Uncompressed BLS12-381 G2 public key in 256-byte EIP-2537 encoding
-        bytes blsPubkey;
         /// @notice The validator's execution-layer address; doubles as its ConsensusNFT tokenId
         address validatorAddress;
         /// @notice Epoch at which this validator became or will become active
@@ -217,6 +215,14 @@ interface IConsensusRegistry {
     /// @dev Fetches the committee for a given epoch
     function getCommitteeValidators(uint32 epoch) external view returns (ValidatorInfo[] memory);
 
+    /// @dev Fetches the BLS pubkey for a given validator address
+    /// @notice Reverts with `BlsPubkeyNotFound` if no pubkey is stored for `validatorAddress`
+    /// (including the zero-address case)
+    function getBlsPubkey(address validatorAddress) external view returns (bytes memory);
+
+    /// @dev Fetches the BLS pubkeys for the committee of a given epoch
+    function getCommitteeBlsPubkeys(uint32 epoch) external view returns (bytes[] memory);
+
     /// @dev Fetches the `ValidatorInfo` for a given `validatorAddress == ConsensusNFT tokenId`
     function getValidator(address validatorAddress) external view returns (ValidatorInfo memory);
 
@@ -234,10 +240,7 @@ interface IConsensusRegistry {
 
     /// @dev Returns the BLS12-381 proof of possession message for given params
     /// @param blsPubkeyUncompressed Must provide the 192-byte uncompressed bls pubkey
-    function proofOfPossessionMessage(
-        bytes calldata blsPubkeyUncompressed,
-        address validatorAddress
-    )
+    function proofOfPossessionMessage(bytes calldata blsPubkeyUncompressed, address validatorAddress)
         external
         view
         returns (bytes memory);

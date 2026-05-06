@@ -18,7 +18,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         vm.startStateDiffRecording();
         StakeConfig memory stakeConfig_ = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
-        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBLSPops, crOwner);
+        ConsensusRegistry tempRegistry = new ConsensusRegistry(stakeConfig_, initialValidators, initialBlsPubkeys, initialBLSPops, crOwner);
         Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(tempRegistry), records);
         copyContractState(address(tempRegistry), address(consensusRegistry), slots);
