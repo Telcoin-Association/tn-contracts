@@ -216,6 +216,8 @@ interface IConsensusRegistry {
     function getCommitteeValidators(uint32 epoch) external view returns (ValidatorInfo[] memory);
 
     /// @dev Fetches the BLS pubkey for a given validator address
+    /// @notice Reverts with `BlsPubkeyNotFound` if no pubkey is stored for `validatorAddress`
+    /// (including the zero-address case)
     function getBlsPubkey(address validatorAddress) external view returns (bytes memory);
 
     /// @dev Fetches the BLS pubkeys for the committee of a given epoch

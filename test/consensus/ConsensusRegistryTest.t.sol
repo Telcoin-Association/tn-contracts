@@ -71,6 +71,17 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.stakeConfig(0).minWithdrawAmount, minWithdrawAmount_);
     }
 
+    function test_getBlsPubkey_revertsForZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.BlsPubkeyNotFound.selector, address(0)));
+        consensusRegistry.getBlsPubkey(address(0));
+    }
+
+    function test_getBlsPubkey_revertsForUnregisteredAddress() public {
+        address unknown = address(0xdead);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.BlsPubkeyNotFound.selector, unknown));
+        consensusRegistry.getBlsPubkey(unknown);
+    }
+
     function test_setValidatorRegion() public {
         // region defaults to 0
         ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
