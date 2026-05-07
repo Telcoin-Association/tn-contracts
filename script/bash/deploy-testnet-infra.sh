@@ -56,9 +56,9 @@ echo ""
 
 # Step 1: Deploy Stablecoin Tokens
 if has_code ".StablecoinImpl"; then
-    echo "[Step 1/5] Stablecoin Tokens already deployed, skipping..."
+    echo "[Step 1/8] Stablecoin Tokens already deployed, skipping..."
 else
-    echo "[Step 1/5] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
+    echo "[Step 1/8] Deploying Stablecoin Tokens (23 eXYZ tokens)..."
     forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -70,9 +70,9 @@ echo ""
 
 # Step 2: Deploy StablecoinManager (Faucet)
 if has_code ".StablecoinManager"; then
-    echo "[Step 2/5] StablecoinManager already deployed, skipping..."
+    echo "[Step 2/8] StablecoinManager already deployed, skipping..."
 else
-    echo "[Step 2/5] Deploying StablecoinManager..."
+    echo "[Step 2/8] Deploying StablecoinManager..."
     forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -84,9 +84,9 @@ echo ""
 
 # Step 3: Deploy GitAttestationRegistry
 if has_code ".GitAttestationRegistry"; then
-    echo "[Step 3/5] GitAttestationRegistry already deployed, skipping..."
+    echo "[Step 3/8] GitAttestationRegistry already deployed, skipping..."
 else
-    echo "[Step 3/5] Deploying GitAttestationRegistry..."
+    echo "[Step 3/8] Deploying GitAttestationRegistry..."
     forge script script/testnet/deploy/TestnetDeployGitAttestationRegistry.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -96,11 +96,27 @@ else
 fi
 echo ""
 
-# Step 4: Deploy Uniswap V2
-if has_code ".uniswapV2.UniswapV2Factory"; then
-    echo "[Step 4/5] Uniswap V2 already deployed, skipping..."
+# Step 4: Deploy WTEL (wrapped-native ERC20)
+# Must run before V2 / V3 / V4: those scripts consume deployments.WTEL as the
+# wrapped-native constructor arg.
+if has_code ".WTEL"; then
+    echo "[Step 4/8] WTEL already deployed, skipping..."
 else
-    echo "[Step 4/5] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
+    echo "[Step 4/8] Deploying WTEL..."
+    forge script script/testnet/deploy/TestnetDeployWTEL.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "WTEL deployed successfully"
+fi
+echo ""
+
+# Step 5: Deploy Uniswap V2
+if has_code ".uniswapV2.UniswapV2Factory"; then
+    echo "[Step 5/8] Uniswap V2 already deployed, skipping..."
+else
+    echo "[Step 5/8] Deploying Uniswap V2 (Factory, Router, and 45 pools)..."
     forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol \
         --rpc-url "$TN_RPC_URL" \
         -vvvv \
@@ -110,8 +126,60 @@ else
 fi
 echo ""
 
-# Step 5: Grant Roles to Faucet Addresses (idempotent, always run)
-echo "[Step 5/5] Granting roles to faucet addresses..."
+# Step 6: Deploy Uniswap V3
+# All V3 contracts ship as bytecode literals. Gate checks each file has a
+# populated hex literal (rather than just file presence, since the README
+# also lives in this directory). See script/bash/fetch-uniswap-v3-bytecode.sh
+# for the bytecode refresh recipe.
+if has_code ".uniswapV3.UniswapV3Factory"; then
+    echo "[Step 6/8] Uniswap V3 already deployed, skipping..."
+elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/UniswapV3Factory.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NFTDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NonfungibleTokenPositionDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/NonfungiblePositionManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/SwapRouter02.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/QuoterV2.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v3/TickLens.sol; then
+    echo "[Step 6/8] Uniswap V3 bytecode unpopulated, deferring..."
+    echo "          See script/bash/fetch-uniswap-v3-bytecode.sh to populate."
+else
+    echo "[Step 6/8] Deploying Uniswap V3 (Factory + periphery, no pools)..."
+    forge script script/testnet/deploy/TestnetDeployUniswapV3.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "Uniswap V3 deployed successfully"
+fi
+echo ""
+
+# Step 7: Deploy Uniswap V4
+# All V4 contracts ship as bytecode literals (same shape as V2 / V3 / Permit2).
+# The gate checks each bytecode file has a populated hex literal. See
+# script/bash/fetch-uniswap-v4-bytecode.sh for the bytecode refresh recipe.
+if has_code ".uniswapV4.PoolManager"; then
+    echo "[Step 7/8] Uniswap V4 already deployed, skipping..."
+elif ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/Permit2Bytecode.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PoolManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PositionManager.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/PositionDescriptor.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/V4Quoter.sol \
+   || ! grep -qE 'hex"[0-9a-fA-F]+"' external/uniswap/precompiles/v4/StateView.sol; then
+    echo "[Step 7/8] Uniswap V4 bytecode unpopulated, deferring..."
+    echo "          See script/bash/fetch-uniswap-v4-bytecode.sh to populate."
+else
+    echo "[Step 7/8] Deploying Uniswap V4 (Permit2 + PoolManager + periphery)..."
+    forge script script/testnet/deploy/TestnetDeployUniswapV4.s.sol \
+        --rpc-url "$TN_RPC_URL" \
+        -vvvv \
+        --private-key "$ADMIN_PK" \
+        --broadcast
+    echo "Uniswap V4 deployed successfully"
+fi
+echo ""
+
+# Step 8: Grant Roles to Faucet Addresses (idempotent, always run)
+echo "[Step 8/8] Granting roles to faucet addresses..."
 forge script script/testnet/TestnetGrantRole.s.sol \
     --rpc-url "$TN_RPC_URL" \
     -vvvv \

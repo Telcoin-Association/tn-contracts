@@ -97,13 +97,13 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     }
 
     function _setGovernanceSafeConfig() internal {
-        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
-        safeOwners.push(0x84B0fc1Bb26212a1BfFb48F03B010FDA4aDCe3c9);
-        safeOwners.push(0x707856C0089Fd59d9e686A47784d5DAd7c0784c4);
-        safeOwners.push(0xfeCeE4Ab07127fFf4EE4a3BA61dF5fD7B906F84C);
-        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
-        safeOwners.push(0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA);
-        safeOwners.push(0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248);
+        safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65); // l
+        safeOwners.push(0x389C4bd707FAb237578A9603F55A02554CAa034b); // s
+        safeOwners.push(0xDE5346d15Dc5e0D7b3bE7feFF5d96f548c321e88); // g
+        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538); // p
+        safeOwners.push(0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA); // c
+        safeOwners.push(0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248); // no
+        safeOwners.push(0x5b9e70501a845FA8105B2f8228a0d243A98d97Fc); // ni
         safeThreshold = 3;
     }
 
