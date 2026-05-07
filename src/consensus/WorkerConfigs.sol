@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {IWorkerConfigs} from "../interfaces/IWorkerConfigs.sol";
 
 /// @title WorkerConfigs
 /// @notice Strategy-agnostic per-worker fee config store.
@@ -33,9 +33,12 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
     /// @notice Per-worker fee config.
     /// @dev strategy is a raw uint8 used by the protocol to map strategies.
+    /// @dev value is a raw uint64 used by the strategy ("target gas" for EIP1559, "falt fee" for static, etc).
+    /// @dev data is reserved space for packing data for the protocol.
     struct WorkerConfig {
         uint8 strategy;
         uint64 value;
+        uint128 data;
     }
 
     /// @notice Per-worker config storage.
@@ -60,7 +63,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
         for (uint256 i; i < count; i++) {
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
-            _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i] });
+            _workerConfigs[i] = WorkerConfig({strategy: strategies[i], value: values[i]});
             _workerConfigSet[i] = true;
             emit WorkerConfigUpdated(uint16(i), strategies[i], values[i]);
         }
@@ -84,24 +87,20 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @inheritdoc IWorkerConfigs
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external onlyOwner {
         if (strategy > MAX_STRATEGY) revert InvalidStrategy(strategy);
-        _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value });
+        _workerConfigs[workerId] = WorkerConfig({strategy: strategy, value: value});
         _workerConfigSet[workerId] = true;
         emit WorkerConfigUpdated(workerId, strategy, value);
     }
 
     /// @inheritdoc IWorkerConfigs
-    function setWorkerConfigsBatch(
-        uint16[] calldata workerIds,
-        uint8[] calldata strategies,
-        uint64[] calldata values
-    )
+    function setWorkerConfigsBatch(uint16[] calldata workerIds, uint8[] calldata strategies, uint64[] calldata values)
         external
         onlyOwner
     {
         if (workerIds.length != strategies.length || workerIds.length != values.length) revert LengthMismatch();
         for (uint256 i; i < workerIds.length; i++) {
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
-            _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i] });
+            _workerConfigs[workerIds[i]] = WorkerConfig({strategy: strategies[i], value: values[i]});
             _workerConfigSet[workerIds[i]] = true;
             emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i]);
         }
