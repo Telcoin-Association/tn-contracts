@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.26;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import {IWorkerConfigs} from "../interfaces/IWorkerConfigs.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 
 /// @title WorkerConfigs
 /// @notice Strategy-agnostic per-worker fee config store.
@@ -17,12 +17,6 @@ import {IWorkerConfigs} from "../interfaces/IWorkerConfigs.sol";
 /// build the per-worker fee parameters for the upcoming epoch. The contract
 /// therefore acts as the on-chain source of truth for worker fee policy.
 contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
-    /// @notice Absolute minimum gas value any worker config may hold.
-    /// @dev Retained at `0` for ABI continuity. The contract no longer rejects
-    ///      values below a positive floor; coverage is tracked via
-    ///      `_workerConfigSet` instead.
-    uint64 public constant MIN_GAS = 0;
-
     /// @notice Highest strategy id this contract accepts.
     /// @dev Must move in lockstep with the `WorkerFeeConfig` enum in
     ///      `tn-types::gas_accumulator` (0 = EIP-1559, 1 = Static).
@@ -72,8 +66,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
         for (uint256 i; i < count; i++) {
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
-            _workerConfigs[i] =
-                WorkerConfig({strategy: strategies[i], value: values[i], data: datas[i]});
+            _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i], data: datas[i] });
             _workerConfigSet[i] = true;
             emit WorkerConfigUpdated(uint16(i), strategies[i], values[i], datas[i]);
         }
@@ -95,12 +88,9 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     }
 
     /// @inheritdoc IWorkerConfigs
-    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint128 data)
-        external
-        onlyOwner
-    {
+    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint128 data) external onlyOwner {
         if (strategy > MAX_STRATEGY) revert InvalidStrategy(strategy);
-        _workerConfigs[workerId] = WorkerConfig({strategy: strategy, value: value, data: data});
+        _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value, data: data });
         _workerConfigSet[workerId] = true;
         emit WorkerConfigUpdated(workerId, strategy, value, data);
     }
@@ -123,19 +113,14 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         }
         for (uint256 i; i < workerIds.length; i++) {
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
-            _workerConfigs[workerIds[i]] =
-                WorkerConfig({strategy: strategies[i], value: values[i], data: datas[i]});
+            _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i], data: datas[i] });
             _workerConfigSet[workerIds[i]] = true;
             emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i], datas[i]);
         }
     }
 
     /// @inheritdoc IWorkerConfigs
-    function getWorkerConfig(uint16 workerId)
-        external
-        view
-        returns (uint8 strategy, uint64 value, uint128 data)
-    {
+    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint128 data) {
         WorkerConfig storage c = _workerConfigs[workerId];
         return (c.strategy, c.value, c.data);
     }
@@ -144,12 +129,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     function getAllWorkerConfigs()
         external
         view
-        returns (
-            uint16 count,
-            uint8[] memory strategies_,
-            uint64[] memory values_,
-            uint128[] memory datas_
-        )
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint128[] memory datas_)
     {
         count = numWorkers;
         strategies_ = new uint8[](count);

@@ -2,10 +2,10 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import {WorkerConfigs} from "src/consensus/WorkerConfigs.sol";
-import {IWorkerConfigs} from "src/interfaces/IWorkerConfigs.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import { WorkerConfigs } from "src/consensus/WorkerConfigs.sol";
+import { IWorkerConfigs } from "src/interfaces/IWorkerConfigs.sol";
 
 contract WorkerConfigsTest is Test {
     WorkerConfigs public wc;
@@ -50,16 +50,22 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](3);
         uint64[] memory v = new uint64[](3);
         uint128[] memory d = new uint128[](3);
-        s[0] = 0; v[0] = 100; d[0] = 0;
-        s[1] = 1; v[1] = 200; d[1] = type(uint128).max;
-        s[2] = 1; v[2] = 7;   d[2] = 0xdeadbeef;
+        s[0] = 0;
+        v[0] = 100;
+        d[0] = 0;
+        s[1] = 1;
+        v[1] = 200;
+        d[1] = type(uint128).max;
+        s[2] = 1;
+        v[2] = 7;
+        d[2] = 0xdeadbeef;
         WorkerConfigs multi = new WorkerConfigs(s, v, d, owner);
         assertEq(multi.numWorkers(), 3);
         (uint8 s2, uint64 v2, uint128 d2) = multi.getWorkerConfig(2);
         assertEq(s2, 1);
         assertEq(v2, 7);
         assertEq(d2, 0xdeadbeef);
-        (, , uint128 d1) = multi.getWorkerConfig(1);
+        (,, uint128 d1) = multi.getWorkerConfig(1);
         assertEq(d1, type(uint128).max);
     }
 
@@ -67,9 +73,11 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](1);
         uint128[] memory d = new uint128[](2);
-        s[0] = 0; s[1] = 0;
+        s[0] = 0;
+        s[1] = 0;
         v[0] = 100;
-        d[0] = 0; d[1] = 0;
+        d[0] = 0;
+        d[1] = 0;
         vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.LengthMismatch.selector));
         new WorkerConfigs(s, v, d, owner);
     }
@@ -78,8 +86,10 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](1);
-        s[0] = 0; s[1] = 0;
-        v[0] = 100; v[1] = 200;
+        s[0] = 0;
+        s[1] = 0;
+        v[0] = 100;
+        v[1] = 200;
         d[0] = 0;
         vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.LengthMismatch.selector));
         new WorkerConfigs(s, v, d, owner);
@@ -168,7 +178,7 @@ contract WorkerConfigsTest is Test {
     function test_setWorkerConfig_dataMaxBoundary() public {
         vm.prank(owner);
         wc.setWorkerConfig(0, 1, 0, type(uint128).max);
-        (, , uint128 d) = wc.getWorkerConfig(0);
+        (,, uint128 d) = wc.getWorkerConfig(0);
         assertEq(d, type(uint128).max);
     }
 
@@ -194,8 +204,14 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](2);
-        ids[0] = 0; s[0] = 0; v[0] = 100; d[0] = 0;
-        ids[1] = 1; s[1] = 9; v[1] = 200; d[1] = 0;
+        ids[0] = 0;
+        s[0] = 0;
+        v[0] = 100;
+        d[0] = 0;
+        ids[1] = 1;
+        s[1] = 9;
+        v[1] = 200;
+        d[1] = 0;
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.InvalidStrategy.selector, uint8(9)));
@@ -209,8 +225,8 @@ contract WorkerConfigsTest is Test {
     function test_setWorkerConfig_emitsEvent() public {
         vm.prank(owner);
         vm.expectEmit(true, false, false, true);
-        emit IWorkerConfigs.WorkerConfigUpdated(1, 0, 50_000_000, 12345);
-        wc.setWorkerConfig(1, 0, 50_000_000, 12345);
+        emit IWorkerConfigs.WorkerConfigUpdated(1, 0, 50_000_000, 12_345);
+        wc.setWorkerConfig(1, 0, 50_000_000, 12_345);
     }
 
     function test_setWorkerConfig_zeroValueAllowed() public {
@@ -294,16 +310,6 @@ contract WorkerConfigsTest is Test {
         assertEq(s.length, 2);
         assertEq(v.length, 2);
         assertEq(d.length, 2);
-    }
-
-    // ──────────────────────────────────────────────
-    //  MIN_GAS boundary
-    // ──────────────────────────────────────────────
-
-    function test_minGas_constant() public view {
-        // Retained at 0 for ABI continuity; coverage is now tracked via the
-        // `_workerConfigSet` mapping rather than a positive floor.
-        assertEq(wc.MIN_GAS(), 0);
     }
 
     // ──────────────────────────────────────────────
@@ -399,8 +405,12 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](2);
-        s[0] = 0; v[0] = 100; d[0] = 0xa;
-        s[1] = 1; v[1] = 200; d[1] = 0xb;
+        s[0] = 0;
+        v[0] = 100;
+        d[0] = 0xa;
+        s[1] = 1;
+        v[1] = 200;
+        d[1] = 0xb;
 
         vm.expectEmit(true, false, false, true);
         emit IWorkerConfigs.WorkerConfigUpdated(0, 0, 100, 0xa);
@@ -453,9 +463,18 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](3);
         uint64[] memory v = new uint64[](3);
         uint128[] memory d = new uint128[](3);
-        ids[0] = 0; s[0] = 1; v[0] = 100; d[0] = 0xaa;
-        ids[1] = 1; s[1] = 1; v[1] = 200; d[1] = 0xbb;
-        ids[2] = 5; s[2] = 0; v[2] = 300; d[2] = 0xcc;
+        ids[0] = 0;
+        s[0] = 1;
+        v[0] = 100;
+        d[0] = 0xaa;
+        ids[1] = 1;
+        s[1] = 1;
+        v[1] = 200;
+        d[1] = 0xbb;
+        ids[2] = 5;
+        s[2] = 0;
+        v[2] = 300;
+        d[2] = 0xcc;
 
         vm.prank(owner);
         wc.setWorkerConfigsBatch(ids, s, v, d);
@@ -479,8 +498,14 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](2);
-        ids[0] = 0; s[0] = 1; v[0] = 100; d[0] = 0xaa;
-        ids[1] = 1; s[1] = 0; v[1] = 200; d[1] = 0xbb;
+        ids[0] = 0;
+        s[0] = 1;
+        v[0] = 100;
+        d[0] = 0xaa;
+        ids[1] = 1;
+        s[1] = 0;
+        v[1] = 200;
+        d[1] = 0xbb;
 
         vm.prank(owner);
         vm.expectEmit(true, false, false, true);
@@ -495,10 +520,13 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](1);
         uint128[] memory d = new uint128[](2);
-        ids[0] = 0; ids[1] = 1;
-        s[0] = 0; s[1] = 0;
+        ids[0] = 0;
+        ids[1] = 1;
+        s[0] = 0;
+        s[1] = 0;
         v[0] = 100;
-        d[0] = 0; d[1] = 0;
+        d[0] = 0;
+        d[1] = 0;
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.LengthMismatch.selector));
@@ -510,9 +538,12 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](1);
-        ids[0] = 0; ids[1] = 1;
-        s[0] = 0; s[1] = 0;
-        v[0] = 100; v[1] = 200;
+        ids[0] = 0;
+        ids[1] = 1;
+        s[0] = 0;
+        s[1] = 0;
+        v[0] = 100;
+        v[1] = 200;
         d[0] = 0;
 
         vm.prank(owner);
@@ -525,8 +556,14 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         uint128[] memory d = new uint128[](2);
-        ids[0] = 0; s[0] = 0; v[0] = 100; d[0] = 0;
-        ids[1] = 1; s[1] = 1; v[1] = 0;   d[1] = 0;
+        ids[0] = 0;
+        s[0] = 0;
+        v[0] = 100;
+        d[0] = 0;
+        ids[1] = 1;
+        s[1] = 1;
+        v[1] = 0;
+        d[1] = 0;
 
         vm.prank(owner);
         wc.setWorkerConfigsBatch(ids, s, v, d);
@@ -542,7 +579,10 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](1);
         uint64[] memory v = new uint64[](1);
         uint128[] memory d = new uint128[](1);
-        ids[0] = 0; s[0] = 0; v[0] = 100; d[0] = 0;
+        ids[0] = 0;
+        s[0] = 0;
+        v[0] = 100;
+        d[0] = 0;
 
         address nonOwner = address(0xdead);
         vm.prank(nonOwner);

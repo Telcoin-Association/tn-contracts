@@ -12,12 +12,6 @@ interface IWorkerConfigs {
     // ── Constants
     // ────────────────────────────────────────────────────────
 
-    /// @notice Floor on any worker config value.
-    /// @dev Retained at `0` for ABI continuity. The contract no longer rejects
-    ///      values below a positive floor; coverage is tracked via an internal
-    ///      "set" flag instead.
-    function MIN_GAS() external pure returns (uint64);
-
     /// @notice Highest strategy id this contract recognises.
     /// @dev Mirrors the `WorkerFeeConfig` enum in `tn-types::gas_accumulator`:
     ///      0 = EIP-1559, 1 = Static. New strategies bump this constant in lockstep
@@ -102,10 +96,7 @@ interface IWorkerConfigs {
     /// @return strategy The raw strategy id.
     /// @return value The config value.
     /// @return data The strategy-specific packed data.
-    function getWorkerConfig(uint16 workerId)
-        external
-        view
-        returns (uint8 strategy, uint64 value, uint128 data);
+    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint128 data);
 
     /// @notice Return every worker's config in one call.
     /// @dev Lets the protocol layer fetch the full per-epoch fee policy with a single EVM
@@ -117,12 +108,7 @@ interface IWorkerConfigs {
     function getAllWorkerConfigs()
         external
         view
-        returns (
-            uint16 count,
-            uint8[] memory strategies_,
-            uint64[] memory values_,
-            uint128[] memory datas_
-        );
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint128[] memory datas_);
 
     /// @notice Return the current number of workers.
     /// @dev The protocol reads this value at epoch boundaries to determine how many

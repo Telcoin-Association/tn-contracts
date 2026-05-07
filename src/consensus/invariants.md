@@ -60,7 +60,7 @@
 **region**
 
 - validator region is a uint8 stored on ValidatorInfo, representing a GSMA region identifier
-- region defaults to 0 (unspecified) when a validator stakes via _recordStaked
+- region defaults to 0 (unspecified) when a validator stakes via \_recordStaked
 - region accepts any uint8 value (0-255); no maximum constraint is enforced on-chain
 - only governance (contract owner) can set or update a validator's region via setValidatorRegion
 - setValidatorRegion requires the target address to hold a ConsensusNFT (not burned/retired)
@@ -80,7 +80,6 @@
 - constructor emits WorkerConfigUpdated for each worker to provide an indexable deployment record
 - shrinking numWorkers does not delete stale configs; expanding reactivates them, so governance must update stale configs before expanding (recommend multicall to batch setWorkerConfig + setNumWorkers)
 - getWorkerConfig returns (0, 0, 0) for workers that have never been configured; this is only observable for workerIds >= numWorkers since coverage is enforced for active workers
-- strategies.length is checked against type(uint16).max in the constructor to prevent silent truncation
 
 **worker configs - protocol usage**
 
