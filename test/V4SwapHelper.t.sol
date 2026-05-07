@@ -77,6 +77,7 @@ contract V4SwapHelperTest is Test {
             amountOutMinimum: 0,
             recipient: alice,
             sqrtPriceLimitX96: 0,
+            deadline: type(uint48).max,
             hookData: ""
         });
 
@@ -97,6 +98,7 @@ contract V4SwapHelperTest is Test {
             amountOutMinimum: 0,
             recipient: alice,
             sqrtPriceLimitX96: 0,
+            deadline: type(uint48).max,
             hookData: ""
         });
 
@@ -116,6 +118,7 @@ contract V4SwapHelperTest is Test {
             amountOutMinimum: 0,
             recipient: alice,
             sqrtPriceLimitX96: 0,
+            deadline: type(uint48).max,
             hookData: ""
         });
 
@@ -126,6 +129,29 @@ contract V4SwapHelperTest is Test {
             )
         );
         helper.exactInputSingle{ value: 0.5 ether }(params);
+    }
+
+    function test_ExactInputRevertsOnExpiredDeadline() public {
+        // Set a fixed timestamp so we can put the deadline strictly in the past.
+        vm.warp(1_700_000_000);
+        uint48 staleDeadline = uint48(block.timestamp - 1);
+
+        V4SwapHelper.ExactInputSingleParams memory params = V4SwapHelper.ExactInputSingleParams({
+            poolKey: _erc20Key(),
+            zeroForOne: true,
+            amountIn: 1 ether,
+            amountOutMinimum: 0,
+            recipient: alice,
+            sqrtPriceLimitX96: 0,
+            deadline: staleDeadline,
+            hookData: ""
+        });
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(V4SwapHelper.ExpiredDeadline.selector, block.timestamp, staleDeadline)
+        );
+        helper.exactInputSingle(params);
     }
 
     // ---------- unlockCallback access guard ----------

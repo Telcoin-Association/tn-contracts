@@ -263,6 +263,7 @@ contract V4IntegrationFork is
             amountOutMinimum: 0,
             recipient: ADMIN,
             sqrtPriceLimitX96: 0,
+            deadline: type(uint48).max,
             hookData: ""
         });
 

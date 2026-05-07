@@ -198,8 +198,20 @@ contract TestnetDeployUniswapV3 is
     /// @dev Splices `lib`'s 20-byte address into `code` at DESC_LIB_LINK_OFFSET, replacing
     ///      the linker placeholder. Returns a fresh bytes copy so the original
     ///      bytecode constant is left untouched.
+    /// @dev Asserts the 20 target bytes are zero before splicing. Solc's library-link
+    ///      placeholder is `__$<hex>$__`, which the fetch script scrubs to 40 zero
+    ///      hex chars (20 zero bytes). If a future v3-periphery release moves the
+    ///      placeholder, this guard stops a silent miscompile that would only surface
+    ///      at first `tokenURI` call. To re-derive the offset, parse the artifact's
+    ///      `linkReferences` field via the fetch script.
     function _linkNFTDescriptor(bytes memory code, address lib) internal pure returns (bytes memory linked) {
         require(code.length >= DESC_LIB_LINK_OFFSET + 20, "_linkNFTDescriptor: code too short");
+        for (uint256 i = 0; i < 20; ++i) {
+            require(
+                code[DESC_LIB_LINK_OFFSET + i] == 0,
+                "_linkNFTDescriptor: target bytes not zero - refresh DESC_LIB_LINK_OFFSET against current artifact linkReferences"
+            );
+        }
         linked = bytes.concat(code); // memory copy
         bytes20 libBytes = bytes20(lib);
         for (uint256 i = 0; i < 20; ++i) {

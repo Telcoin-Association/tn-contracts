@@ -39,6 +39,10 @@ contract V4SwapHelper is IUnlockCallback {
         /// @dev 0 = no clamp (helper substitutes MIN_SQRT or MAX_SQRT
         ///      based on zeroForOne); otherwise direction-specific limit.
         uint160 sqrtPriceLimitX96;
+        /// @dev Unix timestamp after which the swap is rejected. uint48 covers
+        ///      timestamps through year ~8.9M, well past any realistic horizon.
+        ///      Pass `type(uint48).max` to opt out of deadline enforcement.
+        uint48 deadline;
         bytes hookData;
     }
 
@@ -47,6 +51,8 @@ contract V4SwapHelper is IUnlockCallback {
     error NotPoolManager();
     error InsufficientOutput(uint256 received, uint256 minimum);
     error InvalidNativeValue(uint256 sent, uint256 expected);
+    error ExpiredDeadline(uint256 blockTimestamp, uint48 deadline);
+    error NativeRefundFailed(address recipient, uint256 amount);
 
     constructor(IPoolManager _poolManager) {
         poolManager = _poolManager;
@@ -60,6 +66,8 @@ contract V4SwapHelper is IUnlockCallback {
         payable
         returns (uint256 amountOut)
     {
+        if (block.timestamp > params.deadline) revert ExpiredDeadline(block.timestamp, params.deadline);
+
         // Validate msg.value matches expectation: native-in must send
         // exactly amountIn; ERC-20-in must send 0.
         Currency currencyIn = params.zeroForOne ? params.poolKey.currency0 : params.poolKey.currency1;
@@ -75,6 +83,21 @@ contract V4SwapHelper is IUnlockCallback {
         amountOut = abi.decode(result, (uint256));
         if (amountOut < params.amountOutMinimum) {
             revert InsufficientOutput(amountOut, params.amountOutMinimum);
+        }
+
+        // Refund any unspent native left in the helper from this swap. PoolManager
+        // can return less than `amountIn` on price-limit clamps and on certain
+        // settle / take change paths, leaving residual TEL in `address(this)`.
+        // Gated on `msg.value > 0` so ERC-20-input swaps never sweep arbitrary
+        // pre-existing balance. Any pre-existing native dust is treated as belonging
+        // to the next native-input swapper, which is acceptable since the helper
+        // is not a custody contract.
+        if (msg.value > 0) {
+            uint256 leftover = address(this).balance;
+            if (leftover > 0) {
+                (bool ok,) = msg.sender.call{ value: leftover }("");
+                if (!ok) revert NativeRefundFailed(msg.sender, leftover);
+            }
         }
     }
 
