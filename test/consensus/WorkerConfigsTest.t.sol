@@ -206,6 +206,39 @@ contract WorkerConfigsTest is Test {
         assertEq(v, 0);
     }
 
+    function test_getAllWorkerConfigs_returnsAll() public {
+        // At construction: 2 workers, both EIP-1559 with 30M target.
+        (uint16 count, uint8[] memory s, uint64[] memory v) = wc.getAllWorkerConfigs();
+        assertEq(count, 2);
+        assertEq(s.length, 2);
+        assertEq(v.length, 2);
+        assertEq(s[0], 0);
+        assertEq(v[0], 30_000_000);
+        assertEq(s[1], 0);
+        assertEq(v[1], 30_000_000);
+
+        // After mutating worker 0 the batch view reflects the change.
+        vm.prank(owner);
+        wc.setWorkerConfig(0, 1, 999);
+        (count, s, v) = wc.getAllWorkerConfigs();
+        assertEq(count, 2);
+        assertEq(s[0], 1);
+        assertEq(v[0], 999);
+        assertEq(s[1], 0);
+        assertEq(v[1], 30_000_000);
+    }
+
+    function test_getAllWorkerConfigs_doesNotIncludeBeyondNumWorkers() public {
+        // setWorkerConfig allows writing to ids beyond numWorkers, but getAllWorkerConfigs
+        // should only surface the contiguous `0 .. numWorkers-1` slice.
+        vm.prank(owner);
+        wc.setWorkerConfig(100, 1, 500);
+        (uint16 count, uint8[] memory s, uint64[] memory v) = wc.getAllWorkerConfigs();
+        assertEq(count, 2);
+        assertEq(s.length, 2);
+        assertEq(v.length, 2);
+    }
+
     // ──────────────────────────────────────────────
     //  MIN_GAS boundary
     // ──────────────────────────────────────────────

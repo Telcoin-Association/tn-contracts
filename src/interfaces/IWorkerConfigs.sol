@@ -99,6 +99,17 @@ interface IWorkerConfigs {
     /// @return value The config value.
     function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value);
 
+    /// @notice Return every worker's config in one call.
+    /// @dev Lets the protocol layer fetch the full per-epoch fee policy with a single EVM
+    ///      transition instead of `numWorkers + 1` separate reads.
+    /// @return count The current number of workers (== `numWorkers()`).
+    /// @return strategies_ Strategy id for each worker, indexed by worker id.
+    /// @return values_ Config value for each worker, indexed by worker id.
+    function getAllWorkerConfigs()
+        external
+        view
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_);
+
     /// @notice Return the current number of workers.
     /// @dev The protocol reads this value at epoch boundaries to determine how many
     ///      worker configs to fetch. Each worker `0 .. numWorkers()-1` is guaranteed

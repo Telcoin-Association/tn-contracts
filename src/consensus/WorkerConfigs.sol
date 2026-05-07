@@ -112,4 +112,20 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         WorkerConfig storage c = _workerConfigs[workerId];
         return (c.strategy, c.value);
     }
+
+    /// @inheritdoc IWorkerConfigs
+    function getAllWorkerConfigs()
+        external
+        view
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_)
+    {
+        count = numWorkers;
+        strategies_ = new uint8[](count);
+        values_ = new uint64[](count);
+        for (uint256 i; i < count; i++) {
+            WorkerConfig storage c = _workerConfigs[i];
+            strategies_[i] = c.strategy;
+            values_[i] = c.value;
+        }
+    }
 }
