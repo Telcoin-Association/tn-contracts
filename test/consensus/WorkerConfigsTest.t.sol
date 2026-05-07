@@ -63,13 +63,16 @@ contract WorkerConfigsTest is Test {
         new WorkerConfigs(s, v, owner);
     }
 
-    function test_constructor_revertsOnValueBelowMinGas() public {
+    function test_constructor_zeroValueAllowed() public {
         uint8[] memory s = new uint8[](1);
         uint64[] memory v = new uint64[](1);
-        s[0] = 0;
-        v[0] = 6;
-        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.ValueBelowMinGas.selector, uint64(6)));
-        new WorkerConfigs(s, v, owner);
+        s[0] = 1; // Static strategy
+        v[0] = 0;
+        WorkerConfigs zeroFee = new WorkerConfigs(s, v, owner);
+        (uint8 rs, uint64 rv) = zeroFee.getWorkerConfig(0);
+        assertEq(rs, 1);
+        assertEq(rv, 0);
+        assertEq(zeroFee.numWorkers(), 1);
     }
 
     function test_constructor_revertsOnZeroWorkers() public {
@@ -99,8 +102,8 @@ contract WorkerConfigsTest is Test {
         wc.setNumWorkers(1);
     }
 
-    function test_setNumWorkers_revertsOnMissingConfig() public {
-        // Worker 2 is not configured → value=0 < MIN_GAS.
+    function test_setNumWorkers_revertsOnUnsetWorker() public {
+        // Worker 2 has never had a config explicitly set → `_workerConfigSet[2]` is false.
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.MissingWorkerConfig.selector, uint16(2)));
         wc.setNumWorkers(3);
@@ -163,10 +166,12 @@ contract WorkerConfigsTest is Test {
         wc.setWorkerConfig(1, 0, 50_000_000);
     }
 
-    function test_setWorkerConfig_revertsOnValueBelowMinGas() public {
+    function test_setWorkerConfig_zeroValueAllowed() public {
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.ValueBelowMinGas.selector, uint64(6)));
-        wc.setWorkerConfig(0, 0, 6);
+        wc.setWorkerConfig(0, 1, 0);
+        (uint8 s, uint64 v) = wc.getWorkerConfig(0);
+        assertEq(s, 1);
+        assertEq(v, 0);
     }
 
     function test_setWorkerConfig_revertsNonOwner() public {
@@ -205,22 +210,10 @@ contract WorkerConfigsTest is Test {
     //  MIN_GAS boundary
     // ──────────────────────────────────────────────
 
-    function test_minGas_exactly7Allowed() public {
-        vm.prank(owner);
-        wc.setWorkerConfig(0, 0, 7);
-        (uint8 s, uint64 v) = wc.getWorkerConfig(0);
-        assertEq(s, 0);
-        assertEq(v, 7);
-    }
-
-    function test_minGas_6Reverts() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.ValueBelowMinGas.selector, uint64(6)));
-        wc.setWorkerConfig(0, 0, 6);
-    }
-
     function test_minGas_constant() public view {
-        assertEq(wc.MIN_GAS(), 7);
+        // Retained at 0 for ABI continuity; coverage is now tracked via the
+        // `_workerConfigSet` mapping rather than a positive floor.
+        assertEq(wc.MIN_GAS(), 0);
     }
 
     // ──────────────────────────────────────────────
@@ -228,7 +221,6 @@ contract WorkerConfigsTest is Test {
     // ──────────────────────────────────────────────
 
     function testFuzz_workerConfig(uint16 workerId, uint8 strategy, uint64 value) public {
-        vm.assume(value >= 7);
         vm.assume(strategy <= wc.MAX_STRATEGY());
 
         vm.prank(owner);
@@ -246,7 +238,7 @@ contract WorkerConfigsTest is Test {
         uint64[] memory v = new uint64[](count);
         for (uint8 i = 0; i < count; i++) {
             s[i] = i % 2; // alternate the two valid strategy ids
-            v[i] = uint64(i) + 7;
+            v[i] = uint64(i);
         }
         WorkerConfigs fresh = new WorkerConfigs(s, v, owner);
         assertEq(fresh.numWorkers(), count);
@@ -254,7 +246,7 @@ contract WorkerConfigsTest is Test {
         for (uint16 i = 0; i < count; i++) {
             (uint8 rs, uint64 rv) = fresh.getWorkerConfig(i);
             assertEq(rs, uint8(i % 2));
-            assertEq(rv, uint64(i) + 7);
+            assertEq(rv, uint64(i));
         }
     }
 
@@ -408,16 +400,19 @@ contract WorkerConfigsTest is Test {
         wc.setWorkerConfigsBatch(ids, s, v);
     }
 
-    function test_setWorkerConfigsBatch_revertsOnValueBelowMinGas() public {
+    function test_setWorkerConfigsBatch_zeroValueAllowed() public {
         uint16[] memory ids = new uint16[](2);
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         ids[0] = 0; s[0] = 0; v[0] = 100;
-        ids[1] = 1; s[1] = 0; v[1] = 6; // below MIN_GAS
+        ids[1] = 1; s[1] = 1; v[1] = 0;
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.ValueBelowMinGas.selector, uint64(6)));
         wc.setWorkerConfigsBatch(ids, s, v);
+
+        (uint8 s1, uint64 v1) = wc.getWorkerConfig(1);
+        assertEq(s1, 1);
+        assertEq(v1, 0);
     }
 
     function test_setWorkerConfigsBatch_revertsNonOwner() public {

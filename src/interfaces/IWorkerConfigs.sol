@@ -4,15 +4,18 @@ pragma solidity 0.8.26;
 /// @title IWorkerConfigs
 /// @notice Interface for a strategy-agnostic per-worker fee config store.
 ///
-/// Every worker `0 .. numWorkers-1` must have a config whose `value >= MIN_GAS`.
-/// The `strategy` field is a raw `uint8` stored without contract interpretation;
-/// the protocol layer handles strategy semantics (e.g. EIP-1559 vs Static).
+/// Every worker `0 .. numWorkers-1` must have a config that was explicitly written
+/// (via the constructor or one of the setters). The `strategy` field is a raw
+/// `uint8` stored without contract interpretation; the protocol layer handles
+/// strategy semantics (e.g. EIP-1559 vs Static).
 interface IWorkerConfigs {
     // ── Constants
     // ────────────────────────────────────────────────────────
 
-    /// @notice Absolute minimum gas value any worker config may hold.
-    /// @dev Matches `MIN_PROTOCOL_BASE_FEE` on the Rust side (7 wei).
+    /// @notice Floor on any worker config value.
+    /// @dev Retained at `0` for ABI continuity. The contract no longer rejects
+    ///      values below a positive floor; coverage is tracked via an internal
+    ///      "set" flag instead.
     function MIN_GAS() external pure returns (uint64);
 
     /// @notice Highest strategy id this contract recognises.
@@ -23,10 +26,6 @@ interface IWorkerConfigs {
 
     // ── Errors
     // ──────────────────────────────────────────────────────────
-
-    /// @notice Thrown when a config value is below `MIN_GAS`.
-    /// @param value The rejected value.
-    error ValueBelowMinGas(uint64 value);
 
     /// @notice Thrown when a strategy id is greater than `MAX_STRATEGY`.
     /// @param strategy The rejected strategy id.
@@ -51,7 +50,7 @@ interface IWorkerConfigs {
     /// @notice Emitted when a worker's config is created or updated.
     /// @param workerId The worker identifier.
     /// @param strategy The raw strategy id.
-    /// @param value The config value (must be >= MIN_GAS).
+    /// @param value The config value.
     event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value);
 
     /// @notice Emitted when the number of workers changes.
@@ -64,21 +63,22 @@ interface IWorkerConfigs {
 
     /// @notice Set the number of workers.
     /// @dev Reverts with `MissingWorkerConfig(i)` if any worker `0 .. numWorkers_-1`
-    ///      has a config with `value < MIN_GAS` (including unset entries whose value is 0).
+    ///      has never had a config explicitly written.
     /// @param numWorkers_ The new worker count.
     function setNumWorkers(uint16 numWorkers_) external;
 
     /// @notice Set or update the fee config for a specific worker.
     /// @dev Allows setting configs for any `workerId`, including those beyond the
     ///      current `numWorkers`. Coverage is validated when `setNumWorkers` is called.
+    ///      Reverts `InvalidStrategy(strategy)` if `strategy > MAX_STRATEGY`.
     /// @param workerId The worker identifier.
     /// @param strategy The raw strategy id (stored without interpretation).
-    /// @param value The config value (must be >= MIN_GAS).
+    /// @param value The config value.
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external;
 
     /// @notice Set or update fee configs for multiple workers in a single call.
     /// @dev Reverts `LengthMismatch()` if array lengths differ.
-    ///      Reverts `ValueBelowMinGas(value)` if any value < MIN_GAS.
+    ///      Reverts `InvalidStrategy(strategy)` if any `strategy > MAX_STRATEGY`.
     /// @param workerIds Array of worker identifiers.
     /// @param strategies Array of strategy ids, one per worker.
     /// @param values Array of config values, one per worker.
@@ -102,6 +102,6 @@ interface IWorkerConfigs {
     /// @notice Return the current number of workers.
     /// @dev The protocol reads this value at epoch boundaries to determine how many
     ///      worker configs to fetch. Each worker `0 .. numWorkers()-1` is guaranteed
-    ///      to have a config with `value >= MIN_GAS`.
+    ///      to have had a config explicitly written.
     function numWorkers() external view returns (uint16);
 }

@@ -17,8 +17,11 @@ import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 /// build the per-worker fee parameters for the upcoming epoch. The contract
 /// therefore acts as the on-chain source of truth for worker fee policy.
 contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
-    /// @notice Absolute minimum gas value any worker config may hold (7 wei).
-    uint64 public constant MIN_GAS = 7;
+    /// @notice Absolute minimum gas value any worker config may hold.
+    /// @dev Retained at `0` for ABI continuity. The contract no longer rejects
+    ///      values below a positive floor; coverage is tracked via
+    ///      `_workerConfigSet` instead.
+    uint64 public constant MIN_GAS = 0;
 
     /// @notice Highest strategy id this contract accepts.
     /// @dev Must move in lockstep with the `WorkerFeeConfig` enum in
@@ -30,7 +33,6 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
     /// @notice Per-worker fee config.
     /// @dev strategy is a raw uint8 used by the protocol to map strategies.
-    /// @dev value must be >= MIN_GAS for configured workers.
     struct WorkerConfig {
         uint8 strategy;
         uint64 value;
@@ -39,9 +41,14 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @notice Per-worker config storage.
     mapping(uint256 => WorkerConfig) internal _workerConfigs;
 
+    /// @notice Tracks whether a worker id has ever had a config explicitly written.
+    /// @dev Lets us treat zero values as legal data (e.g. `Static{fee: 0}`) while still
+    ///      detecting "never configured" workers in `setNumWorkers`.
+    mapping(uint256 => bool) internal _workerConfigSet;
+
     /// @notice Deploy with initial configs for every worker.
     /// @dev Reverts `LengthMismatch()` if array lengths differ.
-    ///      Reverts `ValueBelowMinGas(value)` if any value < MIN_GAS.
+    ///      Reverts `InvalidStrategy(strategy)` if any strategy > `MAX_STRATEGY`.
     /// @param strategies Array of strategy ids, one per worker (index = workerId).
     /// @param values Array of config values, one per worker.
     /// @param owner_ The address that will own this contract.
@@ -52,10 +59,9 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         numWorkers = count;
 
         for (uint256 i; i < count; i++) {
-            if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
             _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i] });
-            //
+            _workerConfigSet[i] = true;
             emit WorkerConfigUpdated(uint16(i), strategies[i], values[i]);
         }
     }
@@ -65,9 +71,9 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         if (numWorkers_ == 0) revert NumWorkersBelowMinimum();
         if (numWorkers_ == numWorkers) revert NumWorkersUnchanged();
 
-        // Validate that every worker 0..numWorkers_-1 has a valid config.
+        // Validate that every worker 0..numWorkers_-1 has had a config explicitly set.
         for (uint256 i; i < numWorkers_; i++) {
-            if (_workerConfigs[i].value < MIN_GAS) revert MissingWorkerConfig(i);
+            if (!_workerConfigSet[i]) revert MissingWorkerConfig(i);
         }
 
         uint16 oldValue = numWorkers;
@@ -77,9 +83,9 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
     /// @inheritdoc IWorkerConfigs
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external onlyOwner {
-        if (value < MIN_GAS) revert ValueBelowMinGas(value);
         if (strategy > MAX_STRATEGY) revert InvalidStrategy(strategy);
         _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value });
+        _workerConfigSet[workerId] = true;
         emit WorkerConfigUpdated(workerId, strategy, value);
     }
 
@@ -94,9 +100,9 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     {
         if (workerIds.length != strategies.length || workerIds.length != values.length) revert LengthMismatch();
         for (uint256 i; i < workerIds.length; i++) {
-            if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
             if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
             _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i] });
+            _workerConfigSet[workerIds[i]] = true;
             emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i]);
         }
     }
