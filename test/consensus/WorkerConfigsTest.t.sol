@@ -46,11 +46,11 @@ contract WorkerConfigsTest is Test {
         uint64[] memory v = new uint64[](3);
         s[0] = 0; v[0] = 100;
         s[1] = 1; v[1] = 200;
-        s[2] = 255; v[2] = 7;
+        s[2] = 1; v[2] = 7;
         WorkerConfigs multi = new WorkerConfigs(s, v, owner);
         assertEq(multi.numWorkers(), 3);
         (uint8 s2, uint64 v2) = multi.getWorkerConfig(2);
-        assertEq(s2, 255);
+        assertEq(s2, 1);
         assertEq(v2, 7);
     }
 
@@ -117,12 +117,43 @@ contract WorkerConfigsTest is Test {
     //  setWorkerConfig
     // ──────────────────────────────────────────────
 
-    function test_setWorkerConfig_anyStrategy() public {
+    function test_setWorkerConfig_anyValidStrategy() public {
         vm.prank(owner);
-        wc.setWorkerConfig(0, 42, 999);
+        wc.setWorkerConfig(0, 1, 999);
         (uint8 s, uint64 v) = wc.getWorkerConfig(0);
-        assertEq(s, 42);
+        assertEq(s, 1);
         assertEq(v, 999);
+    }
+
+    function test_setWorkerConfig_invalidStrategyReverts() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.InvalidStrategy.selector, uint8(2)));
+        wc.setWorkerConfig(0, 2, 30_000_000);
+    }
+
+    function test_constructor_invalidStrategyReverts() public {
+        uint8[] memory s = new uint8[](1);
+        uint64[] memory v = new uint64[](1);
+        s[0] = 7;
+        v[0] = 100;
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.InvalidStrategy.selector, uint8(7)));
+        new WorkerConfigs(s, v, owner);
+    }
+
+    function test_setWorkerConfigsBatch_invalidStrategyReverts() public {
+        uint16[] memory ids = new uint16[](2);
+        uint8[] memory s = new uint8[](2);
+        uint64[] memory v = new uint64[](2);
+        ids[0] = 0; s[0] = 0; v[0] = 100;
+        ids[1] = 1; s[1] = 9; v[1] = 200;
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IWorkerConfigs.InvalidStrategy.selector, uint8(9)));
+        wc.setWorkerConfigsBatch(ids, s, v);
+    }
+
+    function test_maxStrategy_constant() public view {
+        assertEq(wc.MAX_STRATEGY(), 1);
     }
 
     function test_setWorkerConfig_emitsEvent() public {
@@ -198,6 +229,7 @@ contract WorkerConfigsTest is Test {
 
     function testFuzz_workerConfig(uint16 workerId, uint8 strategy, uint64 value) public {
         vm.assume(value >= 7);
+        vm.assume(strategy <= wc.MAX_STRATEGY());
 
         vm.prank(owner);
         wc.setWorkerConfig(workerId, strategy, value);
@@ -213,7 +245,7 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](count);
         uint64[] memory v = new uint64[](count);
         for (uint8 i = 0; i < count; i++) {
-            s[i] = i;
+            s[i] = i % 2; // alternate the two valid strategy ids
             v[i] = uint64(i) + 7;
         }
         WorkerConfigs fresh = new WorkerConfigs(s, v, owner);
@@ -221,7 +253,7 @@ contract WorkerConfigsTest is Test {
 
         for (uint16 i = 0; i < count; i++) {
             (uint8 rs, uint64 rv) = fresh.getWorkerConfig(i);
-            assertEq(rs, uint8(i));
+            assertEq(rs, uint8(i % 2));
             assertEq(rv, uint64(i) + 7);
         }
     }
@@ -261,9 +293,9 @@ contract WorkerConfigsTest is Test {
         assertEq(v, 100);
 
         // Overwrite with different values.
-        wc.setWorkerConfig(0, 2, 200);
+        wc.setWorkerConfig(0, 0, 200);
         (s, v) = wc.getWorkerConfig(0);
-        assertEq(s, 2);
+        assertEq(s, 0);
         assertEq(v, 200);
         vm.stopPrank();
     }
@@ -331,7 +363,7 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](3);
         uint64[] memory v = new uint64[](3);
         ids[0] = 0; s[0] = 1; v[0] = 100;
-        ids[1] = 1; s[1] = 2; v[1] = 200;
+        ids[1] = 1; s[1] = 1; v[1] = 200;
         ids[2] = 5; s[2] = 0; v[2] = 300;
 
         vm.prank(owner);
@@ -341,7 +373,7 @@ contract WorkerConfigsTest is Test {
         assertEq(s0, 1);
         assertEq(v0, 100);
         (uint8 s1, uint64 v1) = wc.getWorkerConfig(1);
-        assertEq(s1, 2);
+        assertEq(s1, 1);
         assertEq(v1, 200);
         (uint8 s5, uint64 v5) = wc.getWorkerConfig(5);
         assertEq(s5, 0);
@@ -353,13 +385,13 @@ contract WorkerConfigsTest is Test {
         uint8[] memory s = new uint8[](2);
         uint64[] memory v = new uint64[](2);
         ids[0] = 0; s[0] = 1; v[0] = 100;
-        ids[1] = 1; s[1] = 2; v[1] = 200;
+        ids[1] = 1; s[1] = 0; v[1] = 200;
 
         vm.prank(owner);
         vm.expectEmit(true, false, false, true);
         emit IWorkerConfigs.WorkerConfigUpdated(0, 1, 100);
         vm.expectEmit(true, false, false, true);
-        emit IWorkerConfigs.WorkerConfigUpdated(1, 2, 200);
+        emit IWorkerConfigs.WorkerConfigUpdated(1, 0, 200);
         wc.setWorkerConfigsBatch(ids, s, v);
     }
 

@@ -15,12 +15,22 @@ interface IWorkerConfigs {
     /// @dev Matches `MIN_PROTOCOL_BASE_FEE` on the Rust side (7 wei).
     function MIN_GAS() external pure returns (uint64);
 
+    /// @notice Highest strategy id this contract recognises.
+    /// @dev Mirrors the `WorkerFeeConfig` enum in `tn-types::gas_accumulator`:
+    ///      0 = EIP-1559, 1 = Static. New strategies bump this constant in lockstep
+    ///      with the Rust side and the contract upgrade.
+    function MAX_STRATEGY() external pure returns (uint8);
+
     // ── Errors
     // ──────────────────────────────────────────────────────────
 
     /// @notice Thrown when a config value is below `MIN_GAS`.
     /// @param value The rejected value.
     error ValueBelowMinGas(uint64 value);
+
+    /// @notice Thrown when a strategy id is greater than `MAX_STRATEGY`.
+    /// @param strategy The rejected strategy id.
+    error InvalidStrategy(uint8 strategy);
 
     /// @notice Thrown when `setNumWorkers` is called but worker `workerId` has no config set.
     /// @param workerId The worker missing a config.

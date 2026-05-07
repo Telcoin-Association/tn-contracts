@@ -20,6 +20,11 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @notice Absolute minimum gas value any worker config may hold (7 wei).
     uint64 public constant MIN_GAS = 7;
 
+    /// @notice Highest strategy id this contract accepts.
+    /// @dev Must move in lockstep with the `WorkerFeeConfig` enum in
+    ///      `tn-types::gas_accumulator` (0 = EIP-1559, 1 = Static).
+    uint8 public constant MAX_STRATEGY = 1;
+
     /// @notice The number of workers (used by protocol at epoch boundaries).
     uint16 public numWorkers;
 
@@ -48,6 +53,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
 
         for (uint256 i; i < count; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
+            if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
             _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i] });
             //
             emit WorkerConfigUpdated(uint16(i), strategies[i], values[i]);
@@ -72,6 +78,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @inheritdoc IWorkerConfigs
     function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external onlyOwner {
         if (value < MIN_GAS) revert ValueBelowMinGas(value);
+        if (strategy > MAX_STRATEGY) revert InvalidStrategy(strategy);
         _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value });
         emit WorkerConfigUpdated(workerId, strategy, value);
     }
@@ -88,6 +95,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         if (workerIds.length != strategies.length || workerIds.length != values.length) revert LengthMismatch();
         for (uint256 i; i < workerIds.length; i++) {
             if (values[i] < MIN_GAS) revert ValueBelowMinGas(values[i]);
+            if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
             _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i] });
             emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i]);
         }
