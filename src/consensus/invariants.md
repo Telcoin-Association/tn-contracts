@@ -60,7 +60,7 @@
 **region**
 
 - validator region is a uint8 stored on ValidatorInfo, representing a GSMA region identifier
-- region defaults to 0 (unspecified) when a validator stakes via _recordStaked
+- region defaults to 0 (unspecified) when a validator stakes via \_recordStaked
 - region accepts any uint8 value (0-255); no maximum constraint is enforced on-chain
 - only governance (contract owner) can set or update a validator's region via setValidatorRegion
 - setValidatorRegion requires the target address to hold a ConsensusNFT (not burned/retired)
@@ -69,17 +69,19 @@
 
 **worker configs**
 
-- every worker 0..numWorkers-1 must have a config with value >= MIN_GAS (7 wei)
+- every worker 0..numWorkers-1 must have a config that was explicitly written via the constructor or one of the setters; coverage is tracked by the `_workerConfigSet` mapping rather than by enforcing a positive value floor
+- MIN_GAS is retained at 0 for ABI continuity but no longer rejects values; zero is a legal value for any strategy (e.g. Static{fee: 0})
+- strategy is a raw uint8 bounded by MAX_STRATEGY (currently 1: 0 = EIP-1559, 1 = Static); MAX_STRATEGY moves in lockstep with the `WorkerFeeConfig` enum in `tn-types::gas_accumulator`
+- value is a raw uint64 whose meaning is strategy-specific (target gas for EIP-1559, flat fee for Static, etc.); the contract does not interpret it
+- data is a raw uint128 reserved for strategy-specific packed parameters forwarded to the protocol layer; the contract does not interpret it
 - numWorkers must always be >= 1; the constructor and setNumWorkers both enforce this minimum
 - setWorkerConfig allows setting config for any workerId (including beyond numWorkers); setNumWorkers validates coverage
-- strategy is a raw uint8 stored without contract interpretation; the protocol layer handles strategy semantics
 - constructor atomically sets numWorkers and all configs, guaranteeing coverage from deployment
 - constructor emits WorkerConfigUpdated for each worker to provide an indexable deployment record
-- shrinking numWorkers does not delete stale configs; expanding reactivates them — governance must update stale configs before expanding (recommend multicall to batch setWorkerConfig + setNumWorkers)
-- getWorkerConfig returns (0, 0) for workers that have never been configured; this is only observable for workerIds >= numWorkers since coverage is enforced for active workers
-- strategies.length is checked against type(uint16).max in the constructor to prevent silent truncation
+- shrinking numWorkers does not delete stale configs; expanding reactivates them, so governance must update stale configs before expanding (recommend multicall to batch setWorkerConfig + setNumWorkers)
+- getWorkerConfig returns (0, 0, 0) for workers that have never been configured; this is only observable for workerIds >= numWorkers since coverage is enforced for active workers
 
-**worker configs — protocol usage**
+**worker configs - protocol usage**
 
 - at each epoch boundary the execution layer reads `numWorkers()` and iterates `getWorkerConfig(0 .. numWorkers-1)` to build per-worker fee parameters for the upcoming epoch
 - WorkerConfigs acts as the on-chain source of truth for worker fee policy, analogous to how `nextCommitteeSize` serves as source of truth for committee sizing
