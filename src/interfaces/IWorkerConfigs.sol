@@ -51,7 +51,8 @@ interface IWorkerConfigs {
     /// @param workerId The worker identifier.
     /// @param strategy The raw strategy id.
     /// @param value The config value.
-    event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value);
+    /// @param data Strategy-specific packed data forwarded to the protocol layer.
+    event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value, uint128 data);
 
     /// @notice Emitted when the number of workers changes.
     /// @param oldValue Previous worker count.
@@ -74,7 +75,8 @@ interface IWorkerConfigs {
     /// @param workerId The worker identifier.
     /// @param strategy The raw strategy id (stored without interpretation).
     /// @param value The config value.
-    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value) external;
+    /// @param data Strategy-specific packed data forwarded to the protocol layer.
+    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint128 data) external;
 
     /// @notice Set or update fee configs for multiple workers in a single call.
     /// @dev Reverts `LengthMismatch()` if array lengths differ.
@@ -82,10 +84,12 @@ interface IWorkerConfigs {
     /// @param workerIds Array of worker identifiers.
     /// @param strategies Array of strategy ids, one per worker.
     /// @param values Array of config values, one per worker.
+    /// @param datas Array of strategy-specific packed data, one per worker.
     function setWorkerConfigsBatch(
         uint16[] calldata workerIds,
         uint8[] calldata strategies,
-        uint64[] calldata values
+        uint64[] calldata values,
+        uint128[] calldata datas
     )
         external;
 
@@ -93,11 +97,15 @@ interface IWorkerConfigs {
     // ───────────────────────────────────────────────────────────
 
     /// @notice Return the stored config for a worker.
-    /// @dev Returns `(0, 0)` for workers that have never been configured.
+    /// @dev Returns `(0, 0, 0)` for workers that have never been configured.
     /// @param workerId The worker identifier.
     /// @return strategy The raw strategy id.
     /// @return value The config value.
-    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value);
+    /// @return data The strategy-specific packed data.
+    function getWorkerConfig(uint16 workerId)
+        external
+        view
+        returns (uint8 strategy, uint64 value, uint128 data);
 
     /// @notice Return every worker's config in one call.
     /// @dev Lets the protocol layer fetch the full per-epoch fee policy with a single EVM
@@ -105,10 +113,16 @@ interface IWorkerConfigs {
     /// @return count The current number of workers (== `numWorkers()`).
     /// @return strategies_ Strategy id for each worker, indexed by worker id.
     /// @return values_ Config value for each worker, indexed by worker id.
+    /// @return datas_ Strategy-specific packed data for each worker, indexed by worker id.
     function getAllWorkerConfigs()
         external
         view
-        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_);
+        returns (
+            uint16 count,
+            uint8[] memory strategies_,
+            uint64[] memory values_,
+            uint128[] memory datas_
+        );
 
     /// @notice Return the current number of workers.
     /// @dev The protocol reads this value at epoch boundaries to determine how many
