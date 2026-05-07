@@ -2,11 +2,11 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
-import { Script } from "forge-std/Script.sol";
-import { Deployments } from "../deployments/Deployments.sol";
-import { GenesisPrecompiler } from "../deployments/genesis/GenesisPrecompiler.sol";
-import { Safe } from "safe-contracts/contracts/Safe.sol";
-import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
+import {Script} from "forge-std/Script.sol";
+import {Deployments} from "../deployments/Deployments.sol";
+import {GenesisPrecompiler} from "../deployments/genesis/GenesisPrecompiler.sol";
+import {Safe} from "safe-contracts/contracts/Safe.sol";
+import {SafeProxyFactory} from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 
 /// @title Genesis Precompile Config Generator
 /// @notice Generates a yaml file comprising the storage slots and their values
@@ -196,7 +196,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         vm.writeLine(dest, '"0x00000000000000000000000000000000000007e1": # TEL precompile');
         vm.writeLine(dest, "  nonce: 0");
         vm.writeLine(dest, "  balance: 0");
-        vm.writeLine(dest, "  code: 0xfe");
+        vm.writeLine(dest, '  code: "0xfe"'); // use "" otherwise yaml deserializes a number
     }
 
     /// @dev Writes EIP-2935 and EIP-4788 system contracts configuration directly to the yaml
