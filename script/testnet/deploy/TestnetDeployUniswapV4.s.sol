@@ -129,15 +129,18 @@ contract TestnetDeployUniswapV4 is
         // chain - run those standalone instead of skipping the whole script.
         // Checking on-chain code (not just the JSON value) avoids treating a
         // stale prediction as a successful deploy.
-        address poolManager = deployments.uniswapV4.PoolManager;
-        address swapHelper = deployments.uniswapV4.V4SwapHelper;
-        if (poolManager != address(0) && poolManager.code.length > 0) {
-            if (swapHelper == address(0) || swapHelper.code.length == 0) {
+        // Read the recorded V4 surface but use scoped names so they don't
+        // shadow the state-level `poolManager` / `v4SwapHelper` that
+        // `_writeDeployments` later persists.
+        address recordedPoolManager = deployments.uniswapV4.PoolManager;
+        address recordedSwapHelper = deployments.uniswapV4.V4SwapHelper;
+        if (recordedPoolManager != address(0) && recordedPoolManager.code.length > 0) {
+            if (recordedSwapHelper == address(0) || recordedSwapHelper.code.length == 0) {
                 console2.log("V4 core already deployed; running V4SwapHelper-only deploy");
                 _deployV4SwapHelperOnly();
                 return;
             }
-            console2.log("Uniswap V4 already deployed; PoolManager:", poolManager);
+            console2.log("Uniswap V4 already deployed; PoolManager:", recordedPoolManager);
             return;
         }
 

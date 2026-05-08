@@ -105,9 +105,9 @@
   "uniswapV4": {
     "Permit2": "0x000000000022d473030f116ddee9f6b43ac78ba3",
     "PoolManager": "0xaa046f0a1a20d493780bf3c7d8539db29ac3cfb7",
-    "PositionManager": "0x6bb654a15a533f40e4e500fc0e25b7f887f8505b",
+    "PositionManager": "0x1b71e360c797e17851c7daa29b31d47e93fbf066",
     "StateView": "0x669c2de31ffd73efcf572a8de338b7c1bf0fcfa8",
     "V4Quoter": "0xfc230f6cc92e00ad77f66d6ec6ec9583c4938ddc",
-    "V4SwapHelper": "0x28e06a3bd3f0358f5ea91ceceebe66c93a6e0737"
+    "V4SwapHelper": "0x059191b154a28afa69255aa9bdd80fc680009d28"
   }
 }

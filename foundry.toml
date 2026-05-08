@@ -17,6 +17,7 @@ fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
     { access = "read-write", path = "./deployments/deployments.json" },
     { access = "read", path = "./external/uniswap/precompiles" },
+    { access = "read", path = "./cache/seed-testnet-lps-fx.json" },
 ]
 
 [profile.ci]
