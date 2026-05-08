@@ -41,16 +41,20 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         wTEL = deployments.WTEL;
         admin = deployments.admin;
         feeToSetter_ = admin;
-        // _v2 salt suffix forces fresh CREATE2 addresses so the redeploy doesn't
-        // collide with the live Adiri deployment that uses the legacy precompile
-        // as WETH. Pre-existing factory + router stay at their original addresses
-        // and become orphans; the new ones land at fresh CREATE2 destinations.
-        factorySalt = bytes32(bytes("UniswapV2Factory_v2"));
-        routerSalt = bytes32(bytes("UniswapV2Router02_v2"));
+        // _v3 salt suffix forces fresh CREATE2 addresses so the redeploy doesn't
+        // collide with the live Adiri deployment. The previous _v2 stack wired
+        // the V2 router to a stale WTEL prediction (the address recorded in
+        // deployments.json before WTEL.sol's final byte-shape was settled), so
+        // any router-mediated wrap/unwrap silently routes to a code-less
+        // address. Pre-existing factory + router stay at their original
+        // addresses and become orphans; the new ones land at fresh CREATE2
+        // destinations consistent with the live WTEL.
+        factorySalt = bytes32(bytes("UniswapV2Factory_v3"));
+        routerSalt = bytes32(bytes("UniswapV2Router02_v3"));
 
         require(
-            wTEL != address(0),
-            "TestnetDeployUniswapV2: WTEL not deployed; run TestnetDeployWTEL first"
+            wTEL != address(0) && wTEL.code.length > 0,
+            "TestnetDeployUniswapV2: WTEL not deployed (or recorded address has no code); run TestnetDeployWTEL first"
         );
 
         stables.push(deployments.eXYZs.eAUD);

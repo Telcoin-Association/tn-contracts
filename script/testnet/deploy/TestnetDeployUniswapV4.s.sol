@@ -112,8 +112,8 @@ contract TestnetDeployUniswapV4 is
         admin = deployments.admin;
 
         require(
-            wTEL != address(0),
-            "TestnetDeployUniswapV4: WTEL not deployed; run TestnetDeployWTEL first"
+            wTEL != address(0) && wTEL.code.length > 0,
+            "TestnetDeployUniswapV4: WTEL not deployed (or recorded address has no code); run TestnetDeployWTEL first"
         );
 
         // V4 surface here (PoolManager, PositionManager, V4Quoter, StateView)
@@ -123,17 +123,24 @@ contract TestnetDeployUniswapV4 is
     }
 
     function run() public {
-        // Idempotency: if PoolManager is deployed, the V4 core stack is already
-        // live. Late-added contracts (e.g. V4SwapHelper, introduced after the
-        // initial V4 deploy) still need to land on the chain - run those
-        // standalone instead of skipping the whole script.
-        if (deployments.uniswapV4.PoolManager != address(0)) {
-            if (deployments.uniswapV4.V4SwapHelper == address(0)) {
+        // Idempotency: if PoolManager is recorded AND has code on-chain, the
+        // V4 core stack is already live. Late-added contracts (e.g. V4SwapHelper,
+        // introduced after the initial V4 deploy) still need to land on the
+        // chain - run those standalone instead of skipping the whole script.
+        // Checking on-chain code (not just the JSON value) avoids treating a
+        // stale prediction as a successful deploy.
+        // Read the recorded V4 surface but use scoped names so they don't
+        // shadow the state-level `poolManager` / `v4SwapHelper` that
+        // `_writeDeployments` later persists.
+        address recordedPoolManager = deployments.uniswapV4.PoolManager;
+        address recordedSwapHelper = deployments.uniswapV4.V4SwapHelper;
+        if (recordedPoolManager != address(0) && recordedPoolManager.code.length > 0) {
+            if (recordedSwapHelper == address(0) || recordedSwapHelper.code.length == 0) {
                 console2.log("V4 core already deployed; running V4SwapHelper-only deploy");
                 _deployV4SwapHelperOnly();
                 return;
             }
-            console2.log("Uniswap V4 already deployed; PoolManager:", deployments.uniswapV4.PoolManager);
+            console2.log("Uniswap V4 already deployed; PoolManager:", recordedPoolManager);
             return;
         }
 

@@ -37,7 +37,12 @@ contract TestnetDeployWTEL is Script {
     }
 
     function run() public {
-        if (deployments.WTEL != address(0)) {
+        // Idempotency: skip only if WTEL is recorded AND has code on-chain.
+        // A non-zero JSON address with no on-chain code means the recorded
+        // address is a stale prediction (e.g. an initcode that no longer
+        // matches current source) - we must redeploy in that case rather
+        // than treating the JSON as authoritative.
+        if (deployments.WTEL != address(0) && deployments.WTEL.code.length > 0) {
             console2.log("WTEL already deployed at:", deployments.WTEL);
             return;
         }

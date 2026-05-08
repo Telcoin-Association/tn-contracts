@@ -81,21 +81,20 @@ contract TestnetDeployUniswapV3 is
 
     // Salts for the deterministic CREATE2 deployer (Arachnid). Each is a unique
     // bytes32 derived from the contract name so re-runs land at the same address.
-    // _v2 suffix forces fresh CREATE2 destinations so the WTEL-aware redeploy
-    // doesn't collide with the legacy Adiri V3 stack (factory / NFTDescriptor /
+    // _v3 suffix forces fresh CREATE2 destinations so the WTEL-aware redeploy
+    // doesn't collide with prior Adiri V3 stacks (factory / NFTDescriptor /
     // TickLens have no WTEL dependency, so without a salt bump they'd hash to
-    // the existing live addresses and CREATE2 would revert on already-occupied
-    // code). The WTEL-dependent contracts get fresh addresses by virtue of
-    // their constructor args changing, but bumping all salts uniformly keeps
-    // the on-chain story coherent: every V3 contract for the new stack lives
-    // at a "_v2" address.
-    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory_v2"));
-    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor_v2"));
-    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor_v2"));
-    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager_v2"));
-    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02_v2"));
-    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2_v2"));
-    bytes32 tickLensSalt = bytes32(bytes("TickLens_v2"));
+    // the previously-predicted addresses). The earlier _v2 predictions baked in
+    // a stale WTEL address and were never broadcast cleanly; bumping all salts
+    // uniformly keeps the on-chain story coherent: every V3 contract for the
+    // new stack lives at a "_v3" address consistent with the live WTEL.
+    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory_v3"));
+    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor_v3"));
+    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor_v3"));
+    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager_v3"));
+    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02_v3"));
+    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2_v3"));
+    bytes32 tickLensSalt = bytes32(bytes("TickLens_v3"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
@@ -108,22 +107,28 @@ contract TestnetDeployUniswapV3 is
         admin = deployments.admin;
 
         require(
-            wTEL != address(0),
-            "TestnetDeployUniswapV3: WTEL not deployed; run TestnetDeployWTEL first"
+            wTEL != address(0) && wTEL.code.length > 0,
+            "TestnetDeployUniswapV3: WTEL not deployed (or recorded address has no code); run TestnetDeployWTEL first"
         );
 
         // V3's SwapRouter02 takes the V2 factory as a constructor arg so a single
         // router can route across both V2 and V3 pools.
+        address v2Factory = deployments.uniswapV2.UniswapV2Factory;
         require(
-            deployments.uniswapV2.UniswapV2Factory != address(0),
-            "TestnetDeployUniswapV3: V2 factory not deployed; run TestnetDeployUniswapV2 first"
+            v2Factory != address(0) && v2Factory.code.length > 0,
+            "TestnetDeployUniswapV3: V2 factory not deployed (or recorded address has no code); run TestnetDeployUniswapV2 first"
         );
     }
 
     function run() public {
-        // Idempotency: skip if already deployed.
-        if (deployments.uniswapV3.UniswapV3Factory != address(0)) {
-            console2.log("Uniswap V3 already deployed at:", deployments.uniswapV3.UniswapV3Factory);
+        // Idempotency: skip only if the V3 factory is recorded AND has code
+        // on-chain. A non-zero JSON address with no on-chain code means the
+        // recorded address is a stale prediction (e.g. an earlier broadcast
+        // that never actually landed) - we must redeploy in that case rather
+        // than treating the JSON as authoritative.
+        address v3Factory = deployments.uniswapV3.UniswapV3Factory;
+        if (v3Factory != address(0) && v3Factory.code.length > 0) {
+            console2.log("Uniswap V3 already deployed at:", v3Factory);
             return;
         }
 
