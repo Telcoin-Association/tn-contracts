@@ -53,8 +53,8 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         routerSalt = bytes32(bytes("UniswapV2Router02_v3"));
 
         require(
-            wTEL != address(0),
-            "TestnetDeployUniswapV2: WTEL not deployed; run TestnetDeployWTEL first"
+            wTEL != address(0) && wTEL.code.length > 0,
+            "TestnetDeployUniswapV2: WTEL not deployed (or recorded address has no code); run TestnetDeployWTEL first"
         );
 
         stables.push(deployments.eXYZs.eAUD);

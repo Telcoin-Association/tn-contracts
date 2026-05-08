@@ -107,22 +107,28 @@ contract TestnetDeployUniswapV3 is
         admin = deployments.admin;
 
         require(
-            wTEL != address(0),
-            "TestnetDeployUniswapV3: WTEL not deployed; run TestnetDeployWTEL first"
+            wTEL != address(0) && wTEL.code.length > 0,
+            "TestnetDeployUniswapV3: WTEL not deployed (or recorded address has no code); run TestnetDeployWTEL first"
         );
 
         // V3's SwapRouter02 takes the V2 factory as a constructor arg so a single
         // router can route across both V2 and V3 pools.
+        address v2Factory = deployments.uniswapV2.UniswapV2Factory;
         require(
-            deployments.uniswapV2.UniswapV2Factory != address(0),
-            "TestnetDeployUniswapV3: V2 factory not deployed; run TestnetDeployUniswapV2 first"
+            v2Factory != address(0) && v2Factory.code.length > 0,
+            "TestnetDeployUniswapV3: V2 factory not deployed (or recorded address has no code); run TestnetDeployUniswapV2 first"
         );
     }
 
     function run() public {
-        // Idempotency: skip if already deployed.
-        if (deployments.uniswapV3.UniswapV3Factory != address(0)) {
-            console2.log("Uniswap V3 already deployed at:", deployments.uniswapV3.UniswapV3Factory);
+        // Idempotency: skip only if the V3 factory is recorded AND has code
+        // on-chain. A non-zero JSON address with no on-chain code means the
+        // recorded address is a stale prediction (e.g. an earlier broadcast
+        // that never actually landed) - we must redeploy in that case rather
+        // than treating the JSON as authoritative.
+        address v3Factory = deployments.uniswapV3.UniswapV3Factory;
+        if (v3Factory != address(0) && v3Factory.code.length > 0) {
+            console2.log("Uniswap V3 already deployed at:", v3Factory);
             return;
         }
 
