@@ -3,12 +3,13 @@ pragma solidity ^0.8.20;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
+import { BlsG1Deployed } from "../EIP2537/BlsG1Deployed.sol";
 import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
 
 /// @notice Test suite for BLS12-381 G1 Proof of Possession
 /// @dev Resource for verifying G1: https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-04#section-3.1
 
-contract BlsG1Test is Test, BlsG1Harness {
+contract BlsG1Test is BlsG1Deployed, Test, BlsG1Harness {
     bytes5 constant POP_INTENT_PREFIX = 0x000000d501;
     bytes1 constant ADDRESS_LEN_PREFIX = 0x14;
 

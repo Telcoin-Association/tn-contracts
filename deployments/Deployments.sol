@@ -31,6 +31,11 @@ struct Deployments {
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 ///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
 struct MagicAddresses {
+    /// @notice Canonical address at which the `BlsG1` library is deployed and linked at genesis.
+    ///         Mirrors `BLS_G1_ADDRESS` in `src/consensus/BlsG1.sol` and the `libraries` pin in
+    ///         `foundry.toml`. Reserved for an eventual native Rust precompile reimplementation,
+    ///         which will be address-stable for all consumers (e.g. `ConsensusRegistry`).
+    address BLS_G1_LIBRARY;
     /// @notice Sentinel for the chain's native token (TEL). Uses the conventional EEEE
     ///         magic address (popularised by 1inch / Aave) so callers can pass it
     ///         intentionally rather than relying on the zero address.

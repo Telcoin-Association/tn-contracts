@@ -5,11 +5,17 @@ import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
 import { BlsG1 } from "src/consensus/BlsG1.sol";
+import { BlsG1Deployed } from "../EIP2537/BlsG1Deployed.sol";
 import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
 
-contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisPrecompiler {
+// `BlsG1Deployed` deploys the linked `BlsG1` library to its pinned address. As a base constructor it
+// runs before this contract's state-var initializers and constructor body, so the BLS work they do
+// (real PoPs, `validator5BlsPubkey`) resolves. The inherited `ConsensusRegistry` self-instance is
+// unused (tests target the `consensusRegistry` instance built in `setUp`); we override
+// `_verifyProofOfPossession` below so its genesis construction does no BLS and needs no real PoPs.
+contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisPrecompiler, BlsG1Deployed {
     using BlsG1 for bytes;
 
     ConsensusRegistry public consensusRegistry;
@@ -34,7 +40,9 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     // non-genesis validator for testing
     uint256 public validator5Secret = 5;
     address public validator5 = _addressFromPrivateKey(validator5Secret);
-    bytes public validator5BlsPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(validator5Secret));
+    // assigned in the constructor body (not inline): inline state-var initializers run before base
+    // constructors, i.e. before `BlsG1Deployed` etches the library, so the BLS calls would revert.
+    bytes public validator5BlsPubkey;
 
     uint256 public telMaxSupply = 100_000_000_000e18;
     uint256 public registryGenesisBal;
@@ -48,13 +56,52 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     constructor()
         ConsensusRegistry(
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_),
+            // Base-constructor arguments are evaluated before the `BlsG1Deployed` base etches the
+            // library, so they must NOT call BLS. `_populateInitialValidators` is BLS-free; the pubkeys
+            // and PoPs would call BLS, so the unused self-instance gets BLS-free placeholders (its
+            // `_verifyProofOfPossession` is overridden to a no-op). The genuine pubkeys/PoPs are built
+            // in the body below, after `BlsG1` has been etched.
             _populateInitialValidators(),
-            _populateInitialBlsPubkeys(),
-            _populateinitialBLSPops(),
+            _dummyBlsPubkeys(),
+            _dummyPops(),
             crOwner
         )
     {
+        // `BlsG1Deployed` (a base) has etched the library at `BLS_G1_ADDRESS`, so BLS now resolves.
+        // Build the real pubkeys/PoPs/validator5 key used to construct the genuine `consensusRegistry`
+        // instance in `setUp`.
+        _populateInitialBlsPubkeys();
+        _populateinitialBLSPops();
+        validator5BlsPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(validator5Secret));
         vm.etch(issuance, type(Issuance).runtimeCode);
+    }
+
+    /// @dev Skips BLS proof-of-possession verification for the unused inherited self-instance, so its
+    /// genesis construction (which runs before any test setup) does not call `BlsG1`. The genuine
+    /// registry deployed in `setUp` is a plain `ConsensusRegistry` and uses the real verification.
+    function _verifyProofOfPossession(
+        BlsG1.ProofOfPossession memory,
+        address,
+        bytes memory blsPubkey
+    )
+        internal
+        override
+        returns (bytes32)
+    {
+        return keccak256(blsPubkey);
+    }
+
+    /// @dev Arity-matching, BLS-free placeholder pubkeys for the inherited self-instance's constructor.
+    function _dummyBlsPubkeys() internal pure returns (bytes[] memory pubkeys) {
+        pubkeys = new bytes[](4);
+        for (uint256 i; i < 4; ++i) {
+            pubkeys[i] = abi.encodePacked(keccak256(abi.encode("dummy-bls-pubkey", i)));
+        }
+    }
+
+    /// @dev Arity-matching, BLS-free placeholder PoPs for the inherited self-instance's constructor.
+    function _dummyPops() internal pure returns (BlsG1.ProofOfPossession[] memory) {
+        return new BlsG1.ProofOfPossession[](4);
     }
 
     // convenience fn for constructor

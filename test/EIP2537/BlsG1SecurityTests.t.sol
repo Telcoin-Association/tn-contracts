@@ -3,11 +3,12 @@ pragma solidity ^0.8.20;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
+import { BlsG1Deployed } from "../EIP2537/BlsG1Deployed.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Comprehensive security tests for BLS12-381 G1 implementation
 /// @dev Tests focus on edge cases, attack vectors, and cryptographic correctness
-contract BlsG1SecurityTests is Test {
+contract BlsG1SecurityTests is BlsG1Deployed, Test {
     bytes5 constant POP_INTENT_PREFIX = 0x000000d501;
     bytes1 constant ADDRESS_LEN_PREFIX = 0x14;
 

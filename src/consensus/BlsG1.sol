@@ -3,6 +3,13 @@ pragma solidity ^0.8.20;
 
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @dev Canonical address at which the `BlsG1` library is deployed and linked at genesis.
+/// This is the single source of truth for the link address. It MUST be mirrored in
+/// `foundry.toml`'s `libraries` setting (TOML cannot reference Solidity constants) and in the
+/// Telcoin-Network protocol genesis. The address is reserved for an eventual native Rust
+/// precompile reimplementation of this library, which will be address-stable for all consumers.
+address constant BLS_G1_ADDRESS = 0x000000000000000000000000000000000000B151;
+
 /// @title BlsG1 Proof of Possession Library
 /// @notice Utility to perform proof of possessions for BLS12-381 using EIP2537
 /// @dev Implements the 'min-sig' variant (Signatures in G1, Public Keys in G2)

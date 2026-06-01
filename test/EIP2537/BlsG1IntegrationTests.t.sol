@@ -3,13 +3,14 @@ pragma solidity ^0.8.20;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { BlsG1 } from "../../src/consensus/BlsG1.sol";
+import { BlsG1Deployed } from "../EIP2537/BlsG1Deployed.sol";
 import { ConsensusRegistry } from "../../src/consensus/ConsensusRegistry.sol";
 import { IConsensusRegistry } from "../../src/interfaces/IConsensusRegistry.sol";
 import { IStakeManager } from "../../src/interfaces/IStakeManager.sol";
 
 /// @notice Integration tests for BlsG1 with ConsensusRegistry
 /// @dev Tests the actual usage patterns and attack vectors in production
-contract BlsG1IntegrationTests is Test {
+contract BlsG1IntegrationTests is BlsG1Deployed, Test {
     bytes5 constant POP_INTENT_PREFIX = 0x000000d501;
     bytes1 constant ADDRESS_LEN_PREFIX = 0x14;
 
