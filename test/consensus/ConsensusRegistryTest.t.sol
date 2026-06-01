@@ -377,11 +377,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
     function testRevert_stake_invalidPoint() public {
         vm.prank(validator5);
-        // providing identity reverts with actual=256, expected=256
-        vm.expectRevert(abi.encodeWithSelector(BlsG1.InvalidPoint.selector, 256, 256));
+        // an identity (all-zero) G2 pubkey is rejected by BlsG1.verifyProofOfPossession's validity check
+        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(128)));
+        }(new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(96)));
     }
 
     // Test for incorrect stake amount

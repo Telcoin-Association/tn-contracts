@@ -82,6 +82,12 @@ library BlsG1 {
     /// @notice This is the generic default used by `blst::min_sig`. Integrators should consider custom DST.
     bytes public constant HASH_TO_G1_DST = "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
 
+    /// @dev Fixed prefixes for the proof-of-possession message, matching the Telcoin-Network protocol's
+    /// Rust encoding. `POP_INTENT_PREFIX` differentiates BLS proof intents; `ADDRESS_LEN_PREFIX` signals
+    /// the 20-byte validator address length encoding. See `proofOfPossessionMessage()`.
+    bytes5 public constant POP_INTENT_PREFIX = 0x000000d501;
+    bytes1 public constant ADDRESS_LEN_PREFIX = 0x14;
+
     /// @dev Constants for `expand_message_xmd` variant defined in RFC9380
     uint256 public constant B_IN_BYTES = 32; // output size in bytes by compliant hash fn (sha256)
     uint256 public constant S_IN_BYTES = 64; // block size in bytes by compliant hash fn (sha256)
@@ -105,7 +111,7 @@ library BlsG1 {
     /// @param uncompressedSignature 96-byte uncompressed G1 point
     /// @return _ EIP2537-compliant, 128-byte encoded G1 point comprising two 64-byte padded field elements (x, y
     /// coordinates)
-    function encodeG1PointForEIP2537(bytes memory uncompressedSignature) external pure returns (bytes memory) {
+    function encodeG1PointForEIP2537(bytes memory uncompressedSignature) public pure returns (bytes memory) {
         if (uncompressedSignature.length != 96) {
             revert InvalidBLSProof();
         }
@@ -145,7 +151,7 @@ library BlsG1 {
     /// coordinates)
     /// @notice Coordinate reordering is performed because EIP2537 precompiles expect: `x.c0 || x.c1 || y.c0 || y.c1`
     /// This differs from some bls libraries (such as blst used by TN) which serialize to `x.c1 || x.c0 || y.c1 || y.c0`
-    function encodeG2PointForEIP2537(bytes memory uncompressedPubkey) external pure returns (bytes memory) {
+    function encodeG2PointForEIP2537(bytes memory uncompressedPubkey) public pure returns (bytes memory) {
         if (uncompressedPubkey.length != 192) {
             revert InvalidUncompressedBLSPubkey();
         }
@@ -238,6 +244,52 @@ library BlsG1 {
         return keccak256(a) == keccak256(b);
     }
 
+    /// @notice Builds the canonical proof-of-possession message a validator signs:
+    /// `POP_INTENT_PREFIX || uncompressedPubkey || ADDRESS_LEN_PREFIX || validatorAddress`.
+    /// @dev Pure message assembly only; on-curve validity is enforced by the pairing check in
+    /// `verifyProofOfPossession`. This is the single source of truth for the PoP message format and
+    /// matches the Telcoin-Network protocol's Rust encoding.
+    /// @param uncompressedPubkey The 192-byte uncompressed G2 BLS public key
+    /// @param validatorAddress The validator's execution address
+    function proofOfPossessionMessage(
+        bytes memory uncompressedPubkey,
+        address validatorAddress
+    )
+        public
+        pure
+        returns (bytes memory)
+    {
+        return bytes.concat(POP_INTENT_PREFIX, uncompressedPubkey, ADDRESS_LEN_PREFIX, bytes20(validatorAddress));
+    }
+
+    /// @notice Verifies a validator's BLS12-381 proof of possession from raw uncompressed inputs.
+    /// @dev Single entrypoint for consumers (e.g. `ConsensusRegistry`): builds the PoP message, encodes
+    /// the points to EIP2537 form, hashes to G1, and runs the pairing check, all internally. Mirrors the
+    /// planned native Rust precompile so the call site is address- and ABI-stable across the migration.
+    /// The EIP2537 pairing precompile rejects off-curve / wrong-subgroup points, so no separate
+    /// validation is required here.
+    /// @param uncompressedSignature 96-byte uncompressed G1 signature (the proof of possession)
+    /// @param uncompressedPubkey 192-byte uncompressed G2 public key
+    /// @param validatorAddress The validator's execution address bound into the PoP message
+    /// @return _ True if the proof of possession is valid
+    /// @dev Parameter order mirrors the protocol's Rust `verify_proof_of_possession_bls(proof, public_key,
+    /// address)` so this call site is stable when the implementation moves to the native precompile.
+    function verifyProofOfPossession(
+        bytes memory uncompressedSignature,
+        bytes memory uncompressedPubkey,
+        address validatorAddress
+    )
+        external
+        view
+        returns (bool)
+    {
+        bytes memory message = proofOfPossessionMessage(uncompressedPubkey, validatorAddress);
+        bytes memory eip2537Pubkey = encodeG2PointForEIP2537(uncompressedPubkey);
+        bytes memory eip2537Signature = encodeG1PointForEIP2537(uncompressedSignature);
+
+        return verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, message, HASH_TO_G1_DST);
+    }
+
     /**
      * @notice Provided parameters must be uncompressed and EIP2537-compliant due to BLS12-381 precompile limitations
      * Using G2 group for public keys (256bytes for EIP2537) and G1 group for signature (128bytes for EIP2537)
@@ -259,7 +311,7 @@ library BlsG1 {
         bytes memory message,
         bytes memory dst
     )
-        external
+        public
         view
         returns (bool)
     {
