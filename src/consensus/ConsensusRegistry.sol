@@ -36,11 +36,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
 
-    /// @notice Fixed prefixes inserted by rust protocol; see `proofOfPossessionMessage()`
-    /// @dev The proof of possession message prefix, used by the protocol to differentiate BLS proof intents
-    bytes5 constant POP_INTENT_PREFIX = 0x000000d501;
-    /// @dev The proof of possession's validator address length prefix, signifying 20 byte length encoding
-    bytes1 constant ADDRESS_LEN_PREFIX = 0x14;
+    // PoP message prefixes and assembly live in `BlsG1` (see `BlsG1.proofOfPossessionMessage`), the
+    // single source of truth for the proof-of-possession scheme ahead of its native precompile.
 
     /**
      *
@@ -323,13 +320,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         address validatorAddress
     )
         public
-        view
+        pure
         returns (bytes memory)
     {
-        bytes memory blsPubkeyEIP2537 = BlsG1.encodeG2PointForEIP2537(blsPubkeyUncompressed);
-        if (!BlsG1.validatePointG2(blsPubkeyEIP2537)) revert BlsG1.InvalidBLSPubkey();
-
-        return bytes.concat(POP_INTENT_PREFIX, blsPubkeyUncompressed, ADDRESS_LEN_PREFIX, bytes20(validatorAddress));
+        return BlsG1.proofOfPossessionMessage(blsPubkeyUncompressed, validatorAddress);
     }
 
     /**
@@ -619,11 +613,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     {
         if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
 
-        bytes memory popMessage = proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress);
-        bytes memory eip2537Pubkey = BlsG1.encodeG2PointForEIP2537(g1Pop.uncompressedPubkey);
-        bytes memory eip2537Signature = BlsG1.encodeG1PointForEIP2537(g1Pop.uncompressedSignature);
-        if (!BlsG1.verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, popMessage, BlsG1.HASH_TO_G1_DST)) {
-            revert InvalidProofOfPossession(g1Pop, popMessage);
+        // Single handoff to the BLS library: it builds the PoP message, encodes the points, hashes to
+        // curve, and runs the pairing check internally. This is the call that becomes a native precompile.
+        if (!BlsG1.verifyProofOfPossession(g1Pop.uncompressedSignature, g1Pop.uncompressedPubkey, validatorAddress)) {
+            revert InvalidProofOfPossession(g1Pop, proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress));
         }
 
         // prevent duplicate compressed pubkeys
