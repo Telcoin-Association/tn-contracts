@@ -614,6 +614,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         bytes memory blsPubkey
     )
         internal
+        virtual
         returns (bytes32)
     {
         if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
