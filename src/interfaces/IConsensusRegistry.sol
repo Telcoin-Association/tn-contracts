@@ -53,6 +53,9 @@ interface IConsensusRegistry {
     error GenesisArityMismatch();
     /// @notice Thrown when a BLS public key has already been registered to another validator
     error DuplicateBLSPubkey();
+    /// @notice Thrown when the compressed `blsPubkey` does not match the uncompressed key whose
+    /// possession was proven (their x-coordinates differ)
+    error BLSPubkeyMismatch();
     /// @notice Thrown when a committee size is zero or exceeds the number of eligible validators
     /// @param minCommitteeSize The minimum acceptable committee size
     /// @param providedCommitteeSize The committee size that was rejected

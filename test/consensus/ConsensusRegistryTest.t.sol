@@ -384,6 +384,44 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }(new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(96)));
     }
 
+    /// @notice Validates the compressed/uncompressed x-match against a real blst-serialized vector
+    /// (the canonical BLS12-381 G2 generator), independent of the harness's self-derived keys.
+    function test_blsKeysAligned_realGeneratorVector() public view {
+        // Canonical blst-compressed G2 generator: `x.c1 || x.c0` with the compression flag set in byte 0.
+        bytes memory compressedGenerator =
+            hex"93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8";
+        // Uncompressed (blst order) generator derived from the library's EIP2537-encoded constant.
+        bytes memory uncompressedGenerator = BlsG1.decodeG2PointFromEIP2537(BlsG1.G2_GENERATOR);
+
+        assertEq(compressedGenerator.length, 96);
+        assertEq(uncompressedGenerator.length, 192);
+
+        // A real compressed key aligns with its uncompressed form (validates flag-masking + byte order).
+        assertTrue(_blsKeysAligned(compressedGenerator, uncompressedGenerator));
+
+        // A different key's uncompressed form does not align with the generator's compressed key.
+        bytes memory otherUncompressed = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(7));
+        assertFalse(_blsKeysAligned(compressedGenerator, otherUncompressed));
+    }
+
+    /// @notice A valid proof of possession over one key cannot register a different (rogue) compressed key.
+    function testRevert_stake_blsPubkeyMismatch() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        // valid PoP over validator5's key, but a compressed key from a different secret (mismatched x)
+        bytes memory mismatchedCompressed = _blsDummyPubkeyFromSecret(6);
+
+        vm.prank(validator5);
+        vm.expectRevert(BLSPubkeyMismatch.selector);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(mismatchedCompressed, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
+    }
+
     // Test for incorrect stake amount
     function testRevert_stake_invalidStakeAmount() public {
         // validator signs proof of possession message
