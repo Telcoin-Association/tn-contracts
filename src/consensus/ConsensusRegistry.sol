@@ -932,8 +932,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     function _enforceSorting(address[] calldata futureCommittee) internal pure {
-        for (uint256 i; i < futureCommittee.length - 1; ++i) {
-            if (futureCommittee[i] >= futureCommittee[i + 1]) revert CommitteeRequirement(futureCommittee[i]);
+        // iterate from index 1 comparing each element to its predecessor; this avoids the `length - 1`
+        // underflow on an empty committee (which `concludeEpoch`'s length check then rejects cleanly)
+        for (uint256 i = 1; i < futureCommittee.length; ++i) {
+            if (futureCommittee[i - 1] >= futureCommittee[i]) revert CommitteeRequirement(futureCommittee[i - 1]);
         }
     }
 

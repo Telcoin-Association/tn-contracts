@@ -245,6 +245,6 @@ interface IConsensusRegistry {
     /// @param blsPubkeyUncompressed Must provide the 192-byte uncompressed bls pubkey
     function proofOfPossessionMessage(bytes calldata blsPubkeyUncompressed, address validatorAddress)
         external
-        view
+        pure
         returns (bytes memory);
 }

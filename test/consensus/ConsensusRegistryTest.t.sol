@@ -452,6 +452,15 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigB));
     }
 
+    /// @notice An empty committee reverts cleanly (InvalidCommitteeSize), not an `_enforceSorting` panic.
+    function testRevert_concludeEpoch_emptyCommittee() public {
+        address[] memory empty = new address[](0);
+        uint16 size = consensusRegistry.getNextCommitteeSize();
+        vm.prank(sysAddress);
+        vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, uint256(size), uint256(0)));
+        consensusRegistry.concludeEpoch(empty);
+    }
+
 
 
     // Test for incorrect stake amount
