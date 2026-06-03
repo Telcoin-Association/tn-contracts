@@ -108,6 +108,8 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             vm.expectRevert();
             consensusRegistry.ownerOf(tokenId);
         }
+
+        _assertEligibleInvariant();
     }
 
     function testFuzz_concludeEpoch_success(uint24 numValidators) public {
@@ -165,6 +167,8 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         for (uint256 i; i < subsequentCommittee.length; ++i) {
             assertEq(subsequentCommittee[i], futureCommittee[i]);
         }
+
+        _assertEligibleInvariant();
     }
 
     function testFuzz_concludeEpoch_invalidCommitteeSize(uint24 numValidators) public {
