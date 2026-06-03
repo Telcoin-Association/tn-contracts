@@ -422,6 +422,38 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }(mismatchedCompressed, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
     }
 
+    /// @notice EXP-001 regression: a key and its y-sign-flipped negation (same x) cannot both register.
+    function testRevert_stake_negationDoubleRegistration() public {
+        // A registers compress(PK) (y-sign flag 0)
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        bytes memory msgA = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory sigA = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, msgA));
+        bytes memory compressedPK = _blsDummyPubkeyFromSecret(validator5Secret);
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigA));
+
+        // B attempts to register the SAME key with the y-sign flag flipped (same x, different bytes)
+        address attackerB = _addressFromPrivateKey(99);
+        vm.deal(attackerB, stakeAmount_);
+        vm.prank(crOwner);
+        consensusRegistry.mint(attackerB);
+        bytes memory msgB = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, attackerB);
+        bytes memory sigB = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, msgB));
+        bytes memory compressedNegPK = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            compressedNegPK[i] = compressedPK[i];
+        }
+        compressedNegPK[0] = compressedNegPK[0] ^ bytes1(0x20); // flip blst y-sign flag
+
+        // x-keyed deduplication collapses the negation variant and rejects it
+        vm.prank(attackerB);
+        vm.expectRevert(DuplicateBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigB));
+    }
+
+
+
     // Test for incorrect stake amount
     function testRevert_stake_invalidStakeAmount() public {
         // validator signs proof of possession message

@@ -243,8 +243,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // validate bls pubkey format (must be 96 bytes)
         if (blsPubkey.length != 96) return false;
 
-        // get the hash and check if this pubkey was ever used
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
+        // get the canonical (x-coordinate) key id and check if this pubkey was ever used
+        bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
         address validatorAddress = blsPubkeyHashToValidator[blsPubkeyHash];
 
         // if no validator address found, return false
@@ -307,7 +307,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkConsensusNFTOwner(validatorAddress);
         uint8 stakeVersion = getCurrentEpochInfo().stakeVersion;
         uint64 nonce = delegations[validatorAddress].nonce;
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
+        bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
         bytes32 structHash =
             keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce));
 
@@ -663,11 +663,29 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
     function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
-        blsPubkeyHash = keccak256(blsPubkey);
+        blsPubkeyHash = _blsKeyId(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
 
         return blsPubkeyHash;
+    }
+
+    /// @notice Canonical identifier for a 96-byte compressed BLS G2 key: the keccak of its x-coordinate.
+    /// @dev blst's compressed form is `x.c1 || x.c0` with 3 flag bits (compression/infinity/sign) in the
+    /// top bits of byte 0. Keying deduplication on the x-coordinate (flag bits cleared) collapses a key and
+    /// its y-sign negation - which share an x - into one id, enforcing one keypair per validator set. Two
+    /// distinct valid G2 points share an x only if they are negations of each other, so honest distinct
+    /// validators never collide. Caller must pass a 96-byte key (enforced upstream).
+    function _blsKeyId(bytes memory compressed) internal pure returns (bytes32 id) {
+        assembly {
+            let ptr := add(compressed, 0x20)
+            // hash the 96-byte x with the 3 flag bits cleared in the most-significant byte of word 0
+            let scratch := mload(0x40)
+            mstore(scratch, and(mload(ptr), 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(scratch, 0x20), mload(add(ptr, 0x20)))
+            mstore(add(scratch, 0x40), mload(add(ptr, 0x40)))
+            id := keccak256(scratch, 0x60)
+        }
     }
 
     /// @notice Enters a validator into the activation queue upon receiving stake
