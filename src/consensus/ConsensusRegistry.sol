@@ -305,6 +305,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         returns (bytes32)
     {
         _checkConsensusNFTOwner(validatorAddress);
+        // `_blsKeyId` mloads a fixed 96 bytes; guard the length for parity with `isValidator` and
+        // `_verifyProofOfPossession` so off-chain integrators get a clean revert on a malformed key
+        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
         uint8 stakeVersion = getCurrentEpochInfo().stakeVersion;
         uint64 nonce = delegations[validatorAddress].nonce;
         bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
@@ -612,6 +615,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         returns (bytes32)
     {
         if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
+
+        // The stored consensus key is blst's compressed G2 form: byte 0's top bit (0x80) is the
+        // compression flag and the next (0x40) the infinity flag. The x-coordinate binding below masks
+        // all three flag bits, so on its own it would accept a key whose x matches the proven key but
+        // whose flags are malformed - e.g. the infinity flag set, which off-chain blst decodes to the
+        // identity point, or the compression flag cleared, which fails to decode. Either yields a
+        // committee member the consensus layer cannot process. Require compression set and infinity
+        // clear so the stored key is a well-formed, non-identity point. The sign flag (0x20) is left
+        // free: a wrong sign only disables this validator's own signatures, which BFT already tolerates.
+        uint8 flags = uint8(blsPubkey[0]);
+        if (flags & 0x80 == 0 || flags & 0x40 != 0) revert BlsG1.InvalidBLSPubkey();
 
         // Single handoff to the BLS library: it builds the PoP message, encodes the points, hashes to
         // curve, and runs the pairing check internally. This is the call that becomes a native precompile.

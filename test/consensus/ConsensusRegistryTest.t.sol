@@ -452,6 +452,38 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigB));
     }
 
+    /// @notice A stored compressed key with a malformed compression/infinity flag is rejected, even
+    /// though its x-coordinate matches the proven key (the alignment check masks the flag bits).
+    function testRevert_stake_malformedCompressedFlags() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory sig = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        bytes memory compressed = _blsDummyPubkeyFromSecret(validator5Secret);
+
+        // infinity flag set -> off-chain blst decodes to the identity point
+        bytes memory infinityFlagged = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            infinityFlagged[i] = compressed[i];
+        }
+        infinityFlagged[0] = infinityFlagged[0] | bytes1(0x40);
+        vm.prank(validator5);
+        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(infinityFlagged, BlsG1.ProofOfPossession(validator5BlsPubkey, sig));
+
+        // compression flag cleared -> off-chain blst fails to decode
+        bytes memory uncompressedFlagged = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            uncompressedFlagged[i] = compressed[i];
+        }
+        uncompressedFlagged[0] = uncompressedFlagged[0] & bytes1(0x7f);
+        vm.prank(validator5);
+        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            uncompressedFlagged, BlsG1.ProofOfPossession(validator5BlsPubkey, sig)
+        );
+    }
+
     /// @notice An empty committee reverts cleanly (InvalidCommitteeSize), not an `_enforceSorting` panic.
     function testRevert_concludeEpoch_emptyCommittee() public {
         address[] memory empty = new address[](0);
