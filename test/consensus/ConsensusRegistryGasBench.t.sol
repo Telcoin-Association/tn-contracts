@@ -47,7 +47,7 @@ contract ConsensusRegistryGasBench is ConsensusRegistryTestUtils {
             uint256 n = sizes[s];
             ConsensusRegistry reg = _deploy(n);
 
-            // committee-eligible count: now three set-length reads (was a single cached SLOAD)
+            // committee-eligible count: cached counter, a single SLOAD (kept alongside the sets)
             uint256 g0 = gasleft();
             uint256 counted = reg.getEligibleValidatorCount();
             uint256 countGas = g0 - gasleft();
@@ -68,7 +68,7 @@ contract ConsensusRegistryGasBench is ConsensusRegistryTestUtils {
             assertEq(addrsLen, n);
             assertEq(infoLen, n);
             emit log_named_uint("N validators", n);
-            emit log_named_uint("  getEligibleValidatorCount gas (3 set lengths)", countGas);
+            emit log_named_uint("  getEligibleValidatorCount gas (cached counter)", countGas);
             emit log_named_uint("  getValidators(Active) gas      (address[] set)", addrsGas);
             emit log_named_uint("  getValidatorsInfo(Active) gas  (ValidatorInfo[])", infoGas);
         }

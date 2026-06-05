@@ -70,6 +70,7 @@ The BLS / committee construction path (`getCommitteeValidators(epoch)` in `epoch
 On the contract side, the protocol's per-epoch `getValidators` read drops sharply because it returns
 addresses instead of decoding `ValidatorInfo[]` (roughly an 88% reduction at ~128 validators); the
 per-status set reads and the queue fetch in `concludeEpoch` shrink from O(totalSupply) to O(set). The
-costs move to the infrequent, governance-gated transitions (stake/activate/exit do an extra set
-add/remove) and to the eligible-count getter (three set-length reads instead of one cached SLOAD), both
-negligible against the recurring read savings.
+eligible count stays a cached single SLOAD (`eligibleValidatorCount`, maintained by `_setStatus`
+alongside the sets), so the hot count path is unchanged. The only added cost is on the infrequent,
+governance-gated transitions (stake/activate/exit do an extra set add/remove), negligible against the
+recurring read savings.
