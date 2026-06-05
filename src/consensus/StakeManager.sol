@@ -278,10 +278,6 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         return uint160(validatorAddress);
     }
 
-    function _getAddress(uint256 tokenId) internal pure returns (address) {
-        return address(uint160(tokenId));
-    }
-
     function _exists(uint256 tokenId) internal view virtual returns (bool) {
         if (tokenId == 0 || tokenId >= type(uint160).max) revert InvalidTokenId(tokenId);
         return _ownerOf(tokenId) != address(0);

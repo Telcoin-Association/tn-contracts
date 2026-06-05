@@ -451,15 +451,19 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _beginActivation(validator, currentEpoch);
     }
 
+    /// @dev Shared access control for stake-originator operations (claim / unstake / version upgrade):
+    /// requires `validatorAddress` holds a ConsensusNFT and the caller is the validator or its delegator
+    /// (the stake/reward recipient). Returns the recipient so callers route funds without re-deriving it.
+    function _checkStakeOriginator(address validatorAddress) private view returns (address recipient) {
+        _checkConsensusNFTOwner(validatorAddress);
+        recipient = _getRecipient(validatorAddress);
+        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+    }
+
     /// @inheritdoc StakeManager
     function claimStakeRewards(address validatorAddress) external override whenNotPaused nonReentrant {
-        // require validator is whitelisted, having been issued a ConsensusNFT by governance
-        _checkConsensusNFTOwner(validatorAddress);
+        address recipient = _checkStakeOriginator(validatorAddress);
         uint8 validatorVersion = validators[validatorAddress].stakeVersion;
-
-        // require caller is either the validator or its delegator
-        address recipient = _getRecipient(validatorAddress);
-        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
         uint256 rewards = _claimStakeRewards(validatorAddress, recipient, validatorVersion);
 
         emit RewardsClaimed(recipient, rewards);
@@ -476,11 +480,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         whenNotPaused
         nonReentrant
     {
-        // 1. Access control (same pattern as claimStakeRewards/unstake)
-        _checkConsensusNFTOwner(validatorAddress);
-        address recipient = _getRecipient(validatorAddress);
-        // this allows validators to act independently of delegators
-        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+        // 1. Access control: the validator or its delegator may act
+        address recipient = _checkStakeOriginator(validatorAddress);
 
         // 2. Status check: only Staked, PendingActivation, or Active
         ValidatorInfo storage validator = validators[validatorAddress];
@@ -564,7 +565,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkValidatorStatus(msg.sender, ValidatorStatus.Active);
         ValidatorInfo storage validator = validators[msg.sender];
         uint32 current = currentEpoch;
-        if (current < validators[msg.sender].activationEpoch) {
+        if (current < validator.activationEpoch) {
             revert InvalidEpoch(current);
         }
 
@@ -574,12 +575,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc StakeManager
     function unstake(address validatorAddress) external override whenNotPaused nonReentrant {
-        // require validator is whitelisted, having been issued a ConsensusNFT by governance
-        _checkConsensusNFTOwner(validatorAddress);
-
-        // require caller is either the validator or its delegator
-        address recipient = _getRecipient(validatorAddress);
-        if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+        // require validator holds a ConsensusNFT and the caller is the validator or its delegator
+        address recipient = _checkStakeOriginator(validatorAddress);
 
         ValidatorInfo storage validator = validators[validatorAddress];
         // stake originator can only reclaim stake pre-activation or one epoch after exiting
