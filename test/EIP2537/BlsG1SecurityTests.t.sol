@@ -421,13 +421,13 @@ contract BlsG1SecurityTests is BlsG1Deployed, Test {
         bytes memory hash1 = BlsG1.hashToG1(msg1, BlsG1.HASH_TO_G1_DST);
         bytes memory sig1 = BlsG1.scalarMulG1(hash1, sk);
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg1, BlsG1.HASH_TO_G1_DST), "Valid format should verify"
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey, msg1, BlsG1.HASH_TO_G1_DST), "Valid format should verify"
         );
 
         // Format 2: Without prefixes (should fail with sig1)
         bytes memory msg2 = abi.encodePacked(pubkey, bytes20(validator));
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg2, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey, msg2, BlsG1.HASH_TO_G1_DST),
             "Different format should not verify with same signature"
         );
 
@@ -435,16 +435,16 @@ contract BlsG1SecurityTests is BlsG1Deployed, Test {
         bytes memory hash2 = BlsG1.hashToG1(msg2, BlsG1.HASH_TO_G1_DST);
         bytes memory sig2 = BlsG1.scalarMulG1(hash2, sk);
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig2, msg2, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(sig2, pubkey, msg2, BlsG1.HASH_TO_G1_DST),
             "Different format should verify with correct signature"
         );
 
         // Verify cross-contamination doesn't work
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg2, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey, msg2, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
         );
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig2, msg1, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
+            BlsG1.verifyProofOfPossessionG1(sig2, pubkey, msg1, BlsG1.HASH_TO_G1_DST), "Should not cross-verify"
         );
     }
 
@@ -461,11 +461,11 @@ contract BlsG1SecurityTests is BlsG1Deployed, Test {
         bytes memory sig1 = BlsG1.scalarMulG1(hash1, sk);
 
         // Verify with same DST should pass
-        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst1), "Should verify with matching DST");
+        assertTrue(BlsG1.verifyProofOfPossessionG1(sig1, pubkey, message, dst1), "Should verify with matching DST");
 
         // Verify with different DST should fail
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, message, dst2), "Should not verify with different DST"
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey, message, dst2), "Should not verify with different DST"
         );
     }
 

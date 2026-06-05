@@ -243,8 +243,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // validate bls pubkey format (must be 96 bytes)
         if (blsPubkey.length != 96) return false;
 
-        // get the hash and check if this pubkey was ever used
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
+        // get the canonical (x-coordinate) key id and check if this pubkey was ever used
+        bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
         address validatorAddress = blsPubkeyHashToValidator[blsPubkeyHash];
 
         // if no validator address found, return false
@@ -305,9 +305,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         returns (bytes32)
     {
         _checkConsensusNFTOwner(validatorAddress);
+        // `_blsKeyId` mloads a fixed 96 bytes; guard the length for parity with `isValidator` and
+        // `_verifyProofOfPossession` so off-chain integrators get a clean revert on a malformed key
+        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
         uint8 stakeVersion = getCurrentEpochInfo().stakeVersion;
         uint64 nonce = delegations[validatorAddress].nonce;
-        bytes32 blsPubkeyHash = keccak256(blsPubkey);
+        bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
         bytes32 structHash =
             keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce));
 
@@ -613,23 +616,90 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     {
         if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
 
+        // The stored consensus key is blst's compressed G2 form: byte 0's top bit (0x80) is the
+        // compression flag and the next (0x40) the infinity flag. The x-coordinate binding below masks
+        // all three flag bits, so on its own it would accept a key whose x matches the proven key but
+        // whose flags are malformed - e.g. the infinity flag set, which off-chain blst decodes to the
+        // identity point, or the compression flag cleared, which fails to decode. Either yields a
+        // committee member the consensus layer cannot process. Require compression set and infinity
+        // clear so the stored key is a well-formed, non-identity point. The sign flag (0x20) is left
+        // free: a wrong sign only disables this validator's own signatures, which BFT already tolerates.
+        uint8 flags = uint8(blsPubkey[0]);
+        if (flags & 0x80 == 0 || flags & 0x40 != 0) revert BlsG1.InvalidBLSPubkey();
+
         // Single handoff to the BLS library: it builds the PoP message, encodes the points, hashes to
         // curve, and runs the pairing check internally. This is the call that becomes a native precompile.
         if (!BlsG1.verifyProofOfPossession(g1Pop.uncompressedSignature, g1Pop.uncompressedPubkey, validatorAddress)) {
             revert InvalidProofOfPossession(g1Pop, proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress));
         }
 
+        // Bind the registered compressed key to the key whose possession was just proven. The proof
+        // covers `uncompressedPubkey`, but the consensus key stored and aggregated by the protocol is the
+        // separate compressed `blsPubkey`. Without this, a validator could register a consensus key for
+        // which no proof of possession exists, re-enabling rogue-key attacks on the committee aggregate.
+        if (!_blsKeysAligned(blsPubkey, g1Pop.uncompressedPubkey)) revert BLSPubkeyMismatch();
+
         // prevent duplicate compressed pubkeys
         return _spendBLSPubkey(blsPubkey, validatorAddress);
     }
 
+    /// @notice Confirms a 96-byte compressed G2 key and a 192-byte uncompressed G2 key encode the same
+    /// public key, by comparing x-coordinates.
+    /// @dev blst serializes a G2 point as `x.c1 || x.c0 || y.c1 || y.c0` (uncompressed) and `x.c1 || x.c0`
+    /// (compressed), the latter carrying 3 flag bits (compression/infinity/sign) in the top bits of byte 0.
+    /// We clear those flag bits and compare the 96-byte x-coordinate. An x match is sufficient to defeat
+    /// rogue-key registration: a cancellation key has a different x than any key the caller can prove, so
+    /// the only keys that pass are the proven key and its negation, both controlled by the prover. Callers
+    /// must ensure `compressed` is 96 bytes and `uncompressed` is at least 96 bytes (enforced upstream).
+    function _blsKeysAligned(
+        bytes memory compressed,
+        bytes memory uncompressed
+    )
+        internal
+        pure
+        returns (bool aligned)
+    {
+        assembly {
+            let c := add(compressed, 0x20)
+            let u := add(uncompressed, 0x20)
+            // clear the 3 flag bits in the most-significant byte of the first word, then compare the 96-byte x
+            let mask := 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+            aligned :=
+                and(
+                    and(
+                        eq(and(mload(c), mask), and(mload(u), mask)),
+                        eq(mload(add(c, 0x20)), mload(add(u, 0x20)))
+                    ),
+                    eq(mload(add(c, 0x40)), mload(add(u, 0x40)))
+                )
+        }
+    }
+
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
     function _spendBLSPubkey(bytes memory blsPubkey, address validatorAddress) private returns (bytes32 blsPubkeyHash) {
-        blsPubkeyHash = keccak256(blsPubkey);
+        blsPubkeyHash = _blsKeyId(blsPubkey);
         if (blsPubkeyHashToValidator[blsPubkeyHash] != address(0)) revert DuplicateBLSPubkey();
         blsPubkeyHashToValidator[blsPubkeyHash] = validatorAddress;
 
         return blsPubkeyHash;
+    }
+
+    /// @notice Canonical identifier for a 96-byte compressed BLS G2 key: the keccak of its x-coordinate.
+    /// @dev blst's compressed form is `x.c1 || x.c0` with 3 flag bits (compression/infinity/sign) in the
+    /// top bits of byte 0. Keying deduplication on the x-coordinate (flag bits cleared) collapses a key and
+    /// its y-sign negation - which share an x - into one id, enforcing one keypair per validator set. Two
+    /// distinct valid G2 points share an x only if they are negations of each other, so honest distinct
+    /// validators never collide. Caller must pass a 96-byte key (enforced upstream).
+    function _blsKeyId(bytes memory compressed) internal pure returns (bytes32 id) {
+        assembly {
+            let ptr := add(compressed, 0x20)
+            // hash the 96-byte x with the 3 flag bits cleared in the most-significant byte of word 0
+            let scratch := mload(0x40)
+            mstore(scratch, and(mload(ptr), 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff))
+            mstore(add(scratch, 0x20), mload(add(ptr, 0x20)))
+            mstore(add(scratch, 0x40), mload(add(ptr, 0x40)))
+            id := keccak256(scratch, 0x60)
+        }
     }
 
     /// @notice Enters a validator into the activation queue upon receiving stake
@@ -876,8 +946,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     function _enforceSorting(address[] calldata futureCommittee) internal pure {
-        for (uint256 i; i < futureCommittee.length - 1; ++i) {
-            if (futureCommittee[i] >= futureCommittee[i + 1]) revert CommitteeRequirement(futureCommittee[i]);
+        // iterate from index 1 comparing each element to its predecessor; this avoids the `length - 1`
+        // underflow on an empty committee (which `concludeEpoch`'s length check then rejects cleanly)
+        for (uint256 i = 1; i < futureCommittee.length; ++i) {
+            if (futureCommittee[i - 1] >= futureCommittee[i]) revert CommitteeRequirement(futureCommittee[i - 1]);
         }
     }
 

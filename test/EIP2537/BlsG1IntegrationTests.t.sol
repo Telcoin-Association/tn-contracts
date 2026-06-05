@@ -82,7 +82,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // 5. Verify signature
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(eip2537Pubkey, signature, popMsg, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(signature, eip2537Pubkey, popMsg, BlsG1.HASH_TO_G1_DST),
             "Complete flow verification failed"
         );
     }
@@ -109,7 +109,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // Legitimate signature should NOT verify with attack message
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, legitSig, attackMsg, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(legitSig, pubkey, attackMsg, BlsG1.HASH_TO_G1_DST),
             "Attack bypassed prefix check!"
         );
     }
@@ -132,7 +132,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // Should not verify
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, legitSig, attackMsg, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(legitSig, pubkey, attackMsg, BlsG1.HASH_TO_G1_DST),
             "Attack bypassed address length check!"
         );
     }
@@ -156,7 +156,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // Should fail verification
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, legitSig, attackMsg, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(legitSig, pubkey, attackMsg, BlsG1.HASH_TO_G1_DST),
             "Address substitution attack succeeded!"
         );
     }
@@ -179,7 +179,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // Attack: use sig1 with pubkey2
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey2, sig1, msg1, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey2, msg1, BlsG1.HASH_TO_G1_DST),
             "Pubkey substitution attack succeeded!"
         );
     }
@@ -198,14 +198,14 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // Verify original signature works
         assertTrue(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST),
+            BlsG1.verifyProofOfPossessionG1(sig, pubkey, proof_msg, BlsG1.HASH_TO_G1_DST),
             "Original signature should work"
         );
 
         // Identity point as signature is rejected early with a revert, not a false return.
         // This is correct behavior: fail fast rather than waste gas on a pairing check.
         vm.expectRevert(BlsG1.InvalidBLSProof.selector);
-        BlsG1.verifyProofOfPossessionG1(pubkey, BlsG1.G1_IDENTITY, proof_msg, BlsG1.HASH_TO_G1_DST);
+        BlsG1.verifyProofOfPossessionG1(BlsG1.G1_IDENTITY, pubkey, proof_msg, BlsG1.HASH_TO_G1_DST);
     }
 
     // =============================================================================
@@ -230,7 +230,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
 
         // sig1 should not work for msg2
         assertFalse(
-            BlsG1.verifyProofOfPossessionG1(pubkey, sig1, msg2, BlsG1.HASH_TO_G1_DST), "Replay attack succeeded!"
+            BlsG1.verifyProofOfPossessionG1(sig1, pubkey, msg2, BlsG1.HASH_TO_G1_DST), "Replay attack succeeded!"
         );
     }
 
@@ -286,7 +286,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
         uint256 gasBefore = gasleft();
-        bool verified = BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST);
+        bool verified = BlsG1.verifyProofOfPossessionG1(sig, pubkey, proof_msg, BlsG1.HASH_TO_G1_DST);
         uint256 gasUsed = gasBefore - gasleft();
 
         assertTrue(verified, "Verification failed");
@@ -334,7 +334,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
         bytes memory hash = BlsG1.hashToG1(largeMsg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
-        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, largeMsg, BlsG1.HASH_TO_G1_DST), "Large message failed");
+        assertTrue(BlsG1.verifyProofOfPossessionG1(sig, pubkey, largeMsg, BlsG1.HASH_TO_G1_DST), "Large message failed");
     }
 
     function test_integration_emptyMessage() public view {
@@ -346,7 +346,7 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
         bytes memory hash = BlsG1.hashToG1(emptyMsg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, sk);
 
-        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, emptyMsg, BlsG1.HASH_TO_G1_DST), "Empty message failed");
+        assertTrue(BlsG1.verifyProofOfPossessionG1(sig, pubkey, emptyMsg, BlsG1.HASH_TO_G1_DST), "Empty message failed");
     }
 
     function test_integration_maxSkValue() public view {
@@ -362,6 +362,6 @@ contract BlsG1IntegrationTests is BlsG1Deployed, Test {
         bytes memory hash = BlsG1.hashToG1(proof_msg, BlsG1.HASH_TO_G1_DST);
         bytes memory sig = BlsG1.scalarMulG1(hash, maxSk);
 
-        assertTrue(BlsG1.verifyProofOfPossessionG1(pubkey, sig, proof_msg, BlsG1.HASH_TO_G1_DST), "Max scalar failed");
+        assertTrue(BlsG1.verifyProofOfPossessionG1(sig, pubkey, proof_msg, BlsG1.HASH_TO_G1_DST), "Max scalar failed");
     }
 }

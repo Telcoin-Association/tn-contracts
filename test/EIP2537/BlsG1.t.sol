@@ -38,7 +38,7 @@ contract BlsG1Test is BlsG1Deployed, Test, BlsG1Harness {
         bytes memory g1MsgHash = BlsG1.hashToG1(message, BlsG1.HASH_TO_G1_DST);
         bytes memory g1Signature = BlsG1.scalarMulG1(g1MsgHash, sk);
 
-        assertTrue(BlsG1.verifyProofOfPossessionG1(fuzzedBLSPubkey, g1Signature, message, BlsG1.HASH_TO_G1_DST));
+        assertTrue(BlsG1.verifyProofOfPossessionG1(g1Signature, fuzzedBLSPubkey, message, BlsG1.HASH_TO_G1_DST));
     }
 
     function test_verifyProofOfPossessionG1_negative(address fuzzValidator, uint256 sk) public view {
@@ -55,15 +55,15 @@ contract BlsG1Test is BlsG1Deployed, Test, BlsG1Harness {
         // mutated pubkey should fail
         uint256 fakeSK = uint256(keccak256(abi.encodePacked(sk)));
         bytes memory fakePubkey = BlsG1.scalarMulG2(BlsG1.G2_GENERATOR, fakeSK);
-        assertFalse(BlsG1.verifyProofOfPossessionG1(fakePubkey, g1Signature, message, BlsG1.HASH_TO_G1_DST));
+        assertFalse(BlsG1.verifyProofOfPossessionG1(g1Signature, fakePubkey, message, BlsG1.HASH_TO_G1_DST));
 
         // mutated signature should fail
         bytes memory fakeSignature = BlsG1.scalarMulG1(g1MsgHash, fakeSK);
-        assertFalse(BlsG1.verifyProofOfPossessionG1(fuzzedBLSPubkey, fakeSignature, message, BlsG1.HASH_TO_G1_DST));
+        assertFalse(BlsG1.verifyProofOfPossessionG1(fakeSignature, fuzzedBLSPubkey, message, BlsG1.HASH_TO_G1_DST));
 
         // mutated message should fail
         bytes memory fakeMessage = bytes("DEADBEEF");
-        assertFalse(BlsG1.verifyProofOfPossessionG1(fuzzedBLSPubkey, g1Signature, fakeMessage, BlsG1.HASH_TO_G1_DST));
+        assertFalse(BlsG1.verifyProofOfPossessionG1(g1Signature, fuzzedBLSPubkey, fakeMessage, BlsG1.HASH_TO_G1_DST));
     }
 
     function test_verifyProofOfPossessionG1_zeroPoint() public {
@@ -74,7 +74,7 @@ contract BlsG1Test is BlsG1Deployed, Test, BlsG1Harness {
         // invalid message fails
         bytes memory message1 = bytes("pop message");
         vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
-        BlsG1.verifyProofOfPossessionG1(zeroG2Pubkey, zeroG1Signature, message1, BlsG1.HASH_TO_G1_DST);
+        BlsG1.verifyProofOfPossessionG1(zeroG1Signature, zeroG2Pubkey, message1, BlsG1.HASH_TO_G1_DST);
 
         // test with valid pubkey but zero signature
         uint256 sk = 54_321;
@@ -82,7 +82,7 @@ contract BlsG1Test is BlsG1Deployed, Test, BlsG1Harness {
         bytes memory message2 = bytes.concat(validPubkey, bytes20(address(0x33)));
 
         vm.expectRevert();
-        BlsG1.verifyProofOfPossessionG1(validPubkey, zeroG1Signature, message2, BlsG1.HASH_TO_G1_DST);
+        BlsG1.verifyProofOfPossessionG1(zeroG1Signature, validPubkey, message2, BlsG1.HASH_TO_G1_DST);
     }
 
     // Helper function to create invalid length pubkeys

@@ -287,7 +287,7 @@ library BlsG1 {
         bytes memory eip2537Pubkey = encodeG2PointForEIP2537(uncompressedPubkey);
         bytes memory eip2537Signature = encodeG1PointForEIP2537(uncompressedSignature);
 
-        return verifyProofOfPossessionG1(eip2537Pubkey, eip2537Signature, message, HASH_TO_G1_DST);
+        return verifyProofOfPossessionG1(eip2537Signature, eip2537Pubkey, message, HASH_TO_G1_DST);
     }
 
     /**
@@ -299,15 +299,16 @@ library BlsG1 {
      *
      **
      * @notice Verifies a Proof of Possession for a generic message using a custom DST
-     * @param blsPubkey Using G2 group for public keys (256 bytes when EIP2537-encoded)
      * @param signature Using G1 group for signatures (128bytes when EIP2537-encoded)
+     * @param blsPubkey Using G2 group for public keys (256 bytes when EIP2537-encoded)
      * @param message The raw message that was signed (pre-hashing).
      * eg for a PoP: `message = concat(validatorAddress, blsPubkey)`
      * @param dst The Domain Separator Tag to use for hashing the message to G1
+     * @dev Signature-first parameter order matches `verifyProofOfPossession` and the protocol's Rust verify.
      */
     function verifyProofOfPossessionG1(
-        bytes memory blsPubkey,
         bytes memory signature,
+        bytes memory blsPubkey,
         bytes memory message,
         bytes memory dst
     )

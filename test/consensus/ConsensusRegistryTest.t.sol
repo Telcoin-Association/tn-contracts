@@ -384,6 +384,117 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }(new bytes(96), BlsG1.ProofOfPossession(new bytes(192), new bytes(96)));
     }
 
+    /// @notice Validates the compressed/uncompressed x-match against a real blst-serialized vector
+    /// (the canonical BLS12-381 G2 generator), independent of the harness's self-derived keys.
+    function test_blsKeysAligned_realGeneratorVector() public view {
+        // Canonical blst-compressed G2 generator: `x.c1 || x.c0` with the compression flag set in byte 0.
+        bytes memory compressedGenerator =
+            hex"93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8";
+        // Uncompressed (blst order) generator derived from the library's EIP2537-encoded constant.
+        bytes memory uncompressedGenerator = BlsG1.decodeG2PointFromEIP2537(BlsG1.G2_GENERATOR);
+
+        assertEq(compressedGenerator.length, 96);
+        assertEq(uncompressedGenerator.length, 192);
+
+        // A real compressed key aligns with its uncompressed form (validates flag-masking + byte order).
+        assertTrue(_blsKeysAligned(compressedGenerator, uncompressedGenerator));
+
+        // A different key's uncompressed form does not align with the generator's compressed key.
+        bytes memory otherUncompressed = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(7));
+        assertFalse(_blsKeysAligned(compressedGenerator, otherUncompressed));
+    }
+
+    /// @notice A valid proof of possession over one key cannot register a different (rogue) compressed key.
+    function testRevert_stake_blsPubkeyMismatch() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory validator5BlsSig =
+            BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        // valid PoP over validator5's key, but a compressed key from a different secret (mismatched x)
+        bytes memory mismatchedCompressed = _blsDummyPubkeyFromSecret(6);
+
+        vm.prank(validator5);
+        vm.expectRevert(BLSPubkeyMismatch.selector);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(mismatchedCompressed, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
+    }
+
+    /// @notice EXP-001 regression: a key and its y-sign-flipped negation (same x) cannot both register.
+    function testRevert_stake_negationDoubleRegistration() public {
+        // A registers compress(PK) (y-sign flag 0)
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        bytes memory msgA = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory sigA = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, msgA));
+        bytes memory compressedPK = _blsDummyPubkeyFromSecret(validator5Secret);
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigA));
+
+        // B attempts to register the SAME key with the y-sign flag flipped (same x, different bytes)
+        address attackerB = _addressFromPrivateKey(99);
+        vm.deal(attackerB, stakeAmount_);
+        vm.prank(crOwner);
+        consensusRegistry.mint(attackerB);
+        bytes memory msgB = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, attackerB);
+        bytes memory sigB = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, msgB));
+        bytes memory compressedNegPK = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            compressedNegPK[i] = compressedPK[i];
+        }
+        compressedNegPK[0] = compressedNegPK[0] ^ bytes1(0x20); // flip blst y-sign flag
+
+        // x-keyed deduplication collapses the negation variant and rejects it
+        vm.prank(attackerB);
+        vm.expectRevert(DuplicateBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, BlsG1.ProofOfPossession(validator5BlsPubkey, sigB));
+    }
+
+    /// @notice A stored compressed key with a malformed compression/infinity flag is rejected, even
+    /// though its x-coordinate matches the proven key (the alignment check masks the flag bits).
+    function testRevert_stake_malformedCompressedFlags() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
+        bytes memory sig = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(validator5Secret, message));
+        bytes memory compressed = _blsDummyPubkeyFromSecret(validator5Secret);
+
+        // infinity flag set -> off-chain blst decodes to the identity point
+        bytes memory infinityFlagged = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            infinityFlagged[i] = compressed[i];
+        }
+        infinityFlagged[0] = infinityFlagged[0] | bytes1(0x40);
+        vm.prank(validator5);
+        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(infinityFlagged, BlsG1.ProofOfPossession(validator5BlsPubkey, sig));
+
+        // compression flag cleared -> off-chain blst fails to decode
+        bytes memory uncompressedFlagged = new bytes(96);
+        for (uint256 i; i < 96; ++i) {
+            uncompressedFlagged[i] = compressed[i];
+        }
+        uncompressedFlagged[0] = uncompressedFlagged[0] & bytes1(0x7f);
+        vm.prank(validator5);
+        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            uncompressedFlagged, BlsG1.ProofOfPossession(validator5BlsPubkey, sig)
+        );
+    }
+
+    /// @notice An empty committee reverts cleanly (InvalidCommitteeSize), not an `_enforceSorting` panic.
+    function testRevert_concludeEpoch_emptyCommittee() public {
+        address[] memory empty = new address[](0);
+        uint16 size = consensusRegistry.getNextCommitteeSize();
+        vm.prank(sysAddress);
+        vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, uint256(size), uint256(0)));
+        consensusRegistry.concludeEpoch(empty);
+    }
+
+
+
     // Test for incorrect stake amount
     function testRevert_stake_invalidStakeAmount() public {
         // validator signs proof of possession message
