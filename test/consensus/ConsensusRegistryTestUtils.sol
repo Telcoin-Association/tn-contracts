@@ -194,6 +194,15 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         return vm.addr(pk);
     }
 
+    /// @dev Invariant: the O(1) eligible counter equals the O(n) scan it replaced.
+    function _assertEligibleInvariant() internal view {
+        assertEq(
+            consensusRegistry.getEligibleValidatorCount(),
+            consensusRegistry.getValidators(ValidatorStatus.Active).length,
+            "eligibleValidatorCount drifted from _getValidators(Active).length"
+        );
+    }
+
     function _fuzz_mint(uint24 numValidators) internal {
         for (uint256 i; i < numValidators; ++i) {
             // account for initial validators

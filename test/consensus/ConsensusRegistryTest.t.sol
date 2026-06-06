@@ -493,6 +493,20 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.concludeEpoch(empty);
     }
 
+    /// @notice eligibleValidatorCount tracks exits from the committee-eligible set (entries/+1 and the
+    /// full lifecycle are covered by the invariant hooks in the fuzz suite).
+    function test_eligibleValidatorCount_burnDecrements() public {
+        // genesis: 4 Active validators are committee-eligible
+        assertEq(consensusRegistry.getEligibleValidatorCount(), 4);
+        _assertEligibleInvariant();
+
+        // governance burn of an Active (eligible) validator -> exit + retire: -1
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+        assertEq(consensusRegistry.getEligibleValidatorCount(), 3);
+        _assertEligibleInvariant();
+    }
+
 
 
     // Test for incorrect stake amount

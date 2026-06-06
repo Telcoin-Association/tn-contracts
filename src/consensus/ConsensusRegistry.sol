@@ -32,6 +32,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     EpochInfo[4] public epochInfo;
     EpochInfo[4] public futureEpochInfo;
     mapping(address => bytes) private blsPubkeys;
+    /// @dev Running count of committee-eligible validators, kept in sync with `_getValidators(Active)`'s
+    /// length (the unretired `{ PendingActivation, Active, PendingExit }` set) so the hot count queries
+    /// avoid an O(n) scan. Maintained by `_setStatus` / `_retire`; invariant-tested against the scan.
+    uint256 internal eligibleValidatorCount;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
@@ -61,8 +65,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _updateValidatorQueue(futureCommittee, newEpoch);
 
         // assert future epoch committee is valid against total now eligible
-        ValidatorInfo[] memory newActive = _getValidators(ValidatorStatus.Active);
-        _checkCommitteeSize(newActive.length, futureCommittee.length);
+        _checkCommitteeSize(eligibleValidatorCount, futureCommittee.length);
 
         emit NewEpoch(EpochInfo(newCommittee, issuance, uint64(block.number + 1), newEpoch, duration, stakeVersion));
     }
@@ -144,20 +147,26 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // Validate against current eligible validators
-        ValidatorInfo[] memory eligible = _getValidators(ValidatorStatus.Active);
-        if (newSize > eligible.length) {
-            revert InvalidCommitteeSize(eligible.length, uint256(newSize));
+        uint256 eligible = eligibleValidatorCount;
+        if (newSize > eligible) {
+            revert InvalidCommitteeSize(eligible, uint256(newSize));
         }
 
         uint16 oldSize = nextCommitteeSize;
         nextCommitteeSize = newSize;
 
-        emit NextCommitteeSizeUpdated(oldSize, newSize, eligible.length);
+        emit NextCommitteeSizeUpdated(oldSize, newSize, eligible);
     }
 
     /// @inheritdoc IConsensusRegistry
     function getNextCommitteeSize() external view returns (uint16) {
         return nextCommitteeSize;
+    }
+
+    /// @notice Number of committee-eligible validators (unretired, status in PendingActivation/Active/
+    /// PendingExit). Equivalent to `getValidators(Active).length` but O(1), maintained incrementally.
+    function getEligibleValidatorCount() external view returns (uint256) {
+        return eligibleValidatorCount;
     }
 
     /// @inheritdoc IStakeManager
@@ -517,7 +526,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkConsensusNFTOwner(msg.sender);
 
         // disallow filling up the exit queue
-        uint256 numActive = _getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = eligibleValidatorCount;
         uint256 committeeSize = epochInfo[epochPointer].committee.length;
         _checkCommitteeSize(numActive, committeeSize);
 
@@ -725,7 +734,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Sets the next epoch as activation timestamp for epoch completeness wrt incentives
     function _beginActivation(ValidatorInfo storage validator, uint32 epoch) internal {
         validator.activationEpoch = epoch + 1;
-        validator.currentStatus = ValidatorStatus.PendingActivation;
+        _setStatus(validator, ValidatorStatus.PendingActivation);
 
         emit ValidatorPendingActivation(validator);
     }
@@ -733,7 +742,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Activates a validator
     /// @dev Performed by protocol system call at commencement of validator's first full epoch
     function _activate(ValidatorInfo storage validator) internal {
-        validator.currentStatus = ValidatorStatus.Active;
+        _setStatus(validator, ValidatorStatus.Active);
 
         emit ValidatorActivated(validator);
     }
@@ -741,7 +750,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @notice Enters a validator into the exit queue
     /// @dev Finalized by the protocol when the validator is no longer required for committees
     function _beginExit(ValidatorInfo storage validator) internal {
-        validator.currentStatus = ValidatorStatus.PendingExit;
+        _setStatus(validator, ValidatorStatus.PendingExit);
         validator.exitEpoch = PENDING_EPOCH;
 
         emit ValidatorPendingExit(validator);
@@ -751,7 +760,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Only invoked via protocol client system call to `concludeEpoch()` or governance ejection
     /// @dev Once exited, the validator may unstake to reclaim their stake and rewards
     function _exit(ValidatorInfo storage validator, uint32 epoch) internal {
-        validator.currentStatus = ValidatorStatus.Exited;
+        _setStatus(validator, ValidatorStatus.Exited);
         validator.exitEpoch = epoch;
 
         emit ValidatorExited(validator);
@@ -761,10 +770,29 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Ensures an validator cannot rejoin after exiting + unstaking or after governance ejection
     /// @dev Rejoining must be done by restarting validator onboarding process with new keys and tokenId
     function _retire(ValidatorInfo storage validator) internal {
+        // retiring removes the validator from the eligible set if it was still in it (e.g. governance
+        // burn of an active validator); in the normal exit-then-retire flow `_exit` already accounted it
+        if (!validator.isRetired && _eligibleForCommitteeNextEpoch(validator.currentStatus)) {
+            --eligibleValidatorCount;
+        }
         validator.currentStatus = ValidatorStatus.Any;
         validator.isRetired = true;
 
         emit ValidatorRetired(validator);
+    }
+
+    /// @dev Updates a validator's status and keeps `eligibleValidatorCount` in sync. The committee-eligible
+    /// set is `{ PendingActivation, Active, PendingExit }` among unretired validators - exactly what
+    /// `_getValidators(Active)` returns - so the counter tracks that length without scanning.
+    function _setStatus(ValidatorInfo storage validator, ValidatorStatus newStatus) private {
+        bool wasEligible = !validator.isRetired && _eligibleForCommitteeNextEpoch(validator.currentStatus);
+        bool nowEligible = !validator.isRetired && _eligibleForCommitteeNextEpoch(newStatus);
+        if (wasEligible && !nowEligible) {
+            --eligibleValidatorCount;
+        } else if (!wasEligible && nowEligible) {
+            ++eligibleValidatorCount;
+        }
+        validator.currentStatus = newStatus;
     }
 
     /// @notice Performs activation and/or exit for validators pending in queue where applicable
@@ -850,7 +878,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         ValidatorInfo storage validator = validators[validatorAddress];
         ValidatorStatus status = validator.currentStatus;
         // reverts if decremented committee size after ejection reaches 0, preventing network halt
-        uint256 numEligible = _getValidators(ValidatorStatus.Active).length;
+        uint256 numEligible = eligibleValidatorCount;
         // if validator being ejected is committee-eligible, ejection will decrement `numEligible`
         if (_eligibleForCommitteeNextEpoch(status)) {
             numEligible = numEligible - 1;
@@ -1145,6 +1173,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
             emit ValidatorActivated(currentValidator);
         }
+
+        // every genesis validator is Active, hence committee-eligible
+        eligibleValidatorCount = initialValidators_.length;
     }
 
     /// @inheritdoc IStakeManager
