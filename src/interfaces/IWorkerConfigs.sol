@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 /// @title IWorkerConfigs
 /// @notice Interface for a strategy-agnostic per-worker fee config store.

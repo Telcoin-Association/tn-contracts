@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 // Minimal interface set for V3 fork-test interactions. Hand-rolled because
 // the V3 source itself ships as bytecode literals (V3 is Solidity 0.7.6,
