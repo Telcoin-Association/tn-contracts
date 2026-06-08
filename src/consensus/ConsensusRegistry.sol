@@ -50,6 +50,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
 
+    /// @dev Namespace for the per-epoch transient committee-membership set (see `_markCommitteeMembers`)
+    bytes32 private constant _COMMITTEE_TSET = keccak256("ConsensusRegistry.committeeMembership.v1");
+
     // PoP message prefixes and assembly live in `BlsG1` (see `BlsG1.proofOfPossessionMessage`), the
     // single source of truth for the proof-of-possession scheme ahead of its native precompile.
 
@@ -850,19 +853,18 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         address[] memory pendingExit = _getValidators(ValidatorStatus.PendingExit);
         uint8 currentEpochPointer = epochPointer;
         uint8 nextEpochPointer = (currentEpochPointer + 1) % 4;
-        address[] memory currentCommittee = epochInfo[currentEpochPointer].committee;
-        address[] memory nextCommittee = futureEpochInfo[nextEpochPointer].committee;
+        // Mark everyone serving on the current, next, or subsequent committee into a transient (EIP-1153)
+        // set keyed to this epoch, then test each pending-exit validator in O(1) rather than rescanning
+        // three committees (up to 100 each) per validator. The transient slots auto-clear at end of tx.
+        bytes32 committeeSet = keccak256(abi.encodePacked(_COMMITTEE_TSET, current));
+        _markCommitteeMembers(epochInfo[currentEpochPointer].committee, committeeSet);
+        _markCommitteeMembers(futureEpochInfo[nextEpochPointer].committee, committeeSet);
+        _markCommitteeMembers(futureCommittee, committeeSet);
         for (uint256 i; i < pendingExit.length; ++i) {
-            // skip if validator is in current or either future committee
             address validatorAddress = pendingExit[i];
-            if (
-                _isCommitteeMember(validatorAddress, currentCommittee)
-                    || _isCommitteeMember(validatorAddress, nextCommittee)
-                    || _isCommitteeMember(validatorAddress, futureCommittee)
-            ) continue;
-
-            ValidatorInfo storage exitValidator = validators[validatorAddress];
-            _exit(exitValidator, current);
+            // the protocol exits a queued validator by excluding it from all upcoming committees
+            if (_isCommitteeMember(validatorAddress, committeeSet)) continue;
+            _exit(validators[validatorAddress], current);
         }
     }
 
@@ -1034,16 +1036,28 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         if (status != requiredStatus) revert InvalidStatus(status);
     }
 
-    /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
-        // cache len to memory
-        uint256 committeeLen = committee.length;
-        for (uint256 i; i < committeeLen; ++i) {
-            // terminate if `validatorAddress` is a member of committee
-            if (committee[i] == validatorAddress) return true;
+    /// @dev Marks each address in `committee` into the transient (EIP-1153) `committeeSet` for O(1)
+    /// membership tests in `_updateValidatorQueue`. `committeeSet` is keyed to the concluding epoch, so
+    /// distinct epochs never collide, and transient slots auto-clear at end of transaction. Assembly is
+    /// memory-safe: it only touches the scratch space (0x00-0x40), never the free-memory pointer at 0x40.
+    function _markCommitteeMembers(address[] memory committee, bytes32 committeeSet) private {
+        for (uint256 i; i < committee.length; ++i) {
+            address member = committee[i];
+            assembly ("memory-safe") {
+                mstore(0x00, member)
+                mstore(0x20, committeeSet)
+                tstore(keccak256(0x00, 0x40), 1)
+            }
         }
+    }
 
-        return false;
+    /// @dev True if `validatorAddress` was marked into the transient `committeeSet`.
+    function _isCommitteeMember(address validatorAddress, bytes32 committeeSet) private view returns (bool isMember) {
+        assembly ("memory-safe") {
+            mstore(0x00, validatorAddress)
+            mstore(0x20, committeeSet)
+            isMember := tload(keccak256(0x00, 0x40))
+        }
     }
 
     /// @dev Active and pending activation/exit validators are eligible for committee service in next epoch
