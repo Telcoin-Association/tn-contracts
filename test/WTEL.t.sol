@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 import { Test } from "forge-std/Test.sol";
 import { WTEL } from "../src/WTEL.sol";

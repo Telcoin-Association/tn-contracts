@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 /// @title Bytecode of the canonical UniswapV2Factory deployed on mainnet
 /// @notice Taken from the official Uniswap/v2-core UNPKG npm CDN located here:

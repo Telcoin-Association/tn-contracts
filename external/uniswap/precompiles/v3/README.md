@@ -7,7 +7,7 @@ for V2, which carries `UniswapV2FactoryBytecode.sol` and
 
 ## Why bytecode files instead of source
 
-V3 source is **Solidity 0.7.6**. `tn-contracts` pins `solc = "0.8.26"` with
+V3 source is **Solidity 0.7.6**. `tn-contracts` pins `solc = "0.8.35"` with
 `auto_detect_solc = false`. Compiling V3 source inline would either require
 flipping `auto_detect_solc = true` (adds compilation cost to every build,
 risks subtle ABI / storage drift) or maintaining a separate Foundry profile
