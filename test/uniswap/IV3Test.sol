@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 // Minimal interface set for V3 fork-test interactions. Hand-rolled because
 // the V3 source itself ships as bytecode literals (V3 is Solidity 0.7.6,
-// won't compile under tn-contracts' 0.8.26). These mirror the canonical
+// won't compile under tn-contracts' 0.8.35). These mirror the canonical
 // V3 ABIs at @uniswap/v3-core@1.0.0 + @uniswap/v3-periphery@1.4.4.
 
 interface IUniswapV3Factory {
