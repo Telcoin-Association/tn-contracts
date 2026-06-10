@@ -1,5 +1,6 @@
 {
   "ArachnidDeterministicDeployFactory": "0x4e59b44847b379578588920ca78fbf26c0b4956c",
+  "CompatibilityFallbackHandler": "0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99",
   "ConsensusRegistry": "0x07e17e17e17e17e17e17e17e17e17e17e17e17e1",
   "GitAttestationRegistry": "0xf102928273a399cda6151b8616209af019499c84",
   "Issuance": "0x07a07a07a07a07a07a07a07a07a07a07a07a07a0",
