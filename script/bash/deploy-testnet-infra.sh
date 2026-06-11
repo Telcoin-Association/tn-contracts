@@ -7,11 +7,12 @@ set -euo pipefail
 
 # Required environment variables in .env:
 #   ADMIN_PK    - Private key for the admin/deployer account
+# An explicitly exported TN_RPC_URL takes precedence over the .env value,
+# which takes precedence over the testnet default. Point it at a devnet node
+# (e.g. https://node1.devnet.telcoin.network) to deploy there instead.
+_cli_rpc="${TN_RPC_URL:-}"
 source .env
-
-# Defaults to testnet; point TN_RPC_URL at a devnet node (e.g.
-# https://node1.devnet.telcoin.network) to deploy there instead.
-TN_RPC_URL="${TN_RPC_URL:-https://node1.telcoin.network}"
+TN_RPC_URL="${_cli_rpc:-${TN_RPC_URL:-https://node1.telcoin.network}}"
 
 # Validate dependencies
 if ! command -v jq &> /dev/null; then

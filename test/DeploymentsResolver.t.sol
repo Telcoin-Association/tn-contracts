@@ -44,16 +44,9 @@ contract DeploymentsResolverTest is Test {
         // Permit2 lands at its canonical address on any chain (Arachnid + canonical salt)
         assertEq(devnet.uniswapV4.Permit2, testnet.uniswapV4.Permit2);
 
-        // script-deployed addresses start zeroed on devnet; the deploy scripts
-        // repopulate them after each devnet reset
-        assertEq(devnet.WTEL, address(0));
-        assertEq(devnet.StablecoinImpl, address(0));
-        assertEq(devnet.StablecoinManager, address(0));
-        assertEq(devnet.GitAttestationRegistry, address(0));
-        assertEq(devnet.eXYZs.eUSD, address(0));
-        assertEq(devnet.uniswapV2.UniswapV2Factory, address(0));
-        assertEq(devnet.uniswapV3.UniswapV3Factory, address(0));
-        assertEq(devnet.uniswapV4.PoolManager, address(0));
+        // script-deployed addresses are intentionally NOT asserted: devnet resets
+        // zero them and each deploy-pipeline run repopulates them, so their values
+        // are live deployment records rather than invariants
     }
 
     /// @notice The mainnet file is the genesis source of truth consumed by

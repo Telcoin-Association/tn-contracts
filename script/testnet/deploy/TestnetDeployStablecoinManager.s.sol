@@ -132,5 +132,8 @@ contract TestnetDeployStablecoinManager is Script {
         vm.writeJson(
             LibString.toHexString(uint256(uint160(address(stablecoinManager))), 20), dest, ".StablecoinManager"
         );
+        vm.writeJson(
+            LibString.toHexString(uint256(uint160(address(stablecoinManagerImpl))), 20), dest, ".StablecoinManagerImpl"
+        );
     }
 }
