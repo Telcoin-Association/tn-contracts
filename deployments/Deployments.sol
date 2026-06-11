@@ -21,6 +21,11 @@ struct Deployments {
     address StakeManager;
     address TANIssuanceHistory;
     address TANIssuancePlugin;
+    /// @notice Wrapped TEL (canonical WETH9 shape). Genesis-assigned at the vanity address
+    ///         0x00000000000000000000000000000000000037E1 ("3" as a sideways "w" + 7e1 = TEL)
+    ///         on every network whose genesis includes it; see deployments-mainnet.json.
+    ///         Live testnet and devnet predate the genesis entry and keep their pre-genesis
+    ///         CREATE2 deployments (via TestnetDeployWTEL) until their next regenesis/reset.
     address WTEL;
     address WorkerConfigs;
     address admin;

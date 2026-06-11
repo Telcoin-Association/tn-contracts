@@ -69,10 +69,15 @@ contract DeploymentsResolverTest is Test {
         assertEq(mainnet.magicAddresses.NATIVE_TOKEN_POINTER, testnet.magicAddresses.NATIVE_TOKEN_POINTER);
         assertEq(mainnet.magicAddresses.TEL_MINT_PRECOMPILE, testnet.magicAddresses.TEL_MINT_PRECOMPILE);
 
+        // WTEL is genesis-assigned at its vanity address. Live testnet and devnet
+        // predate the genesis entry and keep their pre-genesis CREATE2 deployments
+        // until their next regenesis/reset, so WTEL is the one genesis key that is
+        // temporarily not identical across the network files
+        assertEq(mainnet.WTEL, 0x00000000000000000000000000000000000037E1);
+
         // nothing aspirational: non-genesis keys stay zeroed until deployed for real
         assertEq(mainnet.admin, address(0));
         assertEq(mainnet.uniswapV4.Permit2, address(0));
-        assertEq(mainnet.WTEL, address(0));
         assertEq(mainnet.StablecoinImpl, address(0));
         assertEq(mainnet.StablecoinManager, address(0));
         assertEq(mainnet.GitAttestationRegistry, address(0));
