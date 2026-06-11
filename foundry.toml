@@ -23,7 +23,9 @@ libraries = ["src/consensus/BlsG1.sol:BlsG1:0x0000000000000000000000000000000000
 fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/consensus-registry-config.yaml" },
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
-    { access = "read-write", path = "./deployments/deployments.json" },
+    { access = "read-write", path = "./deployments/deployments-testnet.json" },
+    { access = "read-write", path = "./deployments/deployments-devnet.json" },
+    { access = "read", path = "./deployments/deployments-mainnet.json" },
     { access = "read", path = "./external/uniswap/precompiles" },
     { access = "read", path = "./cache/seed-testnet-lps-fx.json" },
 ]
@@ -53,6 +55,19 @@ verbosity = 2
 # pin so the compiled bytecode keeps the `__$..$__` link placeholder; the protocol fills it in at
 # genesis. Use `FOUNDRY_PROFILE=artifacts forge build` before refreshing artifacts/*.json.
 libraries = []
+
+# Network shorthands for `--rpc-url <name>`. Scripts resolve the matching
+# deployments json by chain id (see deployments/DeploymentsResolver.sol):
+# testnet (0x7e1) uses deployments-testnet.json, devnet (0x7e1d) uses
+# deployments-devnet.json. deployments-mainnet.json holds only genesis-assigned
+# addresses and is consumed by GenerateGenesisPrecompileConfig; its chain id
+# mapping is added once mainnet's chain id is finalized.
+[rpc_endpoints]
+testnet = "https://node1.telcoin.network"
+devnet = "https://node1.devnet.telcoin.network"
+devnet2 = "https://node2.devnet.telcoin.network"
+devnet3 = "https://node3.devnet.telcoin.network"
+devnet4 = "https://node4.devnet.telcoin.network"
 
 [fmt]
 bracket_spacing = true

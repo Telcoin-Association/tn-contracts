@@ -7,6 +7,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { Stablecoin } from "../../../src/testnet/Stablecoin.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployTokens.s.sol \
 /// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
@@ -42,7 +43,7 @@ contract TestnetDeployTokens is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -93,10 +94,13 @@ contract TestnetDeployTokens is Script {
         vm.startBroadcast();
 
         // deploy stablecoin impl and proxies
-        // NOTE: salt bumped to avoid CREATE2 collision with the existing Stablecoin impl already
-        // on this chain at 0xA0dF6f97186FA2a8cd819C36296075fa6c1aA39b. The proxies' addresses
-        // also change downstream because their bytecode includes this new impl address.
-        stablecoinSalt = bytes32(bytes("Stablecoin-v2"));
+        // NOTE: plain contract-name salt, intended for a fresh chain. Stablecoin compiles
+        // from source, so its initcode (and thus the CREATE2 address) changes with any
+        // compiler or source change; redeploying identical bytecode on a chain that
+        // already holds it requires bumping the salt (the legacy "Stablecoin-v2" salt
+        // existed for exactly that reason). The proxies' addresses follow the impl
+        // address because their initcode embeds it.
+        stablecoinSalt = bytes32(bytes("Stablecoin"));
 
         /// @dev Configure as necessary for new / existing deployments
         stablecoinImpl = new Stablecoin{ salt: stablecoinSalt }();
@@ -146,7 +150,7 @@ contract TestnetDeployTokens is Script {
 
         // logs
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(LibString.toHexString(uint256(uint160(address(stablecoinImpl))), 20), dest, ".StablecoinImpl");
         for (uint256 i; i < numStables; ++i) {
             string memory jsonKey = string.concat(".eXYZs.", Stablecoin(deployedTokens[i]).symbol());

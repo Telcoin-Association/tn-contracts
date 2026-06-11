@@ -7,6 +7,7 @@ import { LibString } from "solady/utils/LibString.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import { StablecoinManager } from "../../src/testnet/StablecoinManager.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 
 /// @dev Usage: `forge script script/TestnetDeployTokens.s.sol --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK`
 contract TestnetUpgradeStablecoinManager is Script {
@@ -22,7 +23,7 @@ contract TestnetUpgradeStablecoinManager is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));

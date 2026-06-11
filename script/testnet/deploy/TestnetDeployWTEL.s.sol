@@ -5,6 +5,7 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 import { WTEL } from "../../../src/WTEL.sol";
 
 /// @title Deploy WTEL (canonical-shape wrapped TEL) on Adiri Testnet
@@ -30,7 +31,7 @@ contract TestnetDeployWTEL is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -60,7 +61,7 @@ contract TestnetDeployWTEL is Script {
         assert(wtel.code.length != 0);
 
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(LibString.toHexString(uint256(uint160(wtel)), 20), dest, ".WTEL");
 
         console2.log("WTEL deployed at:", wtel);

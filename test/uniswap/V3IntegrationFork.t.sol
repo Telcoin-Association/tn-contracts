@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 import { UniswapV3FactoryBytecode } from "../../external/uniswap/precompiles/v3/UniswapV3Factory.sol";
 import { NFTDescriptorBytecode } from "../../external/uniswap/precompiles/v3/NFTDescriptor.sol";
 import { NonfungibleTokenPositionDescriptorBytecode } from
@@ -72,7 +73,7 @@ contract V3IntegrationFork is
     function setUp() public {
         // Read addresses from deployments.json.
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -121,7 +122,7 @@ contract V3IntegrationFork is
         uniswapV3Factory = _deployOrReuse(
             deployments.uniswapV3.UniswapV3Factory,
             arachnid,
-            bytes32(bytes("UniswapV3Factory_v2")),
+            bytes32(bytes("UniswapV3Factory")),
             UNISWAPV3FACTORY_BYTECODE
         );
 
@@ -129,7 +130,7 @@ contract V3IntegrationFork is
         nftDescriptor = _deployOrReuse(
             deployments.uniswapV3.NFTDescriptor,
             arachnid,
-            bytes32(bytes("NFTDescriptor_v2")),
+            bytes32(bytes("NFTDescriptor")),
             NFTDESCRIPTOR_BYTECODE
         );
 
@@ -139,7 +140,7 @@ contract V3IntegrationFork is
         nonfungibleTokenPositionDescriptor = _deployOrReuse(
             deployments.uniswapV3.NonfungibleTokenPositionDescriptor,
             arachnid,
-            bytes32(bytes("NFTPositionDescriptor_v2")),
+            bytes32(bytes("NFTPositionDescriptor")),
             descInitcode
         );
 
@@ -151,7 +152,7 @@ contract V3IntegrationFork is
         nonfungiblePositionManager = _deployOrReuse(
             deployments.uniswapV3.NonfungiblePositionManager,
             arachnid,
-            bytes32(bytes("NonfungiblePositionManager_v2")),
+            bytes32(bytes("NonfungiblePositionManager")),
             npmInitcode
         );
 
@@ -163,7 +164,7 @@ contract V3IntegrationFork is
         swapRouter02 = _deployOrReuse(
             deployments.uniswapV3.SwapRouter02,
             arachnid,
-            bytes32(bytes("SwapRouter02_v2")),
+            bytes32(bytes("SwapRouter02")),
             swapRouterInitcode
         );
 
@@ -172,7 +173,7 @@ contract V3IntegrationFork is
         quoterV2 = _deployOrReuse(
             deployments.uniswapV3.QuoterV2,
             arachnid,
-            bytes32(bytes("QuoterV2_v2")),
+            bytes32(bytes("QuoterV2")),
             quoterInitcode
         );
 
@@ -180,7 +181,7 @@ contract V3IntegrationFork is
         tickLens = _deployOrReuse(
             deployments.uniswapV3.TickLens,
             arachnid,
-            bytes32(bytes("TickLens_v2")),
+            bytes32(bytes("TickLens")),
             TICK_LENS_BYTECODE
         );
     }
