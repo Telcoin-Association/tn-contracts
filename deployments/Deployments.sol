@@ -5,6 +5,10 @@ pragma solidity ^0.8.26;
 /// therefore upper-case struct member names must come **BEFORE** lower-case ones!
 struct Deployments {
     address ArachnidDeterministicDeployFactory;
+    /// @notice Canonical Safe v1.4.1 `CompatibilityFallbackHandler` address. Pinned to the
+    ///         same address as on other EVM chains so Safe tooling (protocol-kit SDK,
+    ///         Safe{Wallet} UI) that defaults the fallback handler resolves it on TN too.
+    address CompatibilityFallbackHandler;
     address ConsensusRegistry;
     address GitAttestationRegistry;
     address Issuance;

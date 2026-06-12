@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";

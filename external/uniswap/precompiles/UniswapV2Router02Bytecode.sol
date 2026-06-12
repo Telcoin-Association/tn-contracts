@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 /// @title Bytecode of the canonical UniswapV2Router02 deployed on mainnet
 /// @notice Taken from the official Uniswap/v2-periphery UNPKG npm CDN located here:

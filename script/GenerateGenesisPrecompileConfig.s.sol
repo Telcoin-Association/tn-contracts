@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
-pragma solidity 0.8.26;
+pragma solidity 0.8.35;
 
 import "forge-std/Test.sol";
 import {Script} from "forge-std/Script.sol";
@@ -7,6 +7,7 @@ import {Deployments} from "../deployments/Deployments.sol";
 import {GenesisPrecompiler} from "../deployments/genesis/GenesisPrecompiler.sol";
 import {Safe} from "safe-contracts/contracts/Safe.sol";
 import {SafeProxyFactory} from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
+import {CompatibilityFallbackHandler} from "safe-contracts/contracts/handler/CompatibilityFallbackHandler.sol";
 
 /// @title Genesis Precompile Config Generator
 /// @notice Generates a yaml file comprising the storage slots and their values
@@ -31,6 +32,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     // Safe infrastructure
     Safe safeImpl;
     SafeProxyFactory safeProxyFactory;
+    CompatibilityFallbackHandler compatibilityFallbackHandler;
     Safe governanceSafe;
     address[] safeOwners;
     uint256 safeThreshold;
@@ -45,6 +47,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         safeImpl = Safe(payable(deployments.SafeImpl));
         safeProxyFactory = SafeProxyFactory(deployments.SafeProxyFactory);
+        compatibilityFallbackHandler = CompatibilityFallbackHandler(deployments.CompatibilityFallbackHandler);
         governanceSafe = Safe(payable(deployments.Safe));
 
         _setGovernanceSafeConfig();
@@ -70,6 +73,20 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         assertFalse(
             yamlAppendGenesisAccount(
                 dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory"
+            )
+        );
+
+        // compatibility fallback handler (no storage), pinned to the canonical Safe v1.4.1
+        // address so Safe tooling that defaults the fallback handler resolves it on TN
+        address simulatedFallbackHandler = address(instantiateCompatibilityFallbackHandler());
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedFallbackHandler,
+                address(compatibilityFallbackHandler),
+                sharedNonce,
+                sharedBalance,
+                "compatibility fallback handler"
             )
         );
 
@@ -121,12 +138,20 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         copyContractState(address(simulatedDeployment), address(safeProxyFactory), new bytes32[](0));
     }
 
+    function instantiateCompatibilityFallbackHandler()
+        public
+        returns (CompatibilityFallbackHandler simulatedDeployment)
+    {
+        simulatedDeployment = new CompatibilityFallbackHandler();
+        copyContractState(address(simulatedDeployment), address(compatibilityFallbackHandler), new bytes32[](0));
+    }
+
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
 
         address to;
         bytes memory data;
-        address fallbackHandler;
+        address fallbackHandler = address(compatibilityFallbackHandler);
         address paymentToken;
         uint256 payment;
         address paymentReceiver;

@@ -8,21 +8,22 @@
 
 Simulates deployment of the following contracts, captures their storage layout, and writes a YAML file with addresses, bytecode, and storage slots:
 
-- **Safe singleton** — the Gnosis Safe implementation contract
-- **SafeProxyFactory** — factory for creating Safe proxies
-- **Governance Safe** — a 3-of-6 multisig proxy configured with hardcoded owner addresses and threshold
-- **TEL supply allocation** — assigns the remaining TEL supply to `0xde1e7e`
-- **EIP-2935 / EIP-4788** — system contracts for historic block hashes and beacon block roots
-- **Multicall3** — deployed at `0xcA11bde05977b3631167028862bE2a173976CA11`
+- **Safe singleton** - the Gnosis Safe implementation contract
+- **SafeProxyFactory** - factory for creating Safe proxies
+- **CompatibilityFallbackHandler** - default Safe fallback handler (EIP-1271 signature validation, token callbacks), pinned to the canonical Safe v1.4.1 address `0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99` so Safe tooling that defaults the fallback handler resolves it on TN
+- **Governance Safe** - a 3-of-7 multisig proxy configured with hardcoded owner addresses and threshold, referencing the CompatibilityFallbackHandler
+- **TEL supply allocation** - assigns the remaining TEL supply to `0xde1e7e`
+- **EIP-2935 / EIP-4788** - system contracts for historic block hashes and beacon block roots
+- **Multicall3** - deployed at `0xcA11bde05977b3631167028862bE2a173976CA11`
 
 ### When to run
 
 Re-run this script **any time you change**:
 
 - Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`)
-- Safe contract dependencies (implementation, proxy factory)
+- Safe contract dependencies (implementation, proxy factory, fallback handler)
 - TEL supply constants (`telTotalSupply`, `governanceInitialBalance`)
-- Addresses in `deployments/deployments.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`)
+- Addresses in `deployments/deployments.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`, `CompatibilityFallbackHandler`)
 - System contract bytecode (EIP-2935, EIP-4788)
 
 ### How to run
@@ -31,7 +32,7 @@ Re-run this script **any time you change**:
 forge script script/GenerateGenesisPrecompileConfig.s.sol -vvvv
 ```
 
-No RPC URL or private key is needed — it runs entirely locally. The output is written to `deployments/genesis/precompile-config.yaml`.
+No RPC URL or private key is needed - it runs entirely locally. The output is written to `deployments/genesis/precompile-config.yaml`.
 
 After running, review the diff to verify the changes are correct:
 
