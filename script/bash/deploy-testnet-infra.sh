@@ -7,16 +7,30 @@ set -euo pipefail
 
 # Required environment variables in .env:
 #   ADMIN_PK    - Private key for the admin/deployer account
+# An explicitly exported TN_RPC_URL takes precedence over the .env value,
+# which takes precedence over the testnet default. Point it at a devnet node
+# (e.g. https://node1.devnet.telcoin.network) to deploy there instead.
+_cli_rpc="${TN_RPC_URL:-}"
 source .env
-
-TN_RPC_URL="https://node1.telcoin.network"
-DEPLOYMENTS_JSON="deployments/deployments.json"
+TN_RPC_URL="${_cli_rpc:-${TN_RPC_URL:-https://node1.telcoin.network}}"
 
 # Validate dependencies
 if ! command -v jq &> /dev/null; then
     echo "Error: jq is required but not installed"
     exit 1
 fi
+
+# Resolve the per-network deployments file by chain id, mirroring
+# deployments/DeploymentsResolver.sol: devnet (0x7e1d) gets its own
+# address book so a devnet run can never touch the testnet json.
+CHAIN_ID=$(cast chain-id --rpc-url "$TN_RPC_URL")
+DEVNET_CHAIN_ID=32285 # 0x7e1d
+if [[ "$CHAIN_ID" == "$DEVNET_CHAIN_ID" ]]; then
+    DEPLOYMENTS_JSON="deployments/deployments-devnet.json"
+else
+    DEPLOYMENTS_JSON="deployments/deployments-testnet.json"
+fi
+echo "Chain id $CHAIN_ID -> using $DEPLOYMENTS_JSON"
 
 if [[ -z "${TN_RPC_URL:-}" ]]; then
     echo "Error: TN_RPC_URL environment variable is not set"
@@ -202,4 +216,4 @@ echo "============================================"
 echo "Testnet Infrastructure Deployment Complete"
 echo "============================================"
 echo ""
-echo "Deployed contracts have been saved to deployments/deployments.json"
+echo "Deployed contracts have been saved to $DEPLOYMENTS_JSON"

@@ -12,8 +12,17 @@ set -euo pipefail
 source .env
 export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
 
-RPC="https://node1.telcoin.network"
-DEPLOYMENTS="deployments/deployments.json"
+# Defaults to testnet; point RPC at a devnet node to test there instead.
+RPC="${RPC:-https://node1.telcoin.network}"
+
+# Resolve the per-network deployments file by chain id, mirroring
+# deployments/DeploymentsResolver.sol
+CHAIN_ID=$(cast chain-id --rpc-url "$RPC")
+if [[ "$CHAIN_ID" == "32285" ]]; then # 0x7e1d
+    DEPLOYMENTS="deployments/deployments-devnet.json"
+else
+    DEPLOYMENTS="deployments/deployments-testnet.json"
+fi
 
 MGR=$(jq -r '.StablecoinManager' "$DEPLOYMENTS")
 EUSD=$(jq -r '.eXYZs.eUSD' "$DEPLOYMENTS")

@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 import { IUniswapV2Router02 } from "external/uniswap/interfaces/IUniswapV2Router02.sol";
 import { IUniswapV2Factory } from "external/uniswap/interfaces/IUniswapV2Factory.sol";
 import { IUniswapV2Pair } from "external/uniswap/interfaces/IUniswapV2Pair.sol";
@@ -107,7 +108,7 @@ contract SeedTestnetLPs is Script {
     function setUp() public {
         // Deployments JSON.
         string memory root = vm.projectRoot();
-        string memory dPath = string.concat(root, "/deployments/deployments.json");
+        string memory dPath = string.concat(root, DeploymentsResolver.relativePath());
         bytes memory data = vm.parseJson(vm.readFile(dPath));
         deployments = abi.decode(data, (Deployments));
 

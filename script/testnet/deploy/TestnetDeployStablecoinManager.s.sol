@@ -9,6 +9,7 @@ import { StablecoinHandler } from "../../../src/testnet/StablecoinHandler.sol";
 import { Stablecoin } from "../../../src/testnet/Stablecoin.sol";
 import { StablecoinManager } from "../../../src/testnet/StablecoinManager.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployStablecoinManager.s.sol \
 /// --rpc-url $TN_RPC_URL -vvvv --private-key $ADMIN_PK || --`
@@ -31,7 +32,7 @@ contract TestnetDeployStablecoinManager is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -127,9 +128,12 @@ contract TestnetDeployStablecoinManager is Script {
 
         // logs
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(
             LibString.toHexString(uint256(uint160(address(stablecoinManager))), 20), dest, ".StablecoinManager"
+        );
+        vm.writeJson(
+            LibString.toHexString(uint256(uint160(address(stablecoinManagerImpl))), 20), dest, ".StablecoinManagerImpl"
         );
     }
 }

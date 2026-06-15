@@ -5,6 +5,7 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 import "../../../src/CI/GitAttestationRegistry.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployGitAttestationRegistry.s.sol \
@@ -23,7 +24,7 @@ contract TestnetDeployGitAttestationRegistry is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -64,7 +65,7 @@ contract TestnetDeployGitAttestationRegistry is Script {
 
         // logs
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(
             LibString.toHexString(uint256(uint160(address(gitAttestationRegistry))), 20),
             dest,

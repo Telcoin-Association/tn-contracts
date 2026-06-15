@@ -23,7 +23,7 @@ Re-run this script **any time you change**:
 - Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`)
 - Safe contract dependencies (implementation, proxy factory, fallback handler)
 - TEL supply constants (`telTotalSupply`, `governanceInitialBalance`)
-- Addresses in `deployments/deployments.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`, `CompatibilityFallbackHandler`)
+- Addresses in `deployments/deployments-mainnet.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`, `CompatibilityFallbackHandler`)
 - System contract bytecode (EIP-2935, EIP-4788)
 
 ### How to run
@@ -77,4 +77,16 @@ Append `--broadcast` to actually send transactions (without it, forge only simul
 
 ### Shared configuration
 
-All scripts read contract addresses from `deployments/deployments.json`. Deployment scripts update this file after deploying new contracts, so subsequent scripts pick up the correct addresses.
+All scripts read contract addresses from a per-network deployments file, resolved by chain id via `deployments/DeploymentsResolver.sol`:
+
+| Network | Chain id         | Deployments file                       | RPC shorthand (`--rpc-url <name>`)      |
+| ------- | ---------------- | -------------------------------------- | --------------------------------------- |
+| Testnet | `0x7e1` (2017)   | `deployments/deployments-testnet.json`  | `testnet` (node1.telcoin.network)        |
+| Devnet  | `0x7e1d` (32285) | `deployments/deployments-devnet.json`   | `devnet` (node1.devnet.telcoin.network)  |
+| Mainnet | TBD              | `deployments/deployments-mainnet.json`  | added once the chain id is finalized     |
+
+Genesis-assigned addresses (Safe infrastructure, ConsensusRegistry, magic addresses) are identical across networks because all networks share the same genesis configuration. `deployments-mainnet.json` holds exactly those and nothing else, making it the genesis source of truth consumed by `GenerateGenesisPrecompileConfig`; non-genesis keys stay zeroed until contracts are actually deployed.
+
+Devnet is reset frequently, so its file starts with only the genesis-assigned addresses plus canonical CREATE2 deployments like Permit2. Script-deployed addresses are zeroed after each reset and repopulated by the deploy scripts, which write their results back to the resolved file so subsequent scripts pick up the correct addresses. Any other chain id (including local simulations and tests) falls back to the testnet file, preserving prior behavior.
+
+The bash pipeline (`script/bash/deploy-testnet-infra.sh`, `script/bash/test-faucet-drips.sh`) applies the same chain-id rule; point `TN_RPC_URL` (or `RPC` for the faucet script) at a devnet node to run against devnet.

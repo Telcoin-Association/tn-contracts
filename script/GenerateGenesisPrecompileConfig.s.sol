@@ -40,7 +40,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function setUp() public {
         root = vm.projectRoot();
         dest = string.concat(root, fileName);
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        // genesis-assigned addresses are identical on every network, and the mainnet
+        // file holds exactly those, making it the genesis source of truth
+        string memory path = string.concat(root, "/deployments/deployments-mainnet.json");
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));

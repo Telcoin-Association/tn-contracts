@@ -27,7 +27,7 @@ contract GenesisSafeConfigTest is Test {
     address fallbackHandler;
 
     function setUp() public {
-        string memory json = vm.readFile(string.concat(vm.projectRoot(), "/deployments/deployments.json"));
+        string memory json = vm.readFile(string.concat(vm.projectRoot(), "/deployments/deployments-mainnet.json"));
         deployments = abi.decode(vm.parseJson(json), (Deployments));
 
         // replay the genesis simulation; copies code + storage onto the deployments addresses

@@ -5,6 +5,7 @@ import { Test, console2 } from "forge-std/Test.sol";
 import { Script } from "forge-std/Script.sol";
 import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 
 /// @dev Usage: `forge script script/TestnetGrantRole.s.sol --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
 contract TestnetGrantRole is Script {
@@ -27,7 +28,7 @@ contract TestnetGrantRole is Script {
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));

@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 import { Permit2Bytecode } from "../../external/uniswap/precompiles/v4/Permit2Bytecode.sol";
 import { PoolManagerBytecode } from "../../external/uniswap/precompiles/v4/PoolManager.sol";
 import { PositionDescriptorBytecode } from "../../external/uniswap/precompiles/v4/PositionDescriptor.sol";
@@ -78,7 +79,7 @@ contract V4IntegrationFork is
     function setUp() public {
         // Read addresses from deployments.json.
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -128,7 +129,7 @@ contract V4IntegrationFork is
         poolManager = _deployOrReuse(
             deployments.uniswapV4.PoolManager,
             arachnid,
-            bytes32(bytes("PoolManager_v2")),
+            bytes32(bytes("PoolManager")),
             bytes.concat(POOL_MANAGER_BYTECODE, abi.encode(ADMIN))
         );
 
@@ -146,7 +147,7 @@ contract V4IntegrationFork is
         } else {
             positionDescriptor = _create2(
                 arachnid,
-                bytes32(bytes("PositionDescriptor_v2")),
+                bytes32(bytes("PositionDescriptor")),
                 bytes.concat(POSITION_DESCRIPTOR_BYTECODE, abi.encode(poolManager, wTEL, NATIVE_CURRENCY_LABEL))
             );
         }
@@ -156,7 +157,7 @@ contract V4IntegrationFork is
         positionManager = _deployOrReuse(
             deployments.uniswapV4.PositionManager,
             arachnid,
-            bytes32(bytes("PositionManager_v2")),
+            bytes32(bytes("PositionManager")),
             bytes.concat(
                 POSITION_MANAGER_BYTECODE,
                 abi.encode(poolManager, permit2, UNSUBSCRIBE_GAS_LIMIT, positionDescriptor, wTEL)
@@ -167,7 +168,7 @@ contract V4IntegrationFork is
         v4Quoter = _deployOrReuse(
             deployments.uniswapV4.V4Quoter,
             arachnid,
-            bytes32(bytes("V4Quoter_v2")),
+            bytes32(bytes("V4Quoter")),
             bytes.concat(V4_QUOTER_BYTECODE, abi.encode(poolManager))
         );
 
@@ -175,7 +176,7 @@ contract V4IntegrationFork is
         stateView = _deployOrReuse(
             deployments.uniswapV4.StateView,
             arachnid,
-            bytes32(bytes("StateView_v2")),
+            bytes32(bytes("StateView")),
             bytes.concat(STATE_VIEW_BYTECODE, abi.encode(poolManager))
         );
 
@@ -183,7 +184,7 @@ contract V4IntegrationFork is
         v4SwapHelper = _deployOrReuse(
             deployments.uniswapV4.V4SwapHelper,
             arachnid,
-            bytes32(bytes("V4SwapHelper_v2")),
+            bytes32(bytes("V4SwapHelper")),
             bytes.concat(type(V4SwapHelper).creationCode, abi.encode(IPoolManagerCore(poolManager)))
         );
     }

@@ -30,7 +30,7 @@ contract TestnetDeployWTELTest is Test {
     string snapshot;
 
     function setUp() public {
-        deploymentsPath = string.concat(vm.projectRoot(), "/deployments/deployments.json");
+        deploymentsPath = string.concat(vm.projectRoot(), "/deployments/deployments-testnet.json");
         snapshot = vm.readFile(deploymentsPath);
         vm.etch(ARACHNID, ARACHNID_RUNTIME);
 

@@ -11,6 +11,7 @@ import { IUniswapV2Pair } from "external/uniswap/interfaces/IUniswapV2Pair.sol";
 import { UniswapV2FactoryBytecode } from "external/uniswap/precompiles/UniswapV2FactoryBytecode.sol";
 import { UniswapV2Router02Bytecode } from "external/uniswap/precompiles/UniswapV2Router02Bytecode.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployUniswapV2.s.sol -vvvv \
 /// --rpc-url $TN_RPC_URL --private-key $ADMIN_PK`
@@ -33,7 +34,7 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -41,16 +42,14 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         wTEL = deployments.WTEL;
         admin = deployments.admin;
         feeToSetter_ = admin;
-        // _v3 salt suffix forces fresh CREATE2 addresses so the redeploy doesn't
-        // collide with the live Adiri deployment. The previous _v2 stack wired
-        // the V2 router to a stale WTEL prediction (the address recorded in
-        // deployments.json before WTEL.sol's final byte-shape was settled), so
-        // any router-mediated wrap/unwrap silently routes to a code-less
-        // address. Pre-existing factory + router stay at their original
-        // addresses and become orphans; the new ones land at fresh CREATE2
-        // destinations consistent with the live WTEL.
-        factorySalt = bytes32(bytes("UniswapV2Factory_v3"));
-        routerSalt = bytes32(bytes("UniswapV2Router02_v3"));
+        // Plain contract-name salts, intended for a fresh chain. The V2 bytecode is
+        // vendored at pinned compiler versions, so identical constructor args yield
+        // identical initcode across runs; CREATE2 reverts on an already-occupied
+        // address. Redeploying on a chain that already holds these contracts
+        // therefore requires bumping the salts (the legacy Adiri stack used
+        // _v2/_v3 suffixes for exactly that reason).
+        factorySalt = bytes32(bytes("UniswapV2Factory"));
+        routerSalt = bytes32(bytes("UniswapV2Router02"));
 
         require(
             wTEL != address(0) && wTEL.code.length > 0,
@@ -210,7 +209,7 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
 
         // logs
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(
             LibString.toHexString(uint256(uint160(address(uniswapV2Factory))), 20), dest, ".uniswapV2.UniswapV2Factory"
         );

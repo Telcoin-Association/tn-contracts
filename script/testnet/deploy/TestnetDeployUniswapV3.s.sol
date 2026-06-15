@@ -5,6 +5,7 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 import { UniswapV3FactoryBytecode } from "external/uniswap/precompiles/v3/UniswapV3Factory.sol";
 import { NFTDescriptorBytecode } from "external/uniswap/precompiles/v3/NFTDescriptor.sol";
 import { NonfungibleTokenPositionDescriptorBytecode } from
@@ -19,7 +20,7 @@ import { SwapRouter02Bytecode } from "external/uniswap/precompiles/v3/SwapRouter
 ///
 /// @notice Mirrors the deploy shape of TestnetDeployUniswapV2.s.sol: pre-compiled
 ///         bytecode literals deployed via Arachnid CREATE2 with addresses written
-///         back to `deployments/deployments.json`.
+///         back to the per-network deployments json.
 ///
 /// @notice Pools are NOT pre-seeded. Liquidity providers initialize pools
 ///         on first mint per fee tier through the swap UI. This contrasts
@@ -81,24 +82,24 @@ contract TestnetDeployUniswapV3 is
 
     // Salts for the deterministic CREATE2 deployer (Arachnid). Each is a unique
     // bytes32 derived from the contract name so re-runs land at the same address.
-    // _v3 suffix forces fresh CREATE2 destinations so the WTEL-aware redeploy
-    // doesn't collide with prior Adiri V3 stacks (factory / NFTDescriptor /
-    // TickLens have no WTEL dependency, so without a salt bump they'd hash to
-    // the previously-predicted addresses). The earlier _v2 predictions baked in
-    // a stale WTEL address and were never broadcast cleanly; bumping all salts
-    // uniformly keeps the on-chain story coherent: every V3 contract for the
-    // new stack lives at a "_v3" address consistent with the live WTEL.
-    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory_v3"));
-    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor_v3"));
-    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor_v3"));
-    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager_v3"));
-    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02_v3"));
-    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2_v3"));
-    bytes32 tickLensSalt = bytes32(bytes("TickLens_v3"));
+    // Plain contract-name salts, intended for a fresh chain. The V3 bytecode is
+    // vendored at pinned compiler versions, so contracts with unchanged
+    // constructor args (factory / NFTDescriptor / TickLens) yield identical
+    // initcode across runs; CREATE2 reverts on an already-occupied address.
+    // Redeploying on a chain that already holds these contracts therefore
+    // requires bumping the salts (the legacy Adiri stack used _v2/_v3 suffixes
+    // for exactly that reason).
+    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory"));
+    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor"));
+    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor"));
+    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager"));
+    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02"));
+    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2"));
+    bytes32 tickLensSalt = bytes32(bytes("TickLens"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -224,10 +225,10 @@ contract TestnetDeployUniswapV3 is
         }
     }
 
-    /// @dev Persists deployed addresses back to `deployments/deployments.json`.
+    /// @dev Persists deployed addresses back to the per-network deployments json.
     function _writeDeployments() internal {
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(_addrStr(uniswapV3Factory), dest, ".uniswapV3.UniswapV3Factory");
         vm.writeJson(_addrStr(nftDescriptor), dest, ".uniswapV3.NFTDescriptor");
         vm.writeJson(

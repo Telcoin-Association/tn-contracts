@@ -5,6 +5,7 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { Deployments } from "../../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 import { Permit2Bytecode } from "external/uniswap/precompiles/v4/Permit2Bytecode.sol";
 import { PoolManagerBytecode } from "external/uniswap/precompiles/v4/PoolManager.sol";
 import { PositionDescriptorBytecode } from "external/uniswap/precompiles/v4/PositionDescriptor.sol";
@@ -88,22 +89,23 @@ contract TestnetDeployUniswapV4 is
     address admin;
 
     // Salts for Arachnid CREATE2. Each is a unique bytes32 derived from the
-    // contract name so re-runs land at the same address. _v2 suffix forces
-    // fresh CREATE2 destinations so the WTEL-aware redeploy doesn't collide
-    // with the legacy Adiri V4 stack (PoolManager / V4Quoter / StateView have
-    // no WTEL dependency in their constructors, so without a salt bump they'd
-    // hash to the existing live addresses and CREATE2 would revert on
-    // already-occupied code).
-    bytes32 poolManagerSalt = bytes32(bytes("PoolManager_v2"));
-    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor_v2"));
-    bytes32 positionManagerSalt = bytes32(bytes("PositionManager_v2"));
-    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter_v2"));
-    bytes32 stateViewSalt = bytes32(bytes("StateView_v2"));
-    bytes32 v4SwapHelperSalt = bytes32(bytes("V4SwapHelper_v2"));
+    // contract name so re-runs land at the same address. Plain contract-name
+    // salts, intended for a fresh chain. The V4 bytecode is vendored at pinned
+    // compiler settings, so contracts with unchanged constructor args
+    // (PoolManager / V4Quoter / StateView) yield identical initcode across
+    // runs; CREATE2 reverts on an already-occupied address. Redeploying on a
+    // chain that already holds these contracts therefore requires bumping the
+    // salts (the legacy Adiri stack used _v2 suffixes for exactly that reason).
+    bytes32 poolManagerSalt = bytes32(bytes("PoolManager"));
+    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor"));
+    bytes32 positionManagerSalt = bytes32(bytes("PositionManager"));
+    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter"));
+    bytes32 stateViewSalt = bytes32(bytes("StateView"));
+    bytes32 v4SwapHelperSalt = bytes32(bytes("V4SwapHelper"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/deployments/deployments.json");
+        string memory path = string.concat(root, DeploymentsResolver.relativePath());
         string memory json = vm.readFile(path);
         bytes memory data = vm.parseJson(json);
         deployments = abi.decode(data, (Deployments));
@@ -234,7 +236,7 @@ contract TestnetDeployUniswapV4 is
         assert(v4SwapHelper.code.length != 0);
 
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(_addrStr(v4SwapHelper), dest, ".uniswapV4.V4SwapHelper");
 
         console2.log("V4SwapHelper deployed at:", v4SwapHelper);
@@ -247,12 +249,12 @@ contract TestnetDeployUniswapV4 is
         deployed = address(bytes20(ret));
     }
 
-    /// @dev Persists deployed addresses back to deployments/deployments.json.
+    /// @dev Persists deployed addresses back to the per-network deployments json.
     ///      We deliberately don't write PositionDescriptor - it's intermediate
     ///      and the swap UI reads it via PositionManager.tokenDescriptor().
     function _writeDeployments() internal {
         string memory root = vm.projectRoot();
-        string memory dest = string.concat(root, "/deployments/deployments.json");
+        string memory dest = string.concat(root, DeploymentsResolver.relativePath());
         vm.writeJson(_addrStr(permit2), dest, ".uniswapV4.Permit2");
         vm.writeJson(_addrStr(poolManager), dest, ".uniswapV4.PoolManager");
         vm.writeJson(_addrStr(positionManager), dest, ".uniswapV4.PositionManager");
