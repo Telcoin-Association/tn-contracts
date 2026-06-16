@@ -4,6 +4,8 @@ pragma solidity 0.8.35;
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { SlotDerivation } from "@openzeppelin/contracts/utils/SlotDerivation.sol";
+import { TransientSlot } from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { RewardInfo, Slash, IStakeManager } from "../interfaces/IStakeManager.sol";
@@ -25,6 +27,9 @@ import { BlsG1 } from "./BlsG1.sol";
 contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, SystemCallable, IConsensusRegistry {
     using BlsG1 for bytes;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SlotDerivation for bytes32;
+    using TransientSlot for bytes32;
+    using TransientSlot for TransientSlot.BooleanSlot;
 
     uint32 internal currentEpoch;
     uint8 internal epochPointer;
@@ -49,6 +54,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
+
+    /// @dev Namespace for the per-epoch transient committee-membership set (see `_markCommitteeMembers`)
+    bytes32 private constant _COMMITTEE_TSET = keccak256("ConsensusRegistry.committeeMembership.v1");
 
     // PoP message prefixes and assembly live in `BlsG1` (see `BlsG1.proofOfPossessionMessage`), the
     // single source of truth for the proof-of-possession scheme ahead of its native precompile.
@@ -850,19 +858,18 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         address[] memory pendingExit = _getValidators(ValidatorStatus.PendingExit);
         uint8 currentEpochPointer = epochPointer;
         uint8 nextEpochPointer = (currentEpochPointer + 1) % 4;
-        address[] memory currentCommittee = epochInfo[currentEpochPointer].committee;
-        address[] memory nextCommittee = futureEpochInfo[nextEpochPointer].committee;
+        // Mark everyone serving on the current, next, or subsequent committee into a transient (EIP-1153)
+        // set keyed to this epoch, then test each pending-exit validator in O(1) rather than rescanning
+        // three committees (up to 100 each) per validator. The transient slots auto-clear at end of tx.
+        bytes32 committeeSet = keccak256(abi.encodePacked(_COMMITTEE_TSET, current));
+        _markCommitteeMembers(epochInfo[currentEpochPointer].committee, committeeSet);
+        _markCommitteeMembers(futureEpochInfo[nextEpochPointer].committee, committeeSet);
+        _markCommitteeMembers(futureCommittee, committeeSet);
         for (uint256 i; i < pendingExit.length; ++i) {
-            // skip if validator is in current or either future committee
             address validatorAddress = pendingExit[i];
-            if (
-                _isCommitteeMember(validatorAddress, currentCommittee)
-                    || _isCommitteeMember(validatorAddress, nextCommittee)
-                    || _isCommitteeMember(validatorAddress, futureCommittee)
-            ) continue;
-
-            ValidatorInfo storage exitValidator = validators[validatorAddress];
-            _exit(exitValidator, current);
+            // the protocol exits a queued validator by excluding it from all upcoming committees
+            if (_isCommitteeMember(validatorAddress, committeeSet)) continue;
+            _exit(validators[validatorAddress], current);
         }
     }
 
@@ -1034,16 +1041,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         if (status != requiredStatus) revert InvalidStatus(status);
     }
 
-    /// @dev Returns whether given `validatorAddress` is a member of the given committee
-    function _isCommitteeMember(address validatorAddress, address[] memory committee) internal pure returns (bool) {
-        // cache len to memory
-        uint256 committeeLen = committee.length;
-        for (uint256 i; i < committeeLen; ++i) {
-            // terminate if `validatorAddress` is a member of committee
-            if (committee[i] == validatorAddress) return true;
+    /// @dev Marks each address in `committee` into the transient (EIP-1153) `committeeSet` for O(1)
+    /// membership tests in `_updateValidatorQueue`. `committeeSet` is keyed to the concluding epoch, so
+    /// distinct epochs never collide, and transient slots auto-clear at end of transaction. Uses
+    /// OpenZeppelin's audited SlotDerivation + TransientSlot rather than raw assembly; solc cannot
+    /// express this natively because the `transient` keyword only supports value types, not mappings.
+    function _markCommitteeMembers(address[] memory committee, bytes32 committeeSet) private {
+        for (uint256 i; i < committee.length; ++i) {
+            committeeSet.deriveMapping(committee[i]).asBoolean().tstore(true);
         }
+    }
 
-        return false;
+    /// @dev True if `validatorAddress` was marked into the transient `committeeSet`.
+    function _isCommitteeMember(address validatorAddress, bytes32 committeeSet) private view returns (bool) {
+        return committeeSet.deriveMapping(validatorAddress).asBoolean().tload();
     }
 
     /// @dev Active and pending activation/exit validators are eligible for committee service in next epoch
