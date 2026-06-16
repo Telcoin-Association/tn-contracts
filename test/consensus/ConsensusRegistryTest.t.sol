@@ -40,7 +40,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
     function test_setUp() public view {
         assertEq(consensusRegistry.getCurrentEpoch(), 0);
-        ValidatorInfo[] memory active = consensusRegistry.getValidators(ValidatorStatus.Active);
+        ValidatorInfo[] memory active = consensusRegistry.getValidatorsInfo(ValidatorStatus.Active);
         for (uint256 i; i < 3; ++i) {
             assertEq(active[i].validatorAddress, initialValidators[i].validatorAddress);
             assertEq(
@@ -185,7 +185,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     function test_setValidatorRegion_exitedValidator() public {
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
 
         // validator1 begins exit
         vm.prank(validator1);
@@ -252,7 +252,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
         // Check validator information
-        ValidatorInfo[] memory validators = consensusRegistry.getValidators(ValidatorStatus.Staked);
+        ValidatorInfo[] memory validators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Staked);
         assertEq(validators.length, 1);
         assertEq(validators[0].validatorAddress, validator5);
         assertEq(consensusRegistry.getBlsPubkey(validator5), dummyPubkey);
@@ -298,7 +298,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig), validator5, validatorSig);
 
         // Check validator information
-        ValidatorInfo[] memory validators = consensusRegistry.getValidators(ValidatorStatus.Staked);
+        ValidatorInfo[] memory validators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Staked);
         assertEq(validators.length, 1);
         assertEq(validators[0].validatorAddress, validator5);
         assertEq(consensusRegistry.getBlsPubkey(validator5), dummyPubkey);
@@ -340,39 +340,44 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             value: stakeAmount_
         }(dummyPubkey, BlsG1.ProofOfPossession(validator5BlsPubkey, validator5BlsSig));
 
-        // activate and conclude epoch to reach validator5 activationEpoch
-        uint256 numActiveBefore = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        // activate validator5 -> PendingActivation (committee-eligible next epoch, but not in the Active set)
+        uint256 numEligibleBefore = consensusRegistry.getEligibleValidatorCount();
         vm.prank(validator5);
         consensusRegistry.activate();
 
-        ValidatorInfo[] memory activeValidators = consensusRegistry.getValidators(ValidatorStatus.Active);
-        assertEq(activeValidators.length, numActiveBefore + 1);
+        // per-status: the Active set is unchanged; validator5 joins the eligible pool as PendingActivation
+        ValidatorInfo[] memory activeValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Active);
+        ValidatorInfo[] memory pendingActivation = consensusRegistry.getValidatorsInfo(ValidatorStatus.PendingActivation);
+        uint256 numEligible = consensusRegistry.getEligibleValidatorCount();
+        assertEq(numEligible, numEligibleBefore + 1);
+        assertEq(activeValidators.length, numEligibleBefore);
+        assertEq(pendingActivation.length, 1);
 
         uint32 activationEpoch = consensusRegistry.getCurrentEpoch() + 1;
 
-        // update committee size
+        // update committee size to the full eligible pool
         vm.expectEmit();
         emit NextCommitteeSizeUpdated(4, 5, 5);
         vm.prank(crOwner);
-        consensusRegistry.setNextCommitteeSize(uint16(activeValidators.length));
+        consensusRegistry.setNextCommitteeSize(uint16(numEligible));
 
         vm.expectEmit(true, true, true, true);
         emit ValidatorActivated(ValidatorInfo(
                 validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, uint8(0), uint8(0)
             ));
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeValidators.length));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numEligible));
 
-        // Check validator information
+        // Active set holds the genesis validators in order; validator5 is the lone PendingActivation
         assertEq(activeValidators[0].validatorAddress, validator1);
         assertEq(activeValidators[1].validatorAddress, validator2);
         assertEq(activeValidators[2].validatorAddress, validator3);
         assertEq(activeValidators[3].validatorAddress, validator4);
-        assertEq(activeValidators[4].validatorAddress, validator5);
-        for (uint256 i; i < activeValidators.length - 1; ++i) {
+        for (uint256 i; i < activeValidators.length; ++i) {
             assertEq(uint8(activeValidators[i].currentStatus), uint8(ValidatorStatus.Active));
         }
-        assertEq(uint8(activeValidators[4].currentStatus), uint8(ValidatorStatus.PendingActivation));
+        assertEq(pendingActivation[0].validatorAddress, validator5);
+        assertEq(uint8(pendingActivation[0].currentStatus), uint8(ValidatorStatus.PendingActivation));
     }
 
     function testRevert_stake_invalidPoint() public {
@@ -498,13 +503,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function test_eligibleValidatorCount_burnDecrements() public {
         // genesis: 4 Active validators are committee-eligible
         assertEq(consensusRegistry.getEligibleValidatorCount(), 4);
-        _assertEligibleInvariant();
+        _assertSetInvariant();
 
         // governance burn of an Active (eligible) validator -> exit + retire: -1
         vm.prank(crOwner);
         consensusRegistry.burn(validator1);
         assertEq(consensusRegistry.getEligibleValidatorCount(), 3);
-        _assertEligibleInvariant();
+        _assertSetInvariant();
     }
 
 
@@ -528,7 +533,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.mint(validator5);
 
         // starting committee size
-        uint256 numActiveBefore = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveBefore = consensusRegistry.getEligibleValidatorCount();
 
         // validator signs proof of possession message
         bytes memory message = consensusRegistry.proofOfPossessionMessage(validator5BlsPubkey, validator5);
@@ -545,7 +550,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.activate();
 
         uint32 activationEpoch = consensusRegistry.getCurrentEpoch() + 1;
-        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveAfter = consensusRegistry.getEligibleValidatorCount();
 
         address[] memory nextCommittee = _createTokenIdCommittee(numActiveAfter);
 
@@ -578,7 +583,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.beginExit();
 
         // Check validator information is pending exit
-        ValidatorInfo[] memory pendingExitValidators = consensusRegistry.getValidators(ValidatorStatus.PendingExit);
+        ValidatorInfo[] memory pendingExitValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.PendingExit);
         assertEq(pendingExitValidators.length, 1);
         assertEq(pendingExitValidators[0].validatorAddress, validator5);
         assertEq(uint8(pendingExitValidators[0].currentStatus), uint8(ValidatorStatus.PendingExit));
@@ -594,10 +599,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.stopPrank();
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.PendingExit).length, 0);
-        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveBefore);
+        assertEq(consensusRegistry.getEligibleValidatorCount(), numActiveBefore);
 
         // Check validator information is exited
-        ValidatorInfo[] memory exitValidators = consensusRegistry.getValidators(ValidatorStatus.Exited);
+        ValidatorInfo[] memory exitValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Exited);
         assertEq(exitValidators.length, 1);
         assertEq(exitValidators[0].validatorAddress, validator5);
         assertEq(uint8(exitValidators[0].currentStatus), uint8(ValidatorStatus.Exited));
@@ -634,14 +639,14 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     function test_unstake_exited() public {
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
 
         vm.deal(address(consensusRegistry), stakeAmount_ * numActive);
 
         // validator becomes `PendingExit` status which is still committee eligible
         vm.prank(validator1);
         consensusRegistry.beginExit();
-        assertEq(numActive, consensusRegistry.getValidators(ValidatorStatus.Active).length);
+        assertEq(numActive, consensusRegistry.getEligibleValidatorCount());
 
         // validators pending exit are only exited after elapsing 3 epochs without committee service
         vm.startPrank(sysAddress);
@@ -824,7 +829,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
     function test_burnAutoAdjustsCommitteeSize() public {
         // Setup: Set nextCommitteeSize to current active count
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(numActive));
 
@@ -887,7 +892,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.applySlashes(slashes);
 
         // verify validator was ejected and committee size adjusted
-        ValidatorInfo[] memory activeValidators = consensusRegistry.getValidators(ValidatorStatus.Active);
+        ValidatorInfo[] memory activeValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Active);
         assertEq(activeValidators.length, 3); // 4 initial - 1 slashed
         assertTrue(consensusRegistry.isRetired(validator1));
 
@@ -1523,7 +1528,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.activate();
 
-        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveAfter = consensusRegistry.getEligibleValidatorCount();
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(numActiveAfter));
         vm.prank(sysAddress);

@@ -194,12 +194,47 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
         return vm.addr(pk);
     }
 
-    /// @dev Invariant: the O(1) eligible counter equals the O(n) scan it replaced.
-    function _assertEligibleInvariant() internal view {
+    /// @dev Membership invariant: the per-status sets exactly mirror `validators[].currentStatus`.
+    /// (1) every set member has the matching status and is not retired; (2) every minted, unretired,
+    /// non-Undefined validator appears in exactly one set (cross-checked against ERC721 enumeration);
+    /// (3) the eligible count equals the union of the three eligible sets.
+    function _assertSetInvariant() internal view {
+        ValidatorStatus[5] memory statuses = [
+            ValidatorStatus.Staked,
+            ValidatorStatus.PendingActivation,
+            ValidatorStatus.Active,
+            ValidatorStatus.PendingExit,
+            ValidatorStatus.Exited
+        ];
+
+        uint256 totalInSets;
+        for (uint256 s; s < statuses.length; ++s) {
+            address[] memory addrs = consensusRegistry.getValidators(statuses[s]);
+            totalInSets += addrs.length;
+            for (uint256 i; i < addrs.length; ++i) {
+                ValidatorInfo memory info = consensusRegistry.getValidator(addrs[i]);
+                assertEq(uint8(info.currentStatus), uint8(statuses[s]), "set member has wrong status");
+                assertFalse(info.isRetired, "set member is retired");
+            }
+        }
+
+        // every minted, unretired, non-Undefined validator must be accounted for in exactly one set
+        uint256 supply = consensusRegistry.totalSupply();
+        uint256 liveCount;
+        for (uint256 t; t < supply; ++t) {
+            ValidatorInfo memory info = consensusRegistry.getValidator(address(uint160(consensusRegistry.tokenByIndex(t))));
+            if (!info.isRetired && info.currentStatus != ValidatorStatus.Undefined) {
+                ++liveCount;
+            }
+        }
+        assertEq(totalInSets, liveCount, "set membership count drifted from validators mapping");
+
         assertEq(
             consensusRegistry.getEligibleValidatorCount(),
-            consensusRegistry.getValidators(ValidatorStatus.Active).length,
-            "eligibleValidatorCount drifted from _getValidators(Active).length"
+            consensusRegistry.getValidators(ValidatorStatus.PendingActivation).length
+                + consensusRegistry.getValidators(ValidatorStatus.Active).length
+                + consensusRegistry.getValidators(ValidatorStatus.PendingExit).length,
+            "eligible count drifted from eligible sets"
         );
     }
 

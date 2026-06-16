@@ -51,7 +51,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActive = numValidators >= burnedIds.length ? numValidators - burnedIds.length : 2;
         assertLe(consensusRegistry.getNextCommitteeSize(), numActive);
-        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActive);
+        assertEq(consensusRegistry.getEligibleValidatorCount(), numActive);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActive);
         for (uint256 i; i < burnedIds.length; ++i) {
             uint256 tokenId = burnedIds[i];
@@ -80,7 +80,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         _fuzz_stake(numValidators, stakeAmount_);
         _fuzz_activate(numValidators);
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
 
         // leave enough validators for the committee to stay intact
         uint32 currentEpoch = consensusRegistry.getCurrentEpoch();
@@ -92,7 +92,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.totalSupply(), supplyBefore - burnedIds.length);
         uint256 numActiveAfter = numActive >= burnedIds.length ? numActive - burnedIds.length : 2;
         assertLe(consensusRegistry.getNextCommitteeSize(), numActiveAfter);
-        assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, numActiveAfter);
+        assertEq(consensusRegistry.getEligibleValidatorCount(), numActiveAfter);
         assertEq(consensusRegistry.getCommitteeValidators(currentEpoch).length, numActiveAfter);
         uint256 expectedIssuanceBalanceAfter = issuanceBalanceBefore + stakeAmount_ * burnedIds.length;
         assertEq(consensusRegistry.issuance().balance, expectedIssuanceBalanceAfter);
@@ -109,13 +109,13 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             consensusRegistry.ownerOf(tokenId);
         }
 
-        _assertEligibleInvariant();
+        _assertSetInvariant();
     }
 
     function testFuzz_concludeEpoch_success(uint24 numValidators) public {
         numValidators = uint24(bound(uint256(numValidators), 1, 750));
 
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length + numValidators;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount() + numValidators;
 
         _fuzz_mint(numValidators);
         _fuzz_stake(numValidators, stakeAmount_);
@@ -151,7 +151,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         consensusRegistry.concludeEpoch(futureCommittee);
 
         // asserts
-        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveAfter = consensusRegistry.getEligibleValidatorCount();
         assertEq(numActiveAfter, numActive);
         uint32 returnedEpoch = consensusRegistry.getCurrentEpoch();
         assertEq(returnedEpoch, newEpoch);
@@ -168,7 +168,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             assertEq(subsequentCommittee[i], futureCommittee[i]);
         }
 
-        _assertEligibleInvariant();
+        _assertSetInvariant();
     }
 
     function testFuzz_concludeEpoch_invalidCommitteeSize(uint24 numValidators) public {
@@ -176,7 +176,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
         // read next committee size from state
         uint16 nextCommitteeSize = consensusRegistry.getNextCommitteeSize();
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length + numValidators;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount() + numValidators;
         uint256 wrongCommitteeSize = _fuzz_computeCommitteeSize(numActive, numValidators);
 
         // ensure wrongCommitteeSize is different from nextCommitteeSize
@@ -524,7 +524,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         _fuzz_stake(numValidators, stakeAmount_);
         _fuzz_activate(numValidators);
 
-        uint256 numActive = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
 
         // upgrade half to new version
         uint256 newStakeAmount = stakeAmount_ * 3;
@@ -565,7 +565,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         assertEq(epochInfo.stakeVersion, newVersion, "Epoch stakeVersion should reflect global version");
 
         // all validators remain Active
-        uint256 numActiveAfter = consensusRegistry.getValidators(ValidatorStatus.Active).length;
+        uint256 numActiveAfter = consensusRegistry.getEligibleValidatorCount();
         assertEq(numActiveAfter, numActive, "All validators should remain active after epoch transition");
 
         // verify mixed versions in validator set

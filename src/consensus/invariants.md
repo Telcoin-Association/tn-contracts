@@ -4,7 +4,7 @@
 
 - consensus-related functions `concludeEpoch` `applyIncentives` `applySlashes` should only revert for undeniably invalid state to minimize interruption protocol operation
 - concludeEpoch must be the final system call of the epoch, succeeding reward and slash system calls
-- active validatort count and committee size must never reach 0 or more than the number of effectively active (active and pendingexit) validators in the new epoch.
+- active validator count and committee size must never reach 0, nor exceed the number of committee-eligible (PendingActivation, Active, PendingExit) validators in the new epoch
 - four latest epochs (current and three in past) are correctly stored
 - future committees are stored up to two epochs into the future (next and subsequent)
 - `nextCommitteeSize` must always be less-than-or-equal-to the number of eligible validators at epoch conclusion
@@ -19,13 +19,22 @@
 - validator statuses are one directional; ie Active cannot revert to PendingActive, PendingExit cannot revert to Active, and so forth
 - only staked validators can begin activation
 - after self-activating, validators enter the pending activation queue and activate at the start of the next epoch
-- pending activation and pending exit validators are also considered active since exit queue is updated before checking committee size
+- pending activation and pending exit validators are committee-eligible: they count toward `getEligibleValidatorCount()` (the committee-size guard) even though `getValidators(Active)` now returns only the Active set; the exit queue is updated before checking committee size
 - exit from the pending exit queue is determined solely by the protocol, which determines a queued validator may exit by excluding it from the committee across 3 epochs
 - unless forcibly burned, only Exited or Staked validators can unstake, ie: Exited to Retired, or Staked to Any (unstaking pre-activation bypasses activation)
 - after reaching Exited status requirement, validators must wait an additional epoch to unstake
 - retired validator addresses can never rejoin
 - validators are only eligible for rewards at the completion of their first full epoch
-- unvariant: validator storage vector can eventually grow to exceed gas limits but this will be a good problem to have and storage can be optimized
+- per-status queries (`getValidators`/`getValidatorsInfo`) and the eligible count are O(set), not O(totalSupply): they read a single `EnumerableSet` rather than scanning every ConsensusNFT, so the prior whole-set scan no longer bounds gas
+
+**validator index (per-status sets)**
+
+- validators are indexed by status in one `EnumerableSet.AddressSet` per `ValidatorStatus` (`validatorSets`); `_setStatus` is the single point that mutates membership and is the only writer of `currentStatus`
+- set membership mirrors `validators[addr].currentStatus` exactly: every member of `validatorSets[s]` has `currentStatus == s` and `isRetired == false`, and every minted, unretired, non-Undefined validator belongs to exactly one set
+- `Undefined` and `Any` carry no set; retiring (`_setStatus(Any)`) removes a validator from its set but retains its `validators[addr]` tombstone (`isRetired = true`) that blocks re-joining, so a retired validator appears in no status query
+- `eligibleValidatorCount` is a cached uint kept in lockstep by `_setStatus`; it must always equal `|PendingActivation| + |Active| + |PendingExit|` (invariant-tested) and is the single-SLOAD source for the committee-size guard
+- `getValidators(status)` returns the addresses of exactly that status's set (reverts on `Undefined`/`Any`); `getValidatorsInfo(status)` returns the full `ValidatorInfo[]`; neither folds statuses together
+- set iteration order is deterministic for a given storage state (insertion order with swap-and-pop on removal) but is not sorted and changes as validators are removed
 
 **stake**
 
@@ -43,7 +52,7 @@
 - Issuance only ever holds epoch reward funds, less claims
 - when unstaking, stake is sourced from the registry
 - when claiming or unstaking, rewards are sourced from Issuance
-- claims can revert if Issuance contract runs dry (eg TAO governance problem) but rewards ledger must continue being updated by applyIncentives or applySlahes
+- claims can revert if Issuance contract runs dry (eg TAO governance problem) but rewards ledger must continue being updated by applyIncentives or applySlashes
 - all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not
 - mid-epoch stake version upgrades cause the entire epoch's rewards to be weighted by the new version's `stakeAmount`, since `applyIncentives` reads `stakeVersion` at epoch end; there is no pro-rata split within an epoch
 - during a stake-decreasing version upgrade on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
@@ -53,7 +62,7 @@
 
 **protocol**
 
-- protocol dictates committee based on `getValidators(Active)`, taking the first `nextCommitteeSize` validators after Fisher-Yates shuffle
+- protocol dictates the committee from the committee-eligible pool (the union of `getValidators(PendingActivation)`, `getValidators(Active)`, `getValidators(PendingExit)`, queried per-status and combined off-chain), taking the first `nextCommitteeSize` validators after Fisher-Yates shuffle; the on-chain `getEligibleValidatorCount()` is that pool's size, so the committee-size guard cannot drift from the candidate set
 - protocol reads `nextCommitteeSize` from contract storage to determine committee size for the future committee passed to `concludeEpoch`
 - `nextCommitteeSize` serves as the source of truth for committee sizing, eliminating need for protocol hard forks to adjust committee sizes
 

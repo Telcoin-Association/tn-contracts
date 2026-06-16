@@ -146,8 +146,8 @@ interface IConsensusRegistry {
     /// @param PendingExit Marks validators in the exit queue. They are still eligible for committees,
     /// remaining staked and operational while awaiting automatic exit initiated by the protocol
     /// @param Exited Marks validators exited by the protocol client but have not yet unstaked
-    /// @param Any Marks permanently retired validators, which offer little reason to be queried
-    /// thus querying `getValidators(Any)` instead returns all unretired validators
+    /// @param Any The retired sentinel: `_retire` sets `currentStatus = Any`. It maintains no set, so
+    /// it is not a queryable status (`getValidators(Any)` reverts); retired validators are removed entirely
     enum ValidatorStatus {
         Undefined,
         Staked,
@@ -209,11 +209,16 @@ interface IConsensusRegistry {
     /// @notice When querying for future epochs, `blockHeight` will be 0 as they are not yet known
     function getEpochInfo(uint32 epoch) external view returns (EpochInfo memory);
 
-    /// @dev Returns an array of unretired validators matching the provided status
-    /// @param `Any` queries return all unretired validators where `status != Any`
-    /// @param `Active` queries also include validators pending activation or exit since all three
-    /// remain eligible for committee service in the next epoch
-    function getValidators(ValidatorStatus status) external view returns (ValidatorInfo[] memory);
+    /// @dev Returns the addresses of validators in exactly the provided status's set, in the set's
+    /// current order. Reverts on `Undefined` and `Any` (neither maintains a set).
+    /// @notice Per-status only: the `Active` query no longer folds in `PendingActivation`/`PendingExit`.
+    /// The committee-eligible pool is the union of the `{ PendingActivation, Active, PendingExit }`
+    /// queries; the protocol unions those three calls off-chain. `getEligibleValidatorCount()` returns
+    /// that union's size on-chain.
+    function getValidators(ValidatorStatus status) external view returns (address[] memory);
+
+    /// @dev Like `getValidators`, but returns the full `ValidatorInfo` for each validator in the set.
+    function getValidatorsInfo(ValidatorStatus status) external view returns (ValidatorInfo[] memory);
 
     /// @dev Fetches the committee for a given epoch
     function getCommitteeValidators(uint32 epoch) external view returns (ValidatorInfo[] memory);
