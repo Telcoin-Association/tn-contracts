@@ -246,10 +246,4 @@ interface IConsensusRegistry {
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
 
-    /// @dev Returns the BLS12-381 proof of possession message for given params
-    /// @param blsPubkeyUncompressed Must provide the 192-byte uncompressed bls pubkey
-    function proofOfPossessionMessage(bytes calldata blsPubkeyUncompressed, address validatorAddress)
-        external
-        pure
-        returns (bytes memory);
 }

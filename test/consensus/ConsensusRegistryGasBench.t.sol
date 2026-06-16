@@ -13,8 +13,8 @@ import { BlsG1 } from "src/consensus/BlsG1.sol";
 /// the fork point (`enhancement/consensus-registry-eligible-count`), where `getValidators(Active)`
 /// allocated `totalSupply()` entries and cold-SLOADed every validator's slots.
 contract ConsensusRegistryGasBench is ConsensusRegistryTestUtils {
-    /// @dev Build a genesis set of `n` Active validators with real PoPs (secrets offset to avoid
-    /// colliding with the genesis validators 1-4 used elsewhere).
+    /// @dev Build a genesis set of `n` Active validators with length-correct PoP fixtures (secrets
+    /// offset to avoid colliding with the genesis validators 1-4 used elsewhere).
     function _buildGenesis(uint256 n)
         internal
         view
@@ -28,10 +28,7 @@ contract ConsensusRegistryGasBench is ConsensusRegistryTestUtils {
             address addr = _addressFromPrivateKey(secret);
             vals[i] = ValidatorInfo(addr, uint32(0), uint32(0), ValidatorStatus.Active, false, uint8(0), uint8(0));
             pubkeys[i] = _blsDummyPubkeyFromSecret(secret);
-            bytes memory uncompressed = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secret));
-            bytes memory message = proofOfPossessionMessage(uncompressed, addr);
-            bytes memory sig = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secret, message));
-            pops[i] = BlsG1.ProofOfPossession(uncompressed, sig);
+            pops[i] = BlsG1.ProofOfPossession(_blsDummySigFromSecret(secret));
         }
     }
 

@@ -5,18 +5,16 @@ import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo } from "src/interfaces/IStakeManager.sol";
 import { BlsG1 } from "src/consensus/BlsG1.sol";
-import { BlsG1Deployed } from "../EIP2537/BlsG1Deployed.sol";
-import { BlsG1Harness } from "../EIP2537/BlsG1Harness.sol";
+import { BlsG1PrecompileMockDeployed } from "./BlsG1PrecompileMock.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
 
-// `BlsG1Deployed` deploys the linked `BlsG1` library to its pinned address. As a base constructor it
-// runs before this contract's state-var initializers and constructor body, so the BLS work they do
-// (real PoPs, `validator5BlsPubkey`) resolves. The inherited `ConsensusRegistry` self-instance is
-// unused (tests target the `consensusRegistry` instance built in `setUp`); we override
-// `_verifyProofOfPossession` below so its genesis construction does no BLS and needs no real PoPs.
-contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisPrecompiler, BlsG1Deployed {
-    using BlsG1 for bytes;
+// `BlsG1PrecompileMockDeployed` etches the mock precompile at `BLS_G1_ADDRESS`. As a base constructor
+// it runs before this contract's constructor body, so the PoP fixtures it builds verify against the
+// mock. The inherited `ConsensusRegistry` self-instance is unused (tests target the `consensusRegistry`
+// instance built in `setUp`); we override `_verifyProofOfPossession` below so its construction does no
+// BLS and needs no real PoPs.
+contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, BlsG1PrecompileMockDeployed {
 
     ConsensusRegistry public consensusRegistry;
 
@@ -40,9 +38,10 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     // non-genesis validator for testing
     uint256 public validator5Secret = 5;
     address public validator5 = _addressFromPrivateKey(validator5Secret);
-    // assigned in the constructor body (not inline): inline state-var initializers run before base
-    // constructors, i.e. before `BlsG1Deployed` etches the library, so the BLS calls would revert.
+    // validator5's compressed (96-byte) stored key and 48-byte PoP signature fixtures, set in the
+    // constructor body.
     bytes public validator5BlsPubkey;
+    bytes public validator5BlsSig;
 
     uint256 public telMaxSupply = 100_000_000_000e18;
     uint256 public registryGenesisBal;
@@ -56,23 +55,22 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     constructor()
         ConsensusRegistry(
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_),
-            // Base-constructor arguments are evaluated before the `BlsG1Deployed` base etches the
-            // library, so they must NOT call BLS. `_populateInitialValidators` is BLS-free; the pubkeys
-            // and PoPs would call BLS, so the unused self-instance gets BLS-free placeholders (its
-            // `_verifyProofOfPossession` is overridden to a no-op). The genuine pubkeys/PoPs are built
-            // in the body below, after `BlsG1` has been etched.
+            // The unused inherited self-instance gets BLS-free placeholders (its `_verifyProofOfPossession`
+            // is overridden to a no-op). The genuine fixtures used by the `setUp` instance are built in
+            // the constructor body below.
             _populateInitialValidators(),
             _dummyBlsPubkeys(),
             _dummyPops(),
             crOwner
         )
     {
-        // `BlsG1Deployed` (a base) has etched the library at `BLS_G1_ADDRESS`, so BLS now resolves.
-        // Build the real pubkeys/PoPs/validator5 key used to construct the genuine `consensusRegistry`
-        // instance in `setUp`.
+        // Build the compressed pubkey/PoP fixtures used to construct the genuine `consensusRegistry`
+        // instance in `setUp`. These are length-correct dummies (the mock precompile only checks
+        // lengths); real-crypto verification is covered by the Rust precompile and e2e tests.
         _populateInitialBlsPubkeys();
         _populateinitialBLSPops();
-        validator5BlsPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(validator5Secret));
+        validator5BlsPubkey = _blsDummyPubkeyFromSecret(validator5Secret);
+        validator5BlsSig = _blsDummySigFromSecret(validator5Secret);
         vm.etch(issuance, type(Issuance).runtimeCode);
     }
 
@@ -165,12 +163,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     function _populateinitialBLSPops() internal returns (BlsG1.ProofOfPossession[] memory) {
         for (uint256 i; i < initialValidators.length; ++i) {
             uint256 secretI = i + 1;
-            address validatorI = initialValidators[i].validatorAddress;
-            bytes memory pubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secretI));
-            bytes memory messageI = proofOfPossessionMessage(pubkey, validatorI);
-            bytes memory signature = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secretI, messageI));
-
-            initialBLSPops.push(BlsG1.ProofOfPossession(pubkey, signature));
+            initialBLSPops.push(BlsG1.ProofOfPossession(_blsDummySigFromSecret(secretI)));
         }
 
         return initialBLSPops;
@@ -192,6 +185,37 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
     /// @notice Never do this onchain in production!! Only for testing
     function _addressFromPrivateKey(uint256 pk) internal pure returns (address) {
         return vm.addr(pk);
+    }
+
+    /// @dev A length-correct 96-byte compressed BLS G2 pubkey fixture for `secret`, distinct per secret,
+    /// with the blst compression flag set and the infinity flag clear so it passes the registry's stored-
+    /// key checks. Not a real BLS point; the mock precompile verifies only lengths.
+    function _blsDummyPubkeyFromSecret(uint256 secret) internal pure returns (bytes memory pubkey) {
+        pubkey = new bytes(96);
+        bytes32 a = keccak256(abi.encode("bls-pubkey", secret));
+        bytes32 b = keccak256(abi.encode("bls-pubkey-2", secret));
+        bytes32 c = keccak256(abi.encode("bls-pubkey-3", secret));
+        for (uint256 i; i < 32; ++i) {
+            pubkey[i] = a[i];
+            pubkey[32 + i] = b[i];
+            pubkey[64 + i] = c[i];
+        }
+        // compression flag set (0x80), infinity flag clear (0x40): a well-formed compressed point
+        pubkey[0] = bytes1((uint8(pubkey[0]) | 0x80) & 0xbf);
+    }
+
+    /// @dev A length-correct 48-byte compressed BLS G1 signature fixture for `secret`, distinct per
+    /// secret. Not a real signature; the mock precompile verifies only lengths.
+    function _blsDummySigFromSecret(uint256 secret) internal pure returns (bytes memory sig) {
+        sig = new bytes(48);
+        bytes32 a = keccak256(abi.encode("bls-sig", secret));
+        bytes32 b = keccak256(abi.encode("bls-sig-2", secret));
+        for (uint256 i; i < 32; ++i) {
+            sig[i] = a[i];
+        }
+        for (uint256 i; i < 16; ++i) {
+            sig[32 + i] = b[i];
+        }
     }
 
     /// @dev Membership invariant: the per-status sets exactly mirror `validators[].currentStatus`.
@@ -304,17 +328,12 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, BlsG1Harness, GenesisP
             uint256 secret = i + 5;
             address newValidator = _addressFromPrivateKey(secret);
 
-            // generate new validator keys & signatures
-            bytes memory newBLSPubkey = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secret));
-            bytes memory message = proofOfPossessionMessage(newBLSPubkey, newValidator);
-            bytes memory blsSignature = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secret, message));
-
-            // stake and activate
+            // stake and activate with length-correct compressed fixtures
             vm.deal(newValidator, amount);
             vm.startPrank(newValidator);
             consensusRegistry.stake{
                 value: amount
-            }(_blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(newBLSPubkey, blsSignature));
+            }(_blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(_blsDummySigFromSecret(secret)));
             vm.stopPrank();
         }
     }

@@ -57,8 +57,7 @@ interface IStakeManager {
 
     /// @notice Thrown when BLS proof-of-possession signature verification fails
     /// @param proof The proof of possession that failed verification
-    /// @param message The signed message that was expected
-    error InvalidProofOfPossession(BlsG1.ProofOfPossession proof, bytes message);
+    error InvalidProofOfPossession(BlsG1.ProofOfPossession proof);
     /// @notice Thrown when a token ID is zero, exceeds type(uint160).max, or does not exist
     /// @param tokenId The invalid token ID
     error InvalidTokenId(uint256 tokenId);

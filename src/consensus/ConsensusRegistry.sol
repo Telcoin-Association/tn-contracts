@@ -58,8 +58,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Namespace for the per-epoch transient committee-membership set (see `_markCommitteeMembers`)
     bytes32 private constant _COMMITTEE_TSET = keccak256("ConsensusRegistry.committeeMembership.v1");
 
-    // PoP message prefixes and assembly live in `BlsG1` (see `BlsG1.proofOfPossessionMessage`), the
-    // single source of truth for the proof-of-possession scheme ahead of its native precompile.
+    // Proof-of-possession verification is delegated to the native precompile at `BLS_G1_ADDRESS`
+    // (see `BlsG1.verifyProofOfPossession`), which reuses the protocol's `blst` signing path.
 
     /**
      *
@@ -364,18 +364,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         return _hashTypedData(structHash);
     }
 
-    /// @inheritdoc IConsensusRegistry
-    function proofOfPossessionMessage(
-        bytes memory blsPubkeyUncompressed,
-        address validatorAddress
-    )
-        public
-        pure
-        returns (bytes memory)
-    {
-        return BlsG1.proofOfPossessionMessage(blsPubkeyUncompressed, validatorAddress);
-    }
-
     /**
      *
      *   validators
@@ -671,52 +659,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 flags = uint8(blsPubkey[0]);
         if (flags & 0x80 == 0 || flags & 0x40 != 0) revert BlsG1.InvalidBLSPubkey();
 
-        // Single handoff to the BLS library: it builds the PoP message, encodes the points, hashes to
-        // curve, and runs the pairing check internally. This is the call that becomes a native precompile.
-        if (!BlsG1.verifyProofOfPossession(g1Pop.uncompressedSignature, g1Pop.uncompressedPubkey, validatorAddress)) {
-            revert InvalidProofOfPossession(g1Pop, proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress));
+        // Single handoff to the native BLS precompile (linked at `BLS_G1_ADDRESS`): it verifies the
+        // compressed signature directly against the caller-supplied compressed `blsPubkey`. Because the
+        // key the proof is checked against is the exact key stored below, the binding is structural and
+        // cryptographic - a proof for a different key cannot pass, so no separate x-coordinate alignment
+        // check is needed to defeat rogue-key registration.
+        if (!BlsG1.verifyProofOfPossession(g1Pop.signature, blsPubkey, validatorAddress)) {
+            revert InvalidProofOfPossession(g1Pop);
         }
-
-        // Bind the registered compressed key to the key whose possession was just proven. The proof
-        // covers `uncompressedPubkey`, but the consensus key stored and aggregated by the protocol is the
-        // separate compressed `blsPubkey`. Without this, a validator could register a consensus key for
-        // which no proof of possession exists, re-enabling rogue-key attacks on the committee aggregate.
-        if (!_blsKeysAligned(blsPubkey, g1Pop.uncompressedPubkey)) revert BLSPubkeyMismatch();
 
         // prevent duplicate compressed pubkeys
         return _spendBLSPubkey(blsPubkey, validatorAddress);
-    }
-
-    /// @notice Confirms a 96-byte compressed G2 key and a 192-byte uncompressed G2 key encode the same
-    /// public key, by comparing x-coordinates.
-    /// @dev blst serializes a G2 point as `x.c1 || x.c0 || y.c1 || y.c0` (uncompressed) and `x.c1 || x.c0`
-    /// (compressed), the latter carrying 3 flag bits (compression/infinity/sign) in the top bits of byte 0.
-    /// We clear those flag bits and compare the 96-byte x-coordinate. An x match is sufficient to defeat
-    /// rogue-key registration: a cancellation key has a different x than any key the caller can prove, so
-    /// the only keys that pass are the proven key and its negation, both controlled by the prover. Callers
-    /// must ensure `compressed` is 96 bytes and `uncompressed` is at least 96 bytes (enforced upstream).
-    function _blsKeysAligned(
-        bytes memory compressed,
-        bytes memory uncompressed
-    )
-        internal
-        pure
-        returns (bool aligned)
-    {
-        assembly {
-            let c := add(compressed, 0x20)
-            let u := add(uncompressed, 0x20)
-            // clear the 3 flag bits in the most-significant byte of the first word, then compare the 96-byte x
-            let mask := 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            aligned :=
-                and(
-                    and(
-                        eq(and(mload(c), mask), and(mload(u), mask)),
-                        eq(mload(add(c, 0x20)), mload(add(u, 0x20)))
-                    ),
-                    eq(mload(add(c, 0x40)), mload(add(u, 0x40)))
-                )
-        }
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
