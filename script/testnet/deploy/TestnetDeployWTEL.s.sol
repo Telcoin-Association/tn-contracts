@@ -10,6 +10,14 @@ import { WTEL } from "../../../src/WTEL.sol";
 
 /// @title Deploy WTEL (canonical-shape wrapped TEL) on Adiri Testnet
 ///
+/// @notice LEGACY: WTEL is now genesis-assigned at the vanity address
+///         0x00000000000000000000000000000000000037e1 (see
+///         GenerateGenesisPrecompileConfig), so chains created from the current
+///         genesis never need this script - the pipeline's has-code check skips
+///         it. It remains only for chains that predate the genesis WTEL entry
+///         (the live Adiri testnet until its regenesis); retire it once no such
+///         chain is operated.
+///
 /// @notice WTEL is the wrapped-native ERC20 the Uniswap V2 / V3 / V4 stacks
 ///         consume at their `_WETH9` constructor arg. Constructor takes no
 ///         arguments, so the deploy is a single Arachnid CREATE2 call against

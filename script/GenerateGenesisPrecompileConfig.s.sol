@@ -8,6 +8,7 @@ import {GenesisPrecompiler} from "../deployments/genesis/GenesisPrecompiler.sol"
 import {Safe} from "safe-contracts/contracts/Safe.sol";
 import {SafeProxyFactory} from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
 import {CompatibilityFallbackHandler} from "safe-contracts/contracts/handler/CompatibilityFallbackHandler.sol";
+import {WTEL} from "../src/WTEL.sol";
 
 /// @title Genesis Precompile Config Generator
 /// @notice Generates a yaml file comprising the storage slots and their values
@@ -37,6 +38,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     address[] safeOwners;
     uint256 safeThreshold;
 
+    // Wrapped TEL, genesis-assigned at the 0x...37e1 vanity address
+    WTEL wTEL;
+
     function setUp() public {
         root = vm.projectRoot();
         dest = string.concat(root, fileName);
@@ -51,6 +55,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         safeProxyFactory = SafeProxyFactory(deployments.SafeProxyFactory);
         compatibilityFallbackHandler = CompatibilityFallbackHandler(deployments.CompatibilityFallbackHandler);
         governanceSafe = Safe(payable(deployments.Safe));
+        wTEL = WTEL(payable(deployments.WTEL));
 
         _setGovernanceSafeConfig();
     }
@@ -100,6 +105,12 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
+        // wrapped TEL (no constructor, no storage; name/symbol/decimals are constants)
+        address simulatedWTEL = address(instantiateWTEL());
+        assertFalse(
+            yamlAppendGenesisAccount(dest, simulatedWTEL, address(wTEL), sharedNonce, sharedBalance, "wrapped TEL")
+        );
+
         // EIP-2935 and EIP-4788 system contracts
         instantiateEIP2935AndEIP4788();
 
@@ -146,6 +157,11 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     {
         simulatedDeployment = new CompatibilityFallbackHandler();
         copyContractState(address(simulatedDeployment), address(compatibilityFallbackHandler), new bytes32[](0));
+    }
+
+    function instantiateWTEL() public returns (WTEL simulatedDeployment) {
+        simulatedDeployment = new WTEL();
+        copyContractState(address(simulatedDeployment), address(wTEL), new bytes32[](0));
     }
 
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {

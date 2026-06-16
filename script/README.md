@@ -12,6 +12,7 @@ Simulates deployment of the following contracts, captures their storage layout, 
 - **SafeProxyFactory** - factory for creating Safe proxies
 - **CompatibilityFallbackHandler** - default Safe fallback handler (EIP-1271 signature validation, token callbacks), pinned to the canonical Safe v1.4.1 address `0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99` so Safe tooling that defaults the fallback handler resolves it on TN
 - **Governance Safe** - a 3-of-7 multisig proxy configured with hardcoded owner addresses and threshold, referencing the CompatibilityFallbackHandler
+- **WTEL** - wrapped TEL (canonical WETH9 shape), genesis-assigned at the vanity address `0x00000000000000000000000000000000000037E1`. Live testnet and devnet predate this entry and keep their CREATE2 deployments until their next regenesis/reset
 - **TEL supply allocation** - assigns the remaining TEL supply to `0xde1e7e`
 - **EIP-2935 / EIP-4788** - system contracts for historic block hashes and beacon block roots
 - **Multicall3** - deployed at `0xcA11bde05977b3631167028862bE2a173976CA11`
@@ -87,6 +88,6 @@ All scripts read contract addresses from a per-network deployments file, resolve
 
 Genesis-assigned addresses (Safe infrastructure, ConsensusRegistry, magic addresses) are identical across networks because all networks share the same genesis configuration. `deployments-mainnet.json` holds exactly those and nothing else, making it the genesis source of truth consumed by `GenerateGenesisPrecompileConfig`; non-genesis keys stay zeroed until contracts are actually deployed.
 
-Devnet is reset frequently, so its file starts with only the genesis-assigned addresses plus canonical CREATE2 deployments like Permit2. Script-deployed addresses are zeroed after each reset and repopulated by the deploy scripts, which write their results back to the resolved file so subsequent scripts pick up the correct addresses. Any other chain id (including local simulations and tests) falls back to the testnet file, preserving prior behavior.
+Devnet is reset frequently, so its file starts with only the genesis-assigned addresses plus canonical CREATE2 deployments like Permit2. Script-deployed addresses are zeroed after each reset and repopulated by the deploy scripts, which write their results back to the resolved file so subsequent scripts pick up the correct addresses. At the next reset, also set `WTEL` to its genesis vanity address `0x...37E1` (the current value is a pre-genesis CREATE2 deployment). Any other chain id (including local simulations and tests) falls back to the testnet file, preserving prior behavior.
 
 The bash pipeline (`script/bash/deploy-testnet-infra.sh`, `script/bash/test-faucet-drips.sh`) applies the same chain-id rule; point `TN_RPC_URL` (or `RPC` for the faucet script) at a devnet node to run against devnet.

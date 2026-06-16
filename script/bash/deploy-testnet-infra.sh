@@ -113,6 +113,9 @@ echo ""
 # Step 4: Deploy WTEL (wrapped-native ERC20)
 # Must run before V2 / V3 / V4: those scripts consume deployments.WTEL as the
 # wrapped-native constructor arg.
+# LEGACY: chains created from the current genesis already carry WTEL at the
+# 0x...37e1 vanity address, so the has_code check skips this step there. It
+# only fires on chains predating the genesis WTEL entry (live Adiri testnet).
 if has_code ".WTEL"; then
     echo "[Step 4/8] WTEL already deployed, skipping..."
 else
