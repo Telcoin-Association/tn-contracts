@@ -1,29 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @dev Canonical address of the native BLS verification precompile. It is the single source of
-/// truth for callers - `IBlsG1(BLS_G1_ADDRESS).blsVerify(...)` - and MUST be mirrored in the
-/// Telcoin-Network protocol genesis (`BLS_G1_PRECOMPILE_ADDRESS`). The precompile reuses the
-/// protocol's `blst` (min_sig) verification, so the on-chain check cannot drift from the off-chain
-/// signing encoding. At genesis the address carries a single `0xfe` (INVALID) byte of code: this
-/// satisfies the `extcodesize` guard Solidity emits before a high-level interface call (so the call
-/// dispatches to the precompile) and ensures any call that bypasses precompile dispatch reverts.
+/// @dev Canonical address of the native BLS verification precompile; must match
+/// `BLS_G1_PRECOMPILE_ADDRESS` in the Telcoin-Network genesis. The precompile reuses the protocol's
+/// `blst` (min_sig) verification, so the on-chain check can't drift from off-chain signing. Genesis
+/// gives the address one `0xfe` (INVALID) byte of code so the account is non-empty (never
+/// state-pruned) and any call bypassing precompile dispatch reverts instead of hitting an empty account.
 address constant BLS_G1_ADDRESS = 0x000000000000000000000000000000000000B151;
 
 /// @title IBlsG1
 /// @author Telcoin Association
-/// @notice Interface for the native BLS12-381 signature-verification precompile at `BLS_G1_ADDRESS`.
-/// Implements the 'min-sig' variant (signatures in G1, public keys in G2) using compressed
-/// encodings: 48-byte signatures and 96-byte public keys. The verify is generic - the `message` is
-/// opaque - so any caller can verify any BLS-signed message (proof-of-possession is just one such
-/// message, built by `ConsensusRegistry`).
-/// @dev Callers reach the precompile with a low-level `staticcall` carrying
-/// `abi.encodeWithSelector(IBlsG1.blsVerify.selector, ...)`, rather than a typed `IBlsG1(addr)` call.
-/// This is the protocol's convention for precompile calls (see also `StablecoinManager`): it avoids
-/// the `EXTCODESIZE` guard Solidity emits before typed external calls, since precompiles are
-/// dispatched by the EVM and need not carry on-chain bytecode. Treating a failed call or any
-/// non-32-byte return as a revert keeps an absent precompile from decoding as `false` and silently
-/// passing an unverified signature.
+/// @notice Native BLS12-381 verification precompile (min-sig: G1 signatures, G2 pubkeys) in
+/// compressed form - 48-byte signatures, 96-byte pubkeys. `message` is opaque, so any caller can
+/// verify any BLS-signed message; proof-of-possession (built by `ConsensusRegistry`) is one use.
+/// @dev Call via low-level `staticcall` of `abi.encodeWithSelector(IBlsG1.blsVerify.selector, ...)`,
+/// not a typed `IBlsG1(addr)` call - the protocol's precompile convention (cf. `StablecoinManager`).
+/// Treat a failed call or any non-32-byte return as a revert, so an absent precompile can't decode
+/// as `false` and pass an unverified signature.
 interface IBlsG1 {
     /// @notice Verifies a BLS12-381 signature over `message`.
     /// @param signature 48-byte compressed G1 signature
