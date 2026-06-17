@@ -151,6 +151,36 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
+    /// @notice One-time back-fill of the per-status validator sets and the cached eligible count for
+    /// an in-place upgrade from a deployment that predates the sets.
+    /// @dev The storage layout is a clean append (the sets were appended after the pre-existing
+    /// variables), so `validators[*]` and the ConsensusNFTs survive the code swap untouched; only
+    /// `validatorSets` / `eligibleValidatorCount` start empty and must be rebuilt before the new read
+    /// paths (`getValidators` / `getValidatorsInfo` / `concludeEpoch`) work. Walks the ConsensusNFT
+    /// enumeration and re-derives each set from `currentStatus` (the preserved source of truth),
+    /// mirroring `_setStatus`: retired, `Undefined`, and `Any` validators carry no set and are skipped.
+    /// Idempotent - set adds dedupe and the count is recomputed from scratch - so a redundant call (or
+    /// a call against a freshly seeded genesis) is a no-op. System-gated so the protocol invokes it
+    /// once during the fork that swaps in this implementation.
+    function migrateValidatorSets() external onlySystemCall {
+        uint256 supply = totalSupply();
+        uint256 eligible;
+        for (uint256 i; i < supply; ++i) {
+            address validatorAddress = ownerOf(tokenByIndex(i));
+            ValidatorInfo storage validator = validators[validatorAddress];
+            if (validator.isRetired) continue;
+
+            ValidatorStatus status = validator.currentStatus;
+            if (status == ValidatorStatus.Undefined || status == ValidatorStatus.Any) continue;
+
+            validatorSets[uint8(status)].add(validatorAddress);
+            if (_eligibleForCommitteeNextEpoch(status)) ++eligible;
+        }
+
+        eligibleValidatorCount = eligible;
+        emit ValidatorSetsMigrated(eligible);
+    }
+
     /// @inheritdoc IConsensusRegistry
     function setValidatorRegion(address validatorAddress, uint8 region) external onlyOwner {
         _checkConsensusNFTOwner(validatorAddress);
@@ -659,12 +689,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 flags = uint8(blsPubkey[0]);
         if (flags & 0x80 == 0 || flags & 0x40 != 0) revert BlsG1.InvalidBLSPubkey();
 
-        // Single handoff to the native BLS precompile (linked at `BLS_G1_ADDRESS`): it verifies the
-        // compressed signature directly against the caller-supplied compressed `blsPubkey`. Because the
-        // key the proof is checked against is the exact key stored below, the binding is structural and
-        // cryptographic - a proof for a different key cannot pass, so no separate x-coordinate alignment
-        // check is needed to defeat rogue-key registration.
-        if (!BlsG1.verifyProofOfPossession(g1Pop.signature, blsPubkey, validatorAddress)) {
+        // Build the proof-of-possession message (intent || compressed pubkey || address) and verify
+        // the signature over it through the native BLS precompile (linked at `BLS_G1_ADDRESS`). The
+        // message binds the exact `blsPubkey` stored below, so the binding is structural and
+        // cryptographic - a proof for a different key cannot pass, and no separate x-coordinate
+        // alignment check is needed to defeat rogue-key registration.
+        bytes memory popMessage = BlsG1.proofOfPossessionMessage(blsPubkey, validatorAddress);
+        if (!BlsG1.blsVerify(g1Pop.signature, blsPubkey, popMessage)) {
             revert InvalidProofOfPossession(g1Pop);
         }
 

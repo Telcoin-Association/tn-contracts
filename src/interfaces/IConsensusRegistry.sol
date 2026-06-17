@@ -137,6 +137,11 @@ interface IConsensusRegistry {
     /// @param numActiveValidators The current count of committee-eligible validators
     event NextCommitteeSizeUpdated(uint16 oldSize, uint16 newSize, uint256 numActiveValidators);
 
+    /// @notice Emitted once when `migrateValidatorSets` back-fills the per-status sets during an
+    /// in-place upgrade from a deployment that predates them
+    /// @param eligibleValidatorCount The committee-eligible count after the back-fill
+    event ValidatorSetsMigrated(uint256 eligibleValidatorCount);
+
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
     /// and thus eligible for committees. Queriable via `getValidators(Active)` status
     /// @param Staked Marks validators who have staked but have not yet entered activation queue

@@ -21,10 +21,10 @@ contract BlsG1PrecompileMock {
     /// @dev `payable` so the value-carrying delegatecall from the payable `stake` / `delegateStake` does
     /// not trip a non-payable function's callvalue guard (delegatecall preserves `msg.value`). The real
     /// native precompile has no such guard; the forwarded value is ignored here.
-    function verifyProofOfPossession(
+    function blsVerify(
         bytes calldata signature,
         bytes calldata pubkey,
-        address
+        bytes calldata
     )
         external
         payable
@@ -36,7 +36,7 @@ contract BlsG1PrecompileMock {
 
 /// @title BlsG1PrecompileMockDeployed
 /// @notice Test base that etches `BlsG1PrecompileMock` at `BLS_G1_ADDRESS`, so consumers linked to
-/// that address (e.g. `ConsensusRegistry`) resolve their `BlsG1.verifyProofOfPossession` calls to the
+/// that address (e.g. `ConsensusRegistry`) resolve their `BlsG1.blsVerify` calls to the
 /// mock. Mirrors the placement strategy of the former `BlsG1Deployed`: as a base constructor it runs
 /// before an inheriting `ConsensusRegistry`'s own construction, which verifies PoPs.
 /// @dev Inherits nothing so that, listed first in the inheritance list, its constructor runs first in
