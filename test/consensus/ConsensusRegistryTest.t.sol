@@ -10,7 +10,6 @@ import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
-import { BlsG1 } from "../../src/consensus/BlsG1.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function setUp() public {
@@ -128,7 +127,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Staked));
 
@@ -146,7 +145,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         vm.prank(validator5);
         consensusRegistry.activate();
@@ -233,7 +232,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // Check validator information
         ValidatorInfo[] memory validators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Staked);
@@ -273,7 +272,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(delegator);
         consensusRegistry.delegateStake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig), validator5, validatorSig);
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig);
 
         // Check validator information
         ValidatorInfo[] memory validators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Staked);
@@ -310,7 +309,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // activate validator5 -> PendingActivation (committee-eligible next epoch, but not in the Active set)
         uint256 numEligibleBefore = consensusRegistry.getEligibleValidatorCount();
@@ -355,10 +354,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function testRevert_stake_invalidPoint() public {
         vm.prank(validator5);
         // an all-zero compressed pubkey is rejected by the registry's compressed-key flag check
-        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        vm.expectRevert(IStakeManager.InvalidBLSPubkey.selector);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(new bytes(96), BlsG1.ProofOfPossession(new bytes(48)));
+        }(new bytes(96), IStakeManager.ProofOfPossession(new bytes(48)));
     }
 
     /// @notice EXP-001 regression: a key and its y-sign-flipped negation (same x) cannot both register.
@@ -368,7 +367,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.mint(validator5);
         bytes memory compressedPK = _blsDummyPubkeyFromSecret(validator5Secret);
         vm.prank(validator5);
-        consensusRegistry.stake{ value: stakeAmount_ }(compressedPK, BlsG1.ProofOfPossession(validator5BlsSig));
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedPK, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // B attempts to register the SAME key with the y-sign flag flipped (same x, different bytes)
         address attackerB = _addressFromPrivateKey(99);
@@ -384,7 +383,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // x-keyed deduplication collapses the negation variant and rejects it
         vm.prank(attackerB);
         vm.expectRevert(DuplicateBLSPubkey.selector);
-        consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, BlsG1.ProofOfPossession(_blsDummySigFromSecret(99)));
+        consensusRegistry.stake{ value: stakeAmount_ }(compressedNegPK, IStakeManager.ProofOfPossession(_blsDummySigFromSecret(99)));
     }
 
     /// @notice A stored compressed key with a malformed compression/infinity flag is rejected by the
@@ -401,8 +400,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }
         infinityFlagged[0] = infinityFlagged[0] | bytes1(0x40);
         vm.prank(validator5);
-        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
-        consensusRegistry.stake{ value: stakeAmount_ }(infinityFlagged, BlsG1.ProofOfPossession(validator5BlsSig));
+        vm.expectRevert(IStakeManager.InvalidBLSPubkey.selector);
+        consensusRegistry.stake{ value: stakeAmount_ }(infinityFlagged, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // compression flag cleared -> off-chain blst fails to decode
         bytes memory uncompressedFlagged = new bytes(96);
@@ -411,9 +410,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         }
         uncompressedFlagged[0] = uncompressedFlagged[0] & bytes1(0x7f);
         vm.prank(validator5);
-        vm.expectRevert(BlsG1.InvalidBLSPubkey.selector);
+        vm.expectRevert(IStakeManager.InvalidBLSPubkey.selector);
         consensusRegistry.stake{ value: stakeAmount_ }(
-            uncompressedFlagged, BlsG1.ProofOfPossession(validator5BlsSig)
+            uncompressedFlagged, IStakeManager.ProofOfPossession(validator5BlsSig)
         );
     }
 
@@ -425,9 +424,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(validator5);
         vm.expectRevert(
-            abi.encodeWithSelector(IStakeManager.InvalidProofOfPossession.selector, BlsG1.ProofOfPossession(new bytes(47)))
+            abi.encodeWithSelector(IStakeManager.InvalidProofOfPossession.selector, IStakeManager.ProofOfPossession(new bytes(47)))
         );
-        consensusRegistry.stake{ value: stakeAmount_ }(validator5BlsPubkey, BlsG1.ProofOfPossession(new bytes(47)));
+        consensusRegistry.stake{ value: stakeAmount_ }(validator5BlsPubkey, IStakeManager.ProofOfPossession(new bytes(47)));
     }
 
     /// @notice An empty committee reverts cleanly (InvalidCommitteeSize), not an `_enforceSorting` panic.
@@ -459,7 +458,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function testRevert_stake_invalidStakeAmount() public {
         vm.startPrank(validator5);
         vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeAmount.selector, 0));
-        consensusRegistry.stake{ value: 0 }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        consensusRegistry.stake{ value: 0 }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
         vm.stopPrank();
     }
 
@@ -473,7 +472,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // activate and conclude epoch to reach validator5 activationEpoch
         vm.prank(validator5);
@@ -555,7 +554,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.startPrank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         // Attempt to exit without being active
         vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.Staked));
@@ -633,7 +632,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.startPrank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
 
         uint256 initialBalance = validator5.balance;
         assertEq(initialBalance, 0);
@@ -671,7 +670,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.startPrank(validator5);
         consensusRegistry.stake{
             value: stakeAmount_
-        }(validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig));
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
         consensusRegistry.activate();
 
         // Attempt to unstake without exiting
@@ -891,7 +890,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(validator5);
         consensusRegistry.stake{value: stakeAmount_}(
-            validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig)
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig)
         );
 
         // Create new version with higher stake
@@ -928,7 +927,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
         );
 
         // Create new version with lower stake
@@ -1419,7 +1418,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
         );
         assertTrue(consensusRegistry.isDelegated(validator5));
 
@@ -1474,7 +1473,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, BlsG1.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
         );
         assertTrue(consensusRegistry.isDelegated(validator5));
 

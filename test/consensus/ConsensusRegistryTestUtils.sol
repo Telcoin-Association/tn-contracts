@@ -3,8 +3,7 @@ pragma solidity 0.8.35;
 
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
-import { RewardInfo } from "src/interfaces/IStakeManager.sol";
-import { BlsG1 } from "src/consensus/BlsG1.sol";
+import { RewardInfo, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { BlsG1PrecompileMockDeployed } from "./BlsG1PrecompileMock.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
@@ -31,7 +30,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
 
     ValidatorInfo[] initialValidators; // contains validatorInfo1-4
     bytes[] initialBlsPubkeys;
-    BlsG1.ProofOfPossession[] initialBLSPops;
+    IStakeManager.ProofOfPossession[] initialBLSPops;
 
     address public sysAddress;
 
@@ -78,7 +77,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
     /// genesis construction (which runs before any test setup) does not call `BlsG1`. The genuine
     /// registry deployed in `setUp` is a plain `ConsensusRegistry` and uses the real verification.
     function _verifyProofOfPossession(
-        BlsG1.ProofOfPossession memory,
+        IStakeManager.ProofOfPossession memory,
         address,
         bytes memory blsPubkey
     )
@@ -98,8 +97,8 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
     }
 
     /// @dev Arity-matching, BLS-free placeholder PoPs for the inherited self-instance's constructor.
-    function _dummyPops() internal pure returns (BlsG1.ProofOfPossession[] memory) {
-        return new BlsG1.ProofOfPossession[](4);
+    function _dummyPops() internal pure returns (IStakeManager.ProofOfPossession[] memory) {
+        return new IStakeManager.ProofOfPossession[](4);
     }
 
     // convenience fn for constructor
@@ -160,10 +159,10 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
     }
 
     // convenience fn for constructor
-    function _populateinitialBLSPops() internal returns (BlsG1.ProofOfPossession[] memory) {
+    function _populateinitialBLSPops() internal returns (IStakeManager.ProofOfPossession[] memory) {
         for (uint256 i; i < initialValidators.length; ++i) {
             uint256 secretI = i + 1;
-            initialBLSPops.push(BlsG1.ProofOfPossession(_blsDummySigFromSecret(secretI)));
+            initialBLSPops.push(IStakeManager.ProofOfPossession(_blsDummySigFromSecret(secretI)));
         }
 
         return initialBLSPops;
@@ -333,7 +332,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
             vm.startPrank(newValidator);
             consensusRegistry.stake{
                 value: amount
-            }(_blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(_blsDummySigFromSecret(secret)));
+            }(_blsDummyPubkeyFromSecret(secret), IStakeManager.ProofOfPossession(_blsDummySigFromSecret(secret)));
             vm.stopPrank();
         }
     }

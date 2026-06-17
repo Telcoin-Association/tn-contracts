@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.35;
 
-import { BlsG1 } from "../consensus/BlsG1.sol";
-
 /**
  * @title IStakeManager
  * @author Telcoin Association
@@ -55,9 +53,19 @@ interface IStakeManager {
         uint64 nonce;
     }
 
+    /// @notice Represents a validator's compressed BLS12-381 proof of possession.
+    /// @param signature A 48-byte compressed G1 point: the PoP over the protocol's PoP message.
+    /// @dev The proven public key is the separate 96-byte compressed `blsPubkey` passed to stake and
+    /// genesis; the precompile verifies `signature` against it, so no pubkey is carried here.
+    struct ProofOfPossession {
+        bytes signature;
+    }
+
     /// @notice Thrown when BLS proof-of-possession signature verification fails
     /// @param proof The proof of possession that failed verification
-    error InvalidProofOfPossession(BlsG1.ProofOfPossession proof);
+    error InvalidProofOfPossession(ProofOfPossession proof);
+    /// @notice Thrown when a registered BLS public key is not a well-formed 96-byte compressed G2 point
+    error InvalidBLSPubkey();
     /// @notice Thrown when a token ID is zero, exceeds type(uint160).max, or does not exist
     /// @param tokenId The invalid token ID
     error InvalidTokenId(uint256 tokenId);
@@ -96,7 +104,7 @@ interface IStakeManager {
     /// so this contract does not perform any (un)compression checks
     function stake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession calldata proofOfPossession
+        ProofOfPossession calldata proofOfPossession
     )
         external
         payable;
@@ -108,7 +116,7 @@ interface IStakeManager {
     /// so this contract does not perform any (un)compression checks
     function delegateStake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession calldata proofOfPossession,
+        ProofOfPossession calldata proofOfPossession,
         address validatorAddress,
         bytes calldata validatorSig
     )

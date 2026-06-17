@@ -4,7 +4,7 @@ pragma solidity 0.8.35;
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { SystemCallable } from "src/consensus/SystemCallable.sol";
-import { BlsG1 } from "src/consensus/BlsG1.sol";
+import { IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 /// @notice Tests for `migrateValidatorSets`, the one-time back-fill used when upgrading an existing
@@ -99,7 +99,7 @@ contract ConsensusRegistryMigrationTest is ConsensusRegistryTestUtils {
         vm.deal(validatorAddr, stakeAmount_);
         vm.prank(validatorAddr);
         consensusRegistry.stake{ value: stakeAmount_ }(
-            _blsDummyPubkeyFromSecret(secret), BlsG1.ProofOfPossession(_blsDummySigFromSecret(secret))
+            _blsDummyPubkeyFromSecret(secret), IStakeManager.ProofOfPossession(_blsDummySigFromSecret(secret))
         );
     }
 

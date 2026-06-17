@@ -12,14 +12,6 @@ solc = "0.8.35"
 src = "src"
 test = "test"
 libs = ["lib"]
-# Pin the BlsG1 library to its canonical genesis address (mirrors `BLS_G1_ADDRESS` in
-# src/consensus/BlsG1.sol). This links all consumers to a fixed address instead of an
-# ephemeral per-run one. NOTE: Forge does NOT auto-deploy the library when an address is
-# pinned, so tests place its bytecode there via test/EIP2537/BlsG1Deployed.sol.
-# WARNING: this bakes the address into `out/` bytecode. The vendored `artifacts/` consumed by
-# telcoin-network MUST keep the `__$..$__` link placeholder, so regenerate them with the
-# `artifacts` profile below (`FOUNDRY_PROFILE=artifacts forge build`), which clears this pin.
-libraries = ["src/consensus/BlsG1.sol:BlsG1:0x000000000000000000000000000000000000b151"]
 fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/consensus-registry-config.yaml" },
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
@@ -49,12 +41,6 @@ verbosity = 4
 [profile.fast]
 fuzz = { runs = 1 }
 verbosity = 2
-
-[profile.artifacts]
-# Build the vendored artifacts/ consumed by telcoin-network. Clears the default BlsG1 `libraries`
-# pin so the compiled bytecode keeps the `__$..$__` link placeholder; the protocol fills it in at
-# genesis. Use `FOUNDRY_PROFILE=artifacts forge build` before refreshing artifacts/*.json.
-libraries = []
 
 # Network shorthands for `--rpc-url <name>`. Scripts resolve the matching
 # deployments json by chain id (see deployments/DeploymentsResolver.sol):

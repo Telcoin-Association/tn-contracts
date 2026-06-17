@@ -201,12 +201,13 @@ contract StablecoinManager is StablecoinHandler, TNFaucet, UUPSUpgradeable {
     /// @dev The native branch uses a low-level call rather than the typed `TEL_MINT.mint(...)`
     ///      because Solidity 0.8.x emits an `EXTCODESIZE` guard before typed-interface calls,
     ///      and the TEL precompile at `0x07e1` has no on-chain bytecode (revm dispatches it
-    ///      at runtime). Mirrors the pattern in `BlsG1.sol`. See PR #95.
+    ///      at runtime). The same low-level precompile-call pattern is used in `ConsensusRegistry`'s
+    ///      BLS verification. See PR #95.
     function _drip(address recipient, address token, uint256 amount) internal virtual override {
         if (token == NATIVE_TOKEN_POINTER) {
             // Low-level call bypasses Solidity's typed-interface EXTCODESIZE guard, which
             // would otherwise revert because the TEL precompile at 0x07e1 has no bytecode
-            // in state (revm dispatches it at runtime). Mirrors the BlsG1.sol pattern.
+            // in state (revm dispatches it at runtime). Same pattern as ConsensusRegistry's BLS call.
             (bool ok, bytes memory ret) =
                 address(TEL_MINT).call(abi.encodeWithSelector(ITELMint.mint.selector, recipient, amount));
             if (!ok) revert LowLevelCallFailure(ret);

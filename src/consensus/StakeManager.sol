@@ -9,7 +9,6 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { EIP712 } from "solady/utils/EIP712.sol";
 import { IStakeManager } from "../interfaces/IStakeManager.sol";
 import { Issuance } from "./Issuance.sol";
-import { BlsG1 } from "./BlsG1.sol";
 
 /**
  * @title StakeManager
@@ -42,7 +41,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     /// @inheritdoc IStakeManager
     function stake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession calldata proofOfPossession
+        ProofOfPossession calldata proofOfPossession
     )
         external
         payable
@@ -51,7 +50,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     /// @inheritdoc IStakeManager
     function delegateStake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession calldata proofOfPossession,
+        ProofOfPossession calldata proofOfPossession,
         address validatorAddress,
         bytes calldata validatorSig
     )
