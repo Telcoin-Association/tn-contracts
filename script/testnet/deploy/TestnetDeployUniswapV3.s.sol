@@ -89,13 +89,15 @@ contract TestnetDeployUniswapV3 is
     // Redeploying on a chain that already holds these contracts therefore
     // requires bumping the salts (the legacy Adiri stack used _v2/_v3 suffixes
     // for exactly that reason).
-    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory"));
-    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor"));
-    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor"));
-    bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager"));
-    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02"));
-    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2"));
-    bytes32 tickLensSalt = bytes32(bytes("TickLens"));
+    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory_devnet1"));
+    bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor_devnet1"));
+    bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor_devnet1"));
+    // "NonfungiblePositionManager_devnet1" is 34 bytes and would overflow a bytes32 string
+    // literal, so hash it (matching GitAttestationRegistry's keccak salt). Length-safe and unique.
+    bytes32 npmSalt = keccak256(bytes("NonfungiblePositionManager_devnet1"));
+    bytes32 swapRouter02Salt = bytes32(bytes("SwapRouter02_devnet1"));
+    bytes32 quoterV2Salt = bytes32(bytes("QuoterV2_devnet1"));
+    bytes32 tickLensSalt = bytes32(bytes("TickLens_devnet1"));
 
     function setUp() public {
         string memory root = vm.projectRoot();

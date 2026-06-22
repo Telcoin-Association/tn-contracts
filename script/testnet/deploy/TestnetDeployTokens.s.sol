@@ -100,7 +100,10 @@ contract TestnetDeployTokens is Script {
         // already holds it requires bumping the salt (the legacy "Stablecoin-v2" salt
         // existed for exactly that reason). The proxies' addresses follow the impl
         // address because their initcode embeds it.
-        stablecoinSalt = bytes32(bytes("Stablecoin"));
+        // `_devnet1` bump: the prior devnet relaunch deployer already occupies the plain
+        // "Stablecoin" salt, so this rebases the impl (and, via embedded initcode, every proxy)
+        // to fresh addresses owned by this script's broadcaster.
+        stablecoinSalt = bytes32(bytes("Stablecoin_devnet1"));
 
         /// @dev Configure as necessary for new / existing deployments
         stablecoinImpl = new Stablecoin{ salt: stablecoinSalt }();
