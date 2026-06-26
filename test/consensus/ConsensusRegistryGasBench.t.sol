@@ -4,7 +4,7 @@ pragma solidity 0.8.35;
 import "forge-std/Test.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
-import { BlsG1 } from "src/consensus/BlsG1.sol";
+import { IStakeManager } from "src/interfaces/IStakeManager.sol";
 
 /// @title per-status set query gas benchmark
 /// @notice Measures the post-refactor status queries against the former O(n) `tokenByIndex` scan.
@@ -13,30 +13,27 @@ import { BlsG1 } from "src/consensus/BlsG1.sol";
 /// the fork point (`enhancement/consensus-registry-eligible-count`), where `getValidators(Active)`
 /// allocated `totalSupply()` entries and cold-SLOADed every validator's slots.
 contract ConsensusRegistryGasBench is ConsensusRegistryTestUtils {
-    /// @dev Build a genesis set of `n` Active validators with real PoPs (secrets offset to avoid
-    /// colliding with the genesis validators 1-4 used elsewhere).
+    /// @dev Build a genesis set of `n` Active validators with length-correct PoP fixtures (secrets
+    /// offset to avoid colliding with the genesis validators 1-4 used elsewhere).
     function _buildGenesis(uint256 n)
         internal
         view
-        returns (ValidatorInfo[] memory vals, bytes[] memory pubkeys, BlsG1.ProofOfPossession[] memory pops)
+        returns (ValidatorInfo[] memory vals, bytes[] memory pubkeys, IStakeManager.ProofOfPossession[] memory pops)
     {
         vals = new ValidatorInfo[](n);
         pubkeys = new bytes[](n);
-        pops = new BlsG1.ProofOfPossession[](n);
+        pops = new IStakeManager.ProofOfPossession[](n);
         for (uint256 i; i < n; ++i) {
             uint256 secret = 1000 + i;
             address addr = _addressFromPrivateKey(secret);
             vals[i] = ValidatorInfo(addr, uint32(0), uint32(0), ValidatorStatus.Active, false, uint8(0), uint8(0));
             pubkeys[i] = _blsDummyPubkeyFromSecret(secret);
-            bytes memory uncompressed = BlsG1.decodeG2PointFromEIP2537(_blsEIP2537PubkeyFromSecret(secret));
-            bytes memory message = proofOfPossessionMessage(uncompressed, addr);
-            bytes memory sig = BlsG1.decodeG1PointFromEIP2537(_blsEIP2537SignatureFromSecret(secret, message));
-            pops[i] = BlsG1.ProofOfPossession(uncompressed, sig);
+            pops[i] = IStakeManager.ProofOfPossession(_blsDummySigFromSecret(secret));
         }
     }
 
     function _deploy(uint256 n) internal returns (ConsensusRegistry reg) {
-        (ValidatorInfo[] memory vals, bytes[] memory pubkeys, BlsG1.ProofOfPossession[] memory pops) = _buildGenesis(n);
+        (ValidatorInfo[] memory vals, bytes[] memory pubkeys, IStakeManager.ProofOfPossession[] memory pops) = _buildGenesis(n);
         StakeConfig memory cfg = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_);
         reg = new ConsensusRegistry(cfg, vals, pubkeys, pops, crOwner);
     }

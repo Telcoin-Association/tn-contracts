@@ -13,7 +13,7 @@ import { StakeManager } from "./StakeManager.sol";
 import { IConsensusRegistry } from "../interfaces/IConsensusRegistry.sol";
 import { SystemCallable } from "./SystemCallable.sol";
 import { Issuance } from "./Issuance.sol";
-import { BlsG1 } from "./BlsG1.sol";
+import { IBlsG1, BLS_G1_ADDRESS } from "../interfaces/IBlsG1.sol";
 
 /**
  * @title ConsensusRegistry
@@ -25,7 +25,6 @@ import { BlsG1 } from "./BlsG1.sol";
  * @dev This contract should be deployed to a predefined system address for use with system calls
  */
 contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, SystemCallable, IConsensusRegistry {
-    using BlsG1 for bytes;
     using EnumerableSet for EnumerableSet.AddressSet;
     using SlotDerivation for bytes32;
     using TransientSlot for bytes32;
@@ -58,8 +57,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @dev Namespace for the per-epoch transient committee-membership set (see `_markCommitteeMembers`)
     bytes32 private constant _COMMITTEE_TSET = keccak256("ConsensusRegistry.committeeMembership.v1");
 
-    // PoP message prefixes and assembly live in `BlsG1` (see `BlsG1.proofOfPossessionMessage`), the
-    // single source of truth for the proof-of-possession scheme ahead of its native precompile.
+    // Proof-of-possession verification is delegated to the native precompile at `BLS_G1_ADDRESS`
+    // (see `IBlsG1.blsVerify`), which reuses the protocol's `blst` signing path.
 
     /**
      *
@@ -149,6 +148,36 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
             emit ValidatorSlashed(slash);
         }
+    }
+
+    /// @notice One-time back-fill of the per-status validator sets and the cached eligible count for
+    /// an in-place upgrade from a deployment that predates the sets.
+    /// @dev The storage layout is a clean append (the sets were appended after the pre-existing
+    /// variables), so `validators[*]` and the ConsensusNFTs survive the code swap untouched; only
+    /// `validatorSets` / `eligibleValidatorCount` start empty and must be rebuilt before the new read
+    /// paths (`getValidators` / `getValidatorsInfo` / `concludeEpoch`) work. Walks the ConsensusNFT
+    /// enumeration and re-derives each set from `currentStatus` (the preserved source of truth),
+    /// mirroring `_setStatus`: retired, `Undefined`, and `Any` validators carry no set and are skipped.
+    /// Idempotent - set adds dedupe and the count is recomputed from scratch - so a redundant call (or
+    /// a call against a freshly seeded genesis) is a no-op. System-gated so the protocol invokes it
+    /// once during the fork that swaps in this implementation.
+    function migrateValidatorSets() external onlySystemCall {
+        uint256 supply = totalSupply();
+        uint256 eligible;
+        for (uint256 i; i < supply; ++i) {
+            address validatorAddress = ownerOf(tokenByIndex(i));
+            ValidatorInfo storage validator = validators[validatorAddress];
+            if (validator.isRetired) continue;
+
+            ValidatorStatus status = validator.currentStatus;
+            if (status == ValidatorStatus.Undefined || status == ValidatorStatus.Any) continue;
+
+            validatorSets[uint8(status)].add(validatorAddress);
+            if (_eligibleForCommitteeNextEpoch(status)) ++eligible;
+        }
+
+        eligibleValidatorCount = eligible;
+        emit ValidatorSetsMigrated(eligible);
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -354,7 +383,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _checkConsensusNFTOwner(validatorAddress);
         // `_blsKeyId` mloads a fixed 96 bytes; guard the length for parity with `isValidator` and
         // `_verifyProofOfPossession` so off-chain integrators get a clean revert on a malformed key
-        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
+        if (blsPubkey.length != 96) revert InvalidBLSPubkey();
         uint8 stakeVersion = getCurrentEpochInfo().stakeVersion;
         uint64 nonce = delegations[validatorAddress].nonce;
         bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
@@ -362,18 +391,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce));
 
         return _hashTypedData(structHash);
-    }
-
-    /// @inheritdoc IConsensusRegistry
-    function proofOfPossessionMessage(
-        bytes memory blsPubkeyUncompressed,
-        address validatorAddress
-    )
-        public
-        pure
-        returns (bytes memory)
-    {
-        return BlsG1.proofOfPossessionMessage(blsPubkeyUncompressed, validatorAddress);
     }
 
     /**
@@ -385,7 +402,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function stake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession memory proofOfPossession
+        ProofOfPossession memory proofOfPossession
     )
         external
         payable
@@ -409,7 +426,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @inheritdoc StakeManager
     function delegateStake(
         bytes calldata blsPubkey,
-        BlsG1.ProofOfPossession memory proofOfPossession,
+        ProofOfPossession memory proofOfPossession,
         address validatorAddress,
         bytes calldata validatorEIP712Signature
     )
@@ -645,12 +662,41 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
      *
      */
 
+    /// @notice Thrown when the BLS precompile staticcall fails or returns an unexpected payload
+    error LowLevelCallFailure(bytes err);
+
+    /// @dev The serialized telcoin proof-of-possession intent prefix (`scope=0, version=0, app=0`),
+    /// which domain-separates PoP messages from other BLS signatures. Mirrors
+    /// `Intent::telcoin(IntentScope::ProofOfPossession)` in tn-types; the off-chain
+    /// `pop_message_layout_is_onchain_constructible` test pins it to `0x000000`.
+    bytes3 private constant POP_INTENT_PREFIX = 0x000000;
+
+    /// @notice Builds the proof-of-possession message a validator signs: the 3-byte intent prefix, the
+    /// 96-byte compressed `pubkey`, and the 20-byte `validatorAddress`.
+    /// @dev Constructed entirely on-chain from the compressed key and the raw address (no
+    /// decompression), so it reproduces byte-for-byte the message tn-types signs off-chain in
+    /// `construct_proof_of_possession_message`.
+    function proofOfPossessionMessage(
+        bytes memory pubkey,
+        address validatorAddress
+    )
+        internal
+        pure
+        returns (bytes memory)
+    {
+        // Self-contained length gate: `abi.encodePacked` of a dynamic `pubkey` between fixed-size
+        // fields is only unambiguous when `pubkey` has a fixed length, so enforce the 96-byte
+        // compressed G2 form here rather than relying on every caller to pre-check it.
+        if (pubkey.length != 96) revert InvalidBLSPubkey();
+        return abi.encodePacked(POP_INTENT_PREFIX, pubkey, validatorAddress);
+    }
+
     /// @param g1Pop The Proof Of Possession generated by a validator
     /// @param validatorAddress The validator's execution address
     /// @param blsPubkey The compressed 96-byte representation of `validatorAddress`s G2 BLS pubkey
     /// @notice This contract does not perform any (un)compression on `blsPubkey` due to EVM constraints
     function _verifyProofOfPossession(
-        BlsG1.ProofOfPossession memory g1Pop,
+        ProofOfPossession memory g1Pop,
         address validatorAddress,
         bytes memory blsPubkey
     )
@@ -658,7 +704,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         virtual
         returns (bytes32)
     {
-        if (blsPubkey.length != 96) revert BlsG1.InvalidBLSPubkey();
+        if (blsPubkey.length != 96) revert InvalidBLSPubkey();
 
         // The stored consensus key is blst's compressed G2 form: byte 0's top bit (0x80) is the
         // compression flag and the next (0x40) the infinity flag. The x-coordinate binding below masks
@@ -669,54 +715,27 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // clear so the stored key is a well-formed, non-identity point. The sign flag (0x20) is left
         // free: a wrong sign only disables this validator's own signatures, which BFT already tolerates.
         uint8 flags = uint8(blsPubkey[0]);
-        if (flags & 0x80 == 0 || flags & 0x40 != 0) revert BlsG1.InvalidBLSPubkey();
+        if (flags & 0x80 == 0 || flags & 0x40 != 0) revert InvalidBLSPubkey();
 
-        // Single handoff to the BLS library: it builds the PoP message, encodes the points, hashes to
-        // curve, and runs the pairing check internally. This is the call that becomes a native precompile.
-        if (!BlsG1.verifyProofOfPossession(g1Pop.uncompressedSignature, g1Pop.uncompressedPubkey, validatorAddress)) {
-            revert InvalidProofOfPossession(g1Pop, proofOfPossessionMessage(g1Pop.uncompressedPubkey, validatorAddress));
-        }
-
-        // Bind the registered compressed key to the key whose possession was just proven. The proof
-        // covers `uncompressedPubkey`, but the consensus key stored and aggregated by the protocol is the
-        // separate compressed `blsPubkey`. Without this, a validator could register a consensus key for
-        // which no proof of possession exists, re-enabling rogue-key attacks on the committee aggregate.
-        if (!_blsKeysAligned(blsPubkey, g1Pop.uncompressedPubkey)) revert BLSPubkeyMismatch();
+        // Build the proof-of-possession message (intent || compressed pubkey || address) and verify
+        // the signature over it through the native BLS precompile at `BLS_G1_ADDRESS`. The
+        // message binds the exact `blsPubkey` stored below, so the binding is structural and
+        // cryptographic - a proof for a different key cannot pass, and no separate x-coordinate
+        // alignment check is needed to defeat rogue-key registration.
+        bytes memory popMessage = proofOfPossessionMessage(blsPubkey, validatorAddress);
+        // Low-level staticcall (not a typed `IBlsG1(...)` call) so Solidity does not emit its
+        // EXTCODESIZE guard: the precompile is dispatched by the EVM at `BLS_G1_ADDRESS` and need not
+        // carry on-chain bytecode. This mirrors the protocol's precompile-call convention (see also
+        // `StablecoinManager`). A failed call or any non-32-byte return reverts, so an absent
+        // precompile cannot decode as `false` and silently pass an unverified signature.
+        (bool ok, bytes memory result) = BLS_G1_ADDRESS.staticcall(
+            abi.encodeWithSelector(IBlsG1.blsVerify.selector, g1Pop.signature, blsPubkey, popMessage)
+        );
+        if (!ok || result.length != 32) revert LowLevelCallFailure(result);
+        if (!abi.decode(result, (bool))) revert InvalidProofOfPossession(g1Pop);
 
         // prevent duplicate compressed pubkeys
         return _spendBLSPubkey(blsPubkey, validatorAddress);
-    }
-
-    /// @notice Confirms a 96-byte compressed G2 key and a 192-byte uncompressed G2 key encode the same
-    /// public key, by comparing x-coordinates.
-    /// @dev blst serializes a G2 point as `x.c1 || x.c0 || y.c1 || y.c0` (uncompressed) and `x.c1 || x.c0`
-    /// (compressed), the latter carrying 3 flag bits (compression/infinity/sign) in the top bits of byte 0.
-    /// We clear those flag bits and compare the 96-byte x-coordinate. An x match is sufficient to defeat
-    /// rogue-key registration: a cancellation key has a different x than any key the caller can prove, so
-    /// the only keys that pass are the proven key and its negation, both controlled by the prover. Callers
-    /// must ensure `compressed` is 96 bytes and `uncompressed` is at least 96 bytes (enforced upstream).
-    function _blsKeysAligned(
-        bytes memory compressed,
-        bytes memory uncompressed
-    )
-        internal
-        pure
-        returns (bool aligned)
-    {
-        assembly {
-            let c := add(compressed, 0x20)
-            let u := add(uncompressed, 0x20)
-            // clear the 3 flag bits in the most-significant byte of the first word, then compare the 96-byte x
-            let mask := 0x1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            aligned :=
-                and(
-                    and(
-                        eq(and(mload(c), mask), and(mload(u), mask)),
-                        eq(mload(add(c, 0x20)), mload(add(u, 0x20)))
-                    ),
-                    eq(mload(add(c, 0x40)), mload(add(u, 0x40)))
-                )
-        }
     }
 
     /// @notice Spends `blsPubkey`. Must be an externally validated G2 point in 96-byte compressed form
@@ -1125,7 +1144,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         StakeConfig memory genesisConfig_,
         ValidatorInfo[] memory initialValidators_,
         bytes[] memory blsPubkeys_,
-        BlsG1.ProofOfPossession[] memory proofsOfPossession,
+        ProofOfPossession[] memory proofsOfPossession,
         address owner_
     )
         Ownable(owner_)
