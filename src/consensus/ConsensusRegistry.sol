@@ -150,8 +150,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
-    /// @notice One-time back-fill of the per-status validator sets and the cached eligible count for
-    /// an in-place upgrade from a deployment that predates the sets.
+    /// @notice One-time back-fill of the per-status validator sets, the cached eligible count, and the
+    /// BLS pubkey reverse index for an in-place upgrade from a deployment that predates them.
     /// @dev The storage layout is a clean append (the sets were appended after the pre-existing
     /// variables), so `validators[*]` and the ConsensusNFTs survive the code swap untouched; only
     /// `validatorSets` / `eligibleValidatorCount` start empty and must be rebuilt before the new read
@@ -166,6 +166,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint256 eligible;
         for (uint256 i; i < supply; ++i) {
             address validatorAddress = ownerOf(tokenByIndex(i));
+
+            // key the BLS reverse index by `_blsKeyId` so `isValidator` and `_spendBLSPubkey` resolve
+            // this validator and enforce dedup; clear the pubkey-hash-keyed slot
+            bytes memory blsPubkey = blsPubkeys[validatorAddress];
+            if (blsPubkey.length == 96) {
+                delete blsPubkeyHashToValidator[keccak256(blsPubkey)];
+                blsPubkeyHashToValidator[_blsKeyId(blsPubkey)] = validatorAddress;
+            }
+
             ValidatorInfo storage validator = validators[validatorAddress];
             if (validator.isRetired) continue;
 
