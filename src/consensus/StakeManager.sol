@@ -29,7 +29,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
 
     /// @dev EIP-712 typed struct hash used to enable delegated proof of stake
     bytes32 constant DELEGATION_TYPEHASH = keccak256(
-        "Delegation(bytes32 blsPubkeyHash,address validatorAddress,address delegator,uint8 validatorVersion,uint64 nonce)"
+        "Delegation(bytes32 blsPubkeyHash,address validatorAddress,address delegator,uint8 validatorVersion,uint64 nonce,uint256 deadline)"
     );
 
     /// @dev ConsensusNFT SVG is stored onchain and is constant across all tokenId URIs
@@ -52,7 +52,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         bytes calldata blsPubkey,
         ProofOfPossession calldata proofOfPossession,
         address validatorAddress,
-        bytes calldata validatorSig
+        bytes calldata validatorSig,
+        uint256 deadline
     )
         external
         payable

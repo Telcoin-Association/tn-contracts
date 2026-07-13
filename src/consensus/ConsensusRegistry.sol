@@ -373,7 +373,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     function delegationDigest(
         bytes memory blsPubkey,
         address validatorAddress,
-        address delegator
+        address delegator,
+        uint256 deadline
     )
         external
         view
@@ -387,8 +388,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 stakeVersion = getCurrentEpochInfo().stakeVersion;
         uint64 nonce = delegations[validatorAddress].nonce;
         bytes32 blsPubkeyHash = _blsKeyId(blsPubkey);
-        bytes32 structHash =
-            keccak256(abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, delegator, stakeVersion, nonce, deadline
+            )
+        );
 
         return _hashTypedData(structHash);
     }
@@ -428,7 +432,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         bytes calldata blsPubkey,
         ProofOfPossession memory proofOfPossession,
         address validatorAddress,
-        bytes calldata validatorEIP712Signature
+        bytes calldata validatorEIP712Signature,
+        uint256 deadline
     )
         external
         payable
@@ -449,8 +454,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // governance may utilize white-glove onboarding or offchain agreements
         if (msg.sender != owner()) {
+            if (block.timestamp > deadline) revert DelegationExpired(deadline);
             bytes32 structHash = keccak256(
-                abi.encode(DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce)
+                abi.encode(
+                    DELEGATION_TYPEHASH, blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce, deadline
+                )
             );
             bytes32 digest = _hashTypedData(structHash);
             if (!SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, validatorEIP712Signature)) {
@@ -461,6 +469,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         delegations[validatorAddress] =
             Delegation(blsPubkeyHash, validatorAddress, msg.sender, validatorVersion, nonce + 1);
         _recordStaked(blsPubkey, validatorAddress, validatorVersion, stakeAmt);
+    }
+
+    /// @inheritdoc IStakeManager
+    function increaseNonce() external override {
+        _checkConsensusNFTOwner(msg.sender);
+        uint64 newNonce = ++delegations[msg.sender].nonce;
+        emit DelegationNonceIncreased(msg.sender, newNonce);
     }
 
     /// @inheritdoc IConsensusRegistry
