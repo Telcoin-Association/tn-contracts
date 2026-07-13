@@ -69,9 +69,18 @@ contract GitAttestationRegistry is AccessControl {
         for (uint8 i; i < itemsToCopy; ++i) {
             ringBuffer.push(newBuffer[i]);
         }
+        // materialize the remaining slots so storage length always equals `bufferSize`; on grow
+        // `itemsToCopy` is the smaller size, so [itemsToCopy, newSize) must exist before `head` reaches them
+        for (uint8 i = itemsToCopy; i < newSize; ++i) {
+            ringBuffer.push(GitCommitHashRecord(bytes20(0x0), false));
+        }
 
         bufferSize = newSize;
         head = itemsToCopy % newSize;
+
+        // `attestGitCommitHash` writes `ringBuffer[head]`; `gitCommitHashAttested` reads [0, bufferSize)
+        assert(ringBuffer.length == bufferSize);
+        assert(head < bufferSize);
 
         emit BufferSizeChanged(newSize);
     }
