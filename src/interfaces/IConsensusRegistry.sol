@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT or Apache-2.0
 pragma solidity 0.8.35;
 
-import {RewardInfo, Slash} from "./IStakeManager.sol";
+import { RewardInfo, Slash } from "./IStakeManager.sol";
 
 /**
  * @title ConsensusRegistry Interface
@@ -83,6 +83,20 @@ interface IConsensusRegistry {
     /// @param validator The full ValidatorInfo of the ineligible validator
     error IneligibleUnstake(ValidatorInfo validator);
 
+    /// @notice Thrown on top-up attempts for a validator whose balance is not below its stake amount
+    /// @param validatorAddress The validator that is not slashed
+    /// @param balance The validator's current outstanding balance
+    /// @param stakeVersion The validator's stake version defining the required stake amount
+    error StakeNotSlashed(address validatorAddress, uint256 balance, uint8 stakeVersion);
+    /// @notice Thrown when a top-up is attempted by a non-governance caller while top-ups
+    /// are restricted to the governance top-up authority
+    error TopUpAuthorityRequired();
+    /// @notice Thrown when a top-up's `msg.value` does not exactly match the validator's stake deficit
+    /// @param validatorAddress The validator being topped up
+    /// @param value The `msg.value` that was provided
+    /// @param stakeVersion The validator's stake version defining the required stake amount
+    error InvalidDeficitAmount(address validatorAddress, uint256 value, uint8 stakeVersion);
+
     /// @notice Emitted when a validator first stakes, entering the Staked lifecycle state
     /// @param validator The newly staked validator's info
     event ValidatorStaked(ValidatorInfo validator);
@@ -141,6 +155,15 @@ interface IConsensusRegistry {
     /// in-place upgrade from a deployment that predates them
     /// @param eligibleValidatorCount The committee-eligible count after the back-fill
     event ValidatorSetsMigrated(uint256 eligibleValidatorCount);
+
+    /// @notice Emitted when governance toggles whether `topUpSlashedStake` is restricted to
+    /// the governance top-up authority
+    /// @param required The new value of the `topUpAuthorityRequired` flag
+    event TopUpAuthorityRequirementUpdated(bool required);
+    /// @notice Emitted when a slashed validator's balance is restored to its version's full stake amount
+    /// @param validatorAddress The validator whose stake was topped up
+    /// @param amount The deficit that was provided and consolidated on the Issuance contract
+    event ValidatorStakeToppedUp(address indexed validatorAddress, uint256 amount);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
     /// and thus eligible for committees. Queriable via `getValidators(Active)` status
@@ -251,4 +274,16 @@ interface IConsensusRegistry {
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
 
+    /// @notice Restores a slashed validator's balance to its version's full stake amount
+    /// @dev `msg.value` must equal the exact deficit; it is consolidated on the Issuance contract
+    /// since this contract retains the full stake-backed native TEL when slashes are applied
+    /// @dev Callable by governance at any time; by the validator or its delegator only while
+    /// `topUpAuthorityRequired` is false
+    /// @param validatorAddress The slashed validator to top up; must be `Staked`,
+    /// `PendingActivation`, or `Active`
+    function topUpSlashedStake(address validatorAddress) external payable;
+
+    /// @notice Toggles whether `topUpSlashedStake` is restricted to the governance top-up authority
+    /// @dev Only callable by governance (owner)
+    function setTopUpAuthorityRequired(bool required) external;
 }

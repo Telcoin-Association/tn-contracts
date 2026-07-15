@@ -39,13 +39,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     constructor(string memory name, string memory symbol) ERC721(name, symbol) { }
 
     /// @inheritdoc IStakeManager
-    function stake(
-        bytes calldata blsPubkey,
-        ProofOfPossession calldata proofOfPossession
-    )
-        external
-        payable
-        virtual;
+    function stake(bytes calldata blsPubkey, ProofOfPossession calldata proofOfPossession) external payable virtual;
 
     /// @inheritdoc IStakeManager
     function delegateStake(
@@ -62,7 +56,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function claimStakeRewards(address ecsdaPubkey) external virtual;
 
     /// @inheritdoc IStakeManager
-    function unstake(address validatorAddress) external virtual;
+    function unstake(address validatorAddress, bool emergencyExit) external virtual;
 
     /// @inheritdoc IStakeManager
     function getRewards(address validatorAddress) public view virtual returns (uint256);
@@ -88,6 +82,9 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
 
     /// @inheritdoc IStakeManager
     function allocateIssuance() external payable virtual override;
+
+    /// @inheritdoc IStakeManager
+    function issuanceWithdrawal(uint256 amount) external virtual override;
 
     /**
      *
@@ -189,12 +186,20 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         // check rewards are claimable and send via the Issuance contract
         uint256 rewards = _checkRewards(validatorAddress, validatorVersion);
         balances[validatorAddress] -= rewards;
-        Issuance(issuance).distributeStakeReward(recipient, rewards);
+        Issuance(issuance).distributeStakeReward(recipient, rewards, false);
 
         return rewards;
     }
 
-    function _unstake(address validatorAddress, address recipient) internal virtual returns (uint256) {
+    function _unstake(
+        address validatorAddress,
+        address recipient,
+        bool emergencyExit
+    )
+        internal
+        virtual
+        returns (uint256)
+    {
         _burn(_getTokenId(validatorAddress));
         if (totalSupply() == 0) revert InvalidSupply();
 
@@ -219,10 +224,11 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
             if (!r) revert IssuanceTransferFailed();
         }
 
-        // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
-        Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards);
+        // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance
+        // balance unless the recipient opted to forfeit rewards via emergency exit
+        Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards, emergencyExit);
 
-        return unstakeAmt + rewards;
+        return emergencyExit ? unstakeAmt : unstakeAmt + rewards;
     }
 
     function _checkRewards(address validatorAddress, uint8 validatorVersion) internal virtual returns (uint256) {

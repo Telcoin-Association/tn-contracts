@@ -24,9 +24,20 @@ contract Issuance {
 
     /// @notice May only be called by StakeManager as part of claim, unstake or burn flow
     /// @dev Sends `rewardAmount` and forwards `msg.value` if stake amount is additionally provided
-    function distributeStakeReward(address recipient, uint256 rewardAmount) external payable virtual onlyStakeManager {
+    /// @param emergencyExit When true, forfeits `rewardAmount` and forwards only `msg.value`, so a
+    /// stake withdrawal can proceed even when this contract's balance cannot cover accrued rewards
+    function distributeStakeReward(
+        address recipient,
+        uint256 rewardAmount,
+        bool emergencyExit
+    )
+        external
+        payable
+        virtual
+        onlyStakeManager
+    {
         uint256 bal = address(this).balance;
-        uint256 totalAmount = rewardAmount + msg.value;
+        uint256 totalAmount = emergencyExit ? msg.value : rewardAmount + msg.value;
         if (bal < totalAmount) {
             revert InsufficientBalance(bal, totalAmount);
         }
@@ -35,8 +46,19 @@ contract Issuance {
         if (!res) revert RewardDistributionFailure(recipient);
     }
 
-    /// @notice Received TEL cannot be recovered; it is effectively burned cryptographically
-    /// The only way received TEL can be re-minted is as staking issuance rewards
-    /// @notice Only governance may burn TEL in this manner
+    /// @notice Sends `amount` of this contract's TEL balance to `recipient`
+    /// @dev May only be called by StakeManager, which restricts the call to its governance owner
+    function withdraw(uint256 amount, address recipient) external onlyStakeManager {
+        uint256 bal = address(this).balance;
+        if (bal < amount) {
+            revert InsufficientBalance(bal, amount);
+        }
+
+        (bool res,) = recipient.call{ value: amount }("");
+        if (!res) revert RewardDistributionFailure(recipient);
+    }
+
+    /// @notice Received TEL leaves this contract only as staking issuance rewards or
+    /// through a governance withdrawal via the StakeManager
     receive() external payable onlyStakeManager { }
 }
