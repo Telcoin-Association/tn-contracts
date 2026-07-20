@@ -140,6 +140,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (isRetired(slash.validatorAddress)) continue;
 
             if (balances[slash.validatorAddress] > slash.amount) {
+                // ledger-only decrement: the confiscated native TEL remains held by this contract
+                // and is consolidated on Issuance at settlement (unstake or burn)
                 balances[slash.validatorAddress] -= slash.amount;
             } else {
                 // eject validators whose balance would reach 0
@@ -951,13 +953,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _ejectFromCommittees(validatorAddress, numEligible);
 
         // settle ledgers
-        (uint256 outstandingBalance, uint256 initialStakeAmt,) = getBalanceBreakdown(validatorAddress);
+        (, uint256 initialStakeAmt,) = getBalanceBreakdown(validatorAddress);
         // rewards are already held on Issuance contract, so wiping registry's balance ledger effectively confiscates
         // them
         balances[validatorAddress] = 0;
-        // confiscate outstanding stake balance by consolidating it on the Issuance contract
-        uint256 confiscatedStake = outstandingBalance < initialStakeAmt ? outstandingBalance : initialStakeAmt;
-        (bool r,) = issuance.call{ value: confiscatedStake }("");
+        // confiscate the validator's entire stake-backed native TEL, including any previously
+        // slashed remainder still held by this contract, by consolidating it on Issuance
+        (bool r,) = issuance.call{ value: initialStakeAmt }("");
         // this is believed to be impossible
         if (!r) revert IssuanceTransferFailed();
 

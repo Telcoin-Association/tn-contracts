@@ -1484,4 +1484,119 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // delegation must be cleared
         assertFalse(consensusRegistry.isDelegated(validator5));
     }
+
+    /*
+     *   slashing settlement
+     */
+
+    /// @dev Partially slashes genesis `validator1` via system call
+    function _slashValidator1(uint256 amount) internal {
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, amount);
+        vm.prank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+    }
+
+    /// @dev Exits genesis `validator1` through the pending-exit queue and elapses one further
+    /// epoch so it becomes unstake-eligible
+    function _exitValidator1ToUnstakeEligibility() internal {
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
+
+        vm.prank(validator1);
+        consensusRegistry.beginExit();
+
+        // validator1 serves in the genesis committees for the first epochs, so conclude past them
+        vm.startPrank(sysAddress);
+        address[] memory waitCommittee = _createTokenIdCommittee(numActive);
+        waitCommittee[waitCommittee.length - 1] = validator1;
+        consensusRegistry.concludeEpoch(waitCommittee);
+        address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        vm.stopPrank();
+
+        uint256 activeAfterExit = numActive - 1;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(activeAfterExit));
+
+        // exit resolves on the next epoch conclusion; one further epoch reaches unstake eligibility
+        vm.startPrank(sysAddress);
+        address[] memory afterExitCommittee = _createTokenIdCommittee(activeAfterExit);
+        consensusRegistry.concludeEpoch(afterExitCommittee);
+        consensusRegistry.concludeEpoch(afterExitCommittee);
+        vm.stopPrank();
+    }
+
+    function test_applySlashes_partial_consolidatesAtUnstake() public {
+        uint256 slashAmt = 200_000e18;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorSlashed(Slash(validator1, slashAmt));
+        _slashValidator1(slashAmt);
+
+        // a partial slash decrements only the balance ledger; no native TEL moves until settlement
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, stakeAmount_ - slashAmt);
+        assertEq(address(consensusRegistry).balance, registryBalBefore);
+        assertEq(issuance.balance, issuanceBalBefore);
+
+        // on unstake the slashed remainder consolidates on Issuance and the reduced stake returns
+        _exitValidator1ToUnstakeEligibility();
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1);
+
+        assertEq(validator1.balance, stakeAmount_ - slashAmt);
+        assertEq(issuance.balance, issuanceBalBefore + slashAmt);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_applySlashes_fullSlash_consolidatesFullStake() public {
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // a slash consuming the whole balance ejects the validator and confiscates its full stake
+        _slashValidator1(stakeAmount_);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, 0);
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_applySlashes_partialThenFull_noOrphanedFunds() public {
+        _slashValidator1(200_000e18);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // the second slash consumes the whole remaining balance, triggering ejection via burn
+        _slashValidator1(800_000e18);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        // the full original stake consolidates on Issuance, including the earlier slashed portion
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_burn_slashedValidator_noOrphanedFunds() public {
+        uint256 slashAmt = 200_000e18;
+        _slashValidator1(slashAmt);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // governance ejection confiscates the full stake-backed native, including the slashed portion
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, 0);
+        assertEq(validator1.balance, 0);
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
 }
