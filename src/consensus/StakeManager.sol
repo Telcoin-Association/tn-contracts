@@ -71,18 +71,15 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function getBalanceBreakdown(address validatorAddress) public view virtual returns (uint256, uint256, uint256);
 
     /// @inheritdoc IStakeManager
-    function getCurrentStakeVersion() public view virtual returns (uint8);
-
-    /// @inheritdoc IStakeManager
     function stakeConfig(uint8 version) public view virtual returns (StakeConfig memory) {
         return versions[version];
     }
 
     /// @inheritdoc IStakeManager
     function getCurrentStakeConfig() public view returns (StakeConfig memory) {
-        // keyed on the epoch-active version so this getter always agrees with
-        // `getCurrentStakeVersion`; the latest `stakeVersion` may still be pending activation
-        return versions[getCurrentStakeVersion()];
+        // the latest authored configuration; it activates at the next epoch start, when
+        // `concludeEpoch` stamps it into the new epoch's info
+        return versions[stakeVersion];
     }
 
     /// @inheritdoc IStakeManager

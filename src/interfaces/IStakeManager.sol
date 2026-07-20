@@ -85,7 +85,7 @@ interface IStakeManager {
     /// @notice Thrown when unstaking would reduce ConsensusNFT totalSupply to zero
     error InvalidSupply();
     /// @notice Thrown when a stake version upgrade targets an invalid version
-    /// @dev Target version must be strictly greater than current and not exceed the epoch-active version
+    /// @dev Target version must be strictly greater than current and not exceed global `stakeVersion`
     /// @param currentVersion The validator's current stake version
     /// @param targetVersion The requested target version that was rejected
     error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
@@ -152,15 +152,19 @@ interface IStakeManager {
     /// @dev Returns staking information for the given address
     function getBalanceBreakdown(address validatorAddress) external view returns (uint256, uint256, uint256);
 
-    /// @dev Returns the stake version active for the current epoch
-    /// @notice Versions configured mid-epoch remain pending until stamped in at the next epoch
+    /// @dev Returns the stake version active for the current epoch, ie the version stamped
+    /// into the epoch's info at its start
+    /// @notice Differs from `getCurrentStakeConfig` during any epoch in which governance has
+    /// authored a new version, since newly authored versions activate at the next epoch start
     function getCurrentStakeVersion() external view returns (uint8);
 
     /// @dev Returns the queried stake configuration
     function stakeConfig(uint8 version) external view returns (StakeConfig memory);
 
-    /// @dev Returns the stake configuration active for the current epoch
-    /// @notice Always agrees with `getCurrentStakeVersion`, ie `stakeConfig(getCurrentStakeVersion())`
+    /// @dev Returns the latest authored stake configuration, which becomes active at the
+    /// next epoch start
+    /// @notice Not necessarily the epoch-active config: during any epoch in which governance
+    /// has authored a new version, this differs from `stakeConfig(getCurrentStakeVersion())`
     function getCurrentStakeConfig() external view returns (StakeConfig memory);
 
     /// @dev Permissioned function to upgrade stake, withdrawal, and consensus block reward configurations
@@ -177,8 +181,6 @@ interface IStakeManager {
     /// Only callable for validators with status Staked, PendingActivation, or Active.
     /// @param validatorAddress The validator whose stake version should be upgraded
     /// @param targetVersion The new stake version to upgrade to (must be strictly greater than current)
-    /// @notice `targetVersion` must already be active for the current epoch; versions still
-    /// pending epoch activation cannot be adopted early
     /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit
     /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient.
     /// For partially slashed validators, only the balance above `newStakeAmount` is refunded.

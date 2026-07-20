@@ -35,15 +35,15 @@ interface IConsensusRegistry {
     struct EpochInfo {
         /// @notice Ordered set of validator addresses selected for this epoch's voting committee
         address[] committee;
-        /// @notice Total TEL distributed as staking rewards during this epoch; 0 for future epochs
+        /// @notice Total TEL distributed as staking rewards during this epoch
         uint256 epochIssuance;
         /// @notice The L2 block number at which this epoch started; 0 for future epochs not yet begun
         uint64 blockHeight;
         /// @notice Sequential identifier for this epoch
         uint32 epochId;
-        /// @notice Duration of this epoch in L2 blocks; 0 for future epochs
+        /// @notice Duration of this epoch in L2 blocks
         uint32 epochDuration;
-        /// @notice The global StakeConfig version that was active when this epoch started; 0 for future epochs
+        /// @notice The global StakeConfig version that was active when this epoch started
         uint8 stakeVersion;
     }
 
@@ -211,7 +211,9 @@ interface IConsensusRegistry {
     function getCurrentEpochInfo() external view returns (EpochInfo memory);
 
     /// @dev Returns information about the provided epoch. Only four latest & two future epochs are stored
-    /// @notice When querying for future epochs, `blockHeight` will be 0 as they are not yet known
+    /// @notice For future epochs, the config fields (issuance, duration, stake version) are a
+    /// projection from the latest authored configuration and can change until the epoch is
+    /// stamped at its start; `blockHeight` is always 0 as it is not yet known
     function getEpochInfo(uint32 epoch) external view returns (EpochInfo memory);
 
     /// @dev Returns the addresses of validators in exactly the provided status's set, in the set's

@@ -438,24 +438,11 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
         return (rewardInfos, expectedRewards);
     }
 
-    /// @dev Concludes one epoch with a placeholder committee so the most recently configured
-    /// stake version becomes epoch-active and adoptable via `upgradeValidatorStakeVersion`
-    function _activateLatestStakeVersion() internal {
-        uint256 committeeSize = consensusRegistry.getNextCommitteeSize();
-        vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(committeeSize));
-    }
-
     function _fuzz_upgradeGlobalStakeVersion(uint256 newStakeAmount) internal returns (uint8) {
         vm.prank(crOwner);
-        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+        return consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmount, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
-        // new configs activate at the next epoch boundary; conclude one epoch so the
-        // version is immediately adoptable in tests
-        _activateLatestStakeVersion();
-
-        return newVersion;
     }
 
     function _fuzz_upgradeValidatorStakeVersions(

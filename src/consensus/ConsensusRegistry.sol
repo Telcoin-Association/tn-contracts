@@ -225,6 +225,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IStakeManager
     function getCurrentStakeVersion() public view override returns (uint8) {
+        // the version stamped into the current epoch at its start; a version authored
+        // mid-epoch is reflected by `getCurrentStakeConfig` but not here until the next epoch
         return getCurrentEpochInfo().stakeVersion;
     }
 
@@ -247,7 +249,16 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         uint8 currentPointer = epochPointer;
         if (epoch > current) {
-            return _getFutureEpochInfo(epoch, current, currentPointer);
+            // future slots store only the committee and epoch id; project the config fields
+            // from the latest authored configuration - the values the epoch would be stamped
+            // with if it began now. They can change until the epoch is stamped at its start.
+            // Block height is unknowable ahead of time and remains 0
+            EpochInfo memory future = _getFutureEpochInfo(epoch, current, currentPointer);
+            StakeConfig storage latestConfig = versions[stakeVersion];
+            future.epochIssuance = latestConfig.epochIssuance;
+            future.epochDuration = latestConfig.epochDuration;
+            future.stakeVersion = stakeVersion;
+            return future;
         } else {
             return _getRecentEpochInfo(epoch, current, currentPointer);
         }
@@ -518,11 +529,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             revert InvalidStatus(status);
         }
 
-        // 3. Version validation: must be strictly newer and already epoch-active. New configs
-        // take effect at the next epoch boundary, so a version that has not yet been stamped
-        // into an epoch by `concludeEpoch` cannot be adopted early
+        // 3. Version validation: must be strictly newer, within bounds
         uint8 oldVersion = validator.stakeVersion;
-        if (targetVersion <= oldVersion || targetVersion > getCurrentStakeVersion()) {
+        if (targetVersion <= oldVersion || targetVersion > stakeVersion) {
             revert InvalidStakeVersion(oldVersion, targetVersion);
         }
 
@@ -983,10 +992,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         epochPointer = newEpochPointer;
         uint32 newEpoch = ++currentEpoch;
         address[] storage newCommittee = futureEpochInfo[newEpochPointer].committee;
-        // read the latest stake config directly: it is what the incoming epoch is stamped with.
-        // The epoch-based `getCurrentStakeConfig` cannot be used mid-transition because the
-        // incoming epoch's `epochInfo` slot is only written below
-        StakeConfig memory newStakeConfig = versions[stakeVersion];
+        StakeConfig memory newStakeConfig = getCurrentStakeConfig();
         epochInfo[newEpochPointer] = EpochInfo(
             newCommittee,
             newStakeConfig.epochIssuance,
@@ -1006,8 +1012,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Fetch info for a future epoch; two epochs into future are stored
-    /// @notice Only the committee and epoch id are known ahead of time; the config fields
-    /// (issuance, duration, stake version) and block height are zero until the epoch begins
+    /// @notice Storage carries only the committee and epoch id; the config fields and block
+    /// height are zero. `getEpochInfo` overlays a projection of the config fields at read time
     function _getFutureEpochInfo(
         uint32 future,
         uint32 current,
