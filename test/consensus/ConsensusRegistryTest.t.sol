@@ -9,6 +9,7 @@ import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { Issuance } from "src/consensus/Issuance.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
@@ -617,7 +618,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_);
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
 
         // validator1 earned 4 epochs' rewards, split between 4 validators
         uint256 finalBalance = validator1.balance;
@@ -640,7 +641,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // unstake to abort activation
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator5, stakeAmount_);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
 
@@ -658,7 +659,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(nonValidator);
         vm.expectRevert();
-        consensusRegistry.unstake(nonValidator);
+        consensusRegistry.unstake(nonValidator, false);
     }
 
     // Test for unstake by a validator who has not exited
@@ -679,7 +680,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             ValidatorInfo(validator5, 1, 0, ValidatorStatus.PendingActivation, false, 0, 0)
         );
         vm.expectRevert(err);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
     }
@@ -1451,7 +1452,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // --- delegator unstakes ---
         vm.deal(address(consensusRegistry), stakeAmount_);
         vm.prank(delegator);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         // delegation must be cleared
         assertFalse(consensusRegistry.isDelegated(validator5));
@@ -1483,5 +1484,91 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // delegation must be cleared
         assertFalse(consensusRegistry.isDelegated(validator5));
+    }
+
+    /*
+     *   emergency exit
+     */
+
+    /// @dev Exits genesis `validator1` through the pending-exit queue and elapses one further
+    /// epoch so it becomes unstake-eligible
+    function _exitValidator1ToUnstakeEligibility() internal {
+        uint256 numActive = consensusRegistry.getEligibleValidatorCount();
+
+        vm.prank(validator1);
+        consensusRegistry.beginExit();
+
+        // validator1 serves in the genesis committees for the first epochs, so conclude past them
+        vm.startPrank(sysAddress);
+        address[] memory waitCommittee = _createTokenIdCommittee(numActive);
+        waitCommittee[waitCommittee.length - 1] = validator1;
+        consensusRegistry.concludeEpoch(waitCommittee);
+        address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        vm.stopPrank();
+
+        uint256 activeAfterExit = numActive - 1;
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(uint16(activeAfterExit));
+
+        // exit resolves on the next epoch conclusion; one further epoch reaches unstake eligibility
+        vm.startPrank(sysAddress);
+        address[] memory afterExitCommittee = _createTokenIdCommittee(activeAfterExit);
+        consensusRegistry.concludeEpoch(afterExitCommittee);
+        consensusRegistry.concludeEpoch(afterExitCommittee);
+        vm.stopPrank();
+    }
+
+    function test_unstake_emergencyExit_forfeitsRewards() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // an emergency exit returns the stake but permanently forfeits the accrued rewards
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+
+        assertEq(validator1.balance, stakeAmount_);
+        assertTrue(consensusRegistry.isRetired(validator1));
+        // the forfeited rewards remain in the Issuance reward pool
+        assertEq(issuance.balance, issuanceBalBefore);
+    }
+
+    function test_unstake_emergencyExit_insufficientIssuanceBalance() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        // empty the reward pool so accrued rewards can no longer be paid out
+        vm.deal(issuance, 0);
+
+        // a normal unstake cannot cover the rewards owed and reverts
+        vm.prank(validator1);
+        vm.expectRevert(
+            abi.encodeWithSelector(Issuance.InsufficientBalance.selector, stakeAmount_, stakeAmount_ + accrued)
+        );
+        consensusRegistry.unstake(validator1, false);
+
+        // the emergency exit path still returns the stake
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+        assertEq(validator1.balance, stakeAmount_);
     }
 }

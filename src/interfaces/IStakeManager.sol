@@ -129,7 +129,9 @@ interface IStakeManager {
     /// @dev Returns previously staked funds in addition to accrued rewards, if any, to the staker
     /// @notice May be used to reverse validator onboarding pre-activation or permanently retire after full exit
     /// @notice Once unstaked and retired, validator addresses cannot be reused
-    function unstake(address validatorAddress) external;
+    /// @param emergencyExit When true, permanently forfeits accrued rewards and returns only the stake
+    /// balance; escape hatch for when the Issuance contract's balance cannot cover the rewards owed
+    function unstake(address validatorAddress, bool emergencyExit) external;
 
     /// @notice Returns the delegation digest that a validator should sign to accept a delegation
     /// @return _ EIP-712 typed struct hash used to enable delegated proof of stake

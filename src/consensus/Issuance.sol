@@ -24,9 +24,20 @@ contract Issuance {
 
     /// @notice May only be called by StakeManager as part of claim, unstake or burn flow
     /// @dev Sends `rewardAmount` and forwards `msg.value` if stake amount is additionally provided
-    function distributeStakeReward(address recipient, uint256 rewardAmount) external payable virtual onlyStakeManager {
+    /// @param emergencyExit When true, forfeits `rewardAmount` and forwards only `msg.value`, so a
+    /// stake withdrawal can proceed even when this contract's balance cannot cover accrued rewards
+    function distributeStakeReward(
+        address recipient,
+        uint256 rewardAmount,
+        bool emergencyExit
+    )
+        external
+        payable
+        virtual
+        onlyStakeManager
+    {
         uint256 bal = address(this).balance;
-        uint256 totalAmount = rewardAmount + msg.value;
+        uint256 totalAmount = emergencyExit ? msg.value : rewardAmount + msg.value;
         if (bal < totalAmount) {
             revert InsufficientBalance(bal, totalAmount);
         }

@@ -552,7 +552,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (refundAmount > 0) {
                 balances[validatorAddress] -= refundAmount;
                 // Route through Issuance (same pattern as _unstake)
-                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
+                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0, false);
             }
 
             // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
@@ -599,7 +599,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc StakeManager
-    function unstake(address validatorAddress) external override whenNotPaused nonReentrant {
+    function unstake(address validatorAddress, bool emergencyExit) external override whenNotPaused nonReentrant {
         // require validator holds a ConsensusNFT and the caller is the validator or its delegator
         address recipient = _checkStakeOriginator(validatorAddress);
 
@@ -610,8 +610,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // permanently retire the validator and burn the ConsensusNFT
         _retire(validator);
 
-        // return stake and send any outstanding rewards
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient);
+        // return stake and send any outstanding rewards unless forfeited via emergency exit
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, emergencyExit);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }
@@ -965,7 +965,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _exit(validator, currentEpoch);
         _retire(validator);
         address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient);
+        _unstake(validatorAddress, recipient, true);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch
