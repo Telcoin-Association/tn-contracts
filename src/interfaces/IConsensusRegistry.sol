@@ -35,15 +35,15 @@ interface IConsensusRegistry {
     struct EpochInfo {
         /// @notice Ordered set of validator addresses selected for this epoch's voting committee
         address[] committee;
-        /// @notice Total TEL distributed as staking rewards during this epoch
+        /// @notice Total TEL distributed as staking rewards during this epoch; 0 for future epochs
         uint256 epochIssuance;
         /// @notice The L2 block number at which this epoch started; 0 for future epochs not yet begun
         uint64 blockHeight;
         /// @notice Sequential identifier for this epoch
         uint32 epochId;
-        /// @notice Duration of this epoch in L2 blocks
+        /// @notice Duration of this epoch in L2 blocks; 0 for future epochs
         uint32 epochDuration;
-        /// @notice The global StakeConfig version that was active when this epoch started
+        /// @notice The global StakeConfig version that was active when this epoch started; 0 for future epochs
         uint8 stakeVersion;
     }
 

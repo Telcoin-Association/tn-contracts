@@ -824,6 +824,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+        _activateLatestStakeVersion();
 
         // validator1 is Active with version 0
         uint256 deficit = newStakeAmt - stakeAmount_;
@@ -850,6 +851,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+        _activateLatestStakeVersion();
 
         uint256 recipientBalBefore = validator1.balance;
 
@@ -873,6 +875,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(stakeAmount_, minWithdrawAmount_ * 2, epochIssuance_, epochDuration_)
         );
+        _activateLatestStakeVersion();
 
         vm.prank(validator1);
         consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
@@ -899,6 +902,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+
+        _activateLatestStakeVersion();
 
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator5, deficit);
@@ -936,6 +941,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+
+        _activateLatestStakeVersion();
 
         uint256 delegatorBalBefore = delegator.balance;
 
@@ -983,6 +990,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
 
@@ -1012,6 +1021,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
@@ -1029,6 +1040,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+
+        _activateLatestStakeVersion();
 
         // Send wrong amount (too much)
         uint256 wrongAmount = newStakeAmt;
@@ -1096,6 +1109,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 recipientBalBefore = validator1.balance;
         uint256 issuanceBalBefore = issuance.balance;
         uint256 registryBalBefore = address(consensusRegistry).balance;
@@ -1161,6 +1176,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
@@ -1209,6 +1226,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
@@ -1234,6 +1253,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+
+        _activateLatestStakeVersion();
 
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
@@ -1288,6 +1309,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
         vm.prank(validator1);
@@ -1320,6 +1343,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
+        _activateLatestStakeVersion();
+
         // Pause contract via crOwner
         vm.prank(crOwner);
         consensusRegistry.pause();
@@ -1346,6 +1371,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(0, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
+        _activateLatestStakeVersion();
 
         uint256 recipientBalBefore = validator1.balance;
 
@@ -1371,6 +1397,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(v2StakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
         vm.stopPrank();
+        // one epoch flip activates both pending versions
+        _activateLatestStakeVersion();
 
         // Upgrade v0 -> v1
         uint256 deficit1 = v1StakeAmt - stakeAmount_;
@@ -1400,6 +1428,66 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // Check total balance equals v2 stake amount
         assertEq(bal2, v2StakeAmt);
+    }
+
+    function testRevert_upgradeValidatorStakeVersion_versionNotEpochActive() public {
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(stakeAmount_, minWithdrawAmount_ * 2, epochIssuance_, epochDuration_)
+        );
+
+        // the new version has not been stamped into an epoch yet, so adoption reverts
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeVersion.selector, uint8(0), newVersion));
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+
+        // once an epoch concludes the version becomes epoch-active and adoptable
+        _activateLatestStakeVersion();
+        vm.prank(validator1);
+        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        assertEq(consensusRegistry.getValidator(validator1).stakeVersion, newVersion);
+    }
+
+    function test_getCurrentStakeConfig_matchesEpochActiveVersion() public {
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        // mid-epoch the new version is still pending: both getters reflect the old config
+        assertEq(consensusRegistry.getCurrentStakeVersion(), 0);
+        StakeConfig memory pending = consensusRegistry.getCurrentStakeConfig();
+        assertEq(pending.stakeAmount, stakeAmount_);
+        assertEq(pending.stakeAmount, consensusRegistry.stakeConfig(consensusRegistry.getCurrentStakeVersion()).stakeAmount);
+
+        // after the epoch flip both getters reflect the new version together
+        _activateLatestStakeVersion();
+        assertEq(consensusRegistry.getCurrentStakeVersion(), newVersion);
+        StakeConfig memory active = consensusRegistry.getCurrentStakeConfig();
+        assertEq(active.stakeAmount, newStakeAmt);
+        assertEq(active.stakeAmount, consensusRegistry.stakeConfig(consensusRegistry.getCurrentStakeVersion()).stakeAmount);
+    }
+
+    function test_getEpochInfo_futureEpochConfigUndefined() public {
+        // advance two epochs so both future slots have been rewritten by concludeEpoch
+        vm.startPrank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        vm.stopPrank();
+
+        uint32 current = consensusRegistry.getCurrentEpoch();
+        for (uint32 ahead = 1; ahead <= 2; ++ahead) {
+            EpochInfo memory info = consensusRegistry.getEpochInfo(current + ahead);
+            // committee and epoch id are known for future epochs
+            assertEq(info.epochId, current + ahead);
+            assertEq(info.committee.length, 4);
+            // configuration is undefined until the epoch begins, so all config fields are zero
+            assertEq(info.epochIssuance, 0);
+            assertEq(uint256(info.epochDuration), 0);
+            assertEq(uint256(info.stakeVersion), 0);
+            assertEq(uint256(info.blockHeight), 0);
+        }
     }
 
     function test_delegatedValidator_voluntaryExit_clearedDelegation() public {
