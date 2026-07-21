@@ -96,6 +96,14 @@ interface IStakeManager {
     /// (or have been burned/retired and had their pubkey state cleared)
     /// @param validatorAddress The address whose BLS pubkey lookup failed
     error BlsPubkeyNotFound(address validatorAddress);
+    /// @notice Thrown when a delegation signature is submitted after its signed deadline
+    /// @param deadline The unix timestamp past which the signature is no longer valid
+    error DelegationExpired(uint256 deadline);
+
+    /// @notice Emitted when a validator invalidates outstanding delegation signatures by bumping its nonce
+    /// @param validatorAddress The validator whose delegation nonce advanced
+    /// @param nonce The new delegation nonce
+    event DelegationNonceIncreased(address indexed validatorAddress, uint64 nonce);
 
     /// @dev Accepts the native TEL stake amount from the calling validator, enabling later self-activation
     /// @notice Caller must already have been issued a `ConsensusNFT` by Telcoin governance
@@ -114,14 +122,21 @@ interface IStakeManager {
     /// @notice Ensuring `uncompressedPubkey` corresponds to `ValidatorInfo::blsPubkey` is better
     /// performed externally in Rust by the protocol due to EIP2537 precompile & EVM limitations
     /// so this contract does not perform any (un)compression checks
+    /// @param deadline Unix timestamp past which `validatorSig` is rejected (ignored for governance calls)
     function delegateStake(
         bytes calldata blsPubkey,
         ProofOfPossession calldata proofOfPossession,
         address validatorAddress,
-        bytes calldata validatorSig
+        bytes calldata validatorSig,
+        uint256 deadline
     )
         external
         payable;
+
+    /// @notice Invalidates any outstanding delegation signature for the caller by advancing its nonce
+    /// @dev Caller must hold a ConsensusNFT; lets a validator revoke a delegation it authorized but no
+    /// longer wants honored
+    function increaseNonce() external;
 
     /// @dev Used by rewardees to claim staking rewards
     function claimStakeRewards(address ecdaPubkey) external;
@@ -132,11 +147,13 @@ interface IStakeManager {
     function unstake(address validatorAddress) external;
 
     /// @notice Returns the delegation digest that a validator should sign to accept a delegation
+    /// @param deadline Unix timestamp past which the produced signature must be rejected
     /// @return _ EIP-712 typed struct hash used to enable delegated proof of stake
     function delegationDigest(
         bytes memory blsPubkey,
         address validatorAddress,
-        address delegator
+        address delegator,
+        uint256 deadline
     )
         external
         view

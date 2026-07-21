@@ -9,6 +9,7 @@ import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { IConsensusRegistry } from "src/interfaces/IConsensusRegistry.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
@@ -259,7 +260,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.mint(validator5);
 
         // validator signs delegation
-        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
         bytes memory validatorSig = abi.encodePacked(r, s, v);
 
@@ -272,7 +274,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(delegator);
         consensusRegistry.delegateStake{
             value: stakeAmount_
-        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig);
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline);
 
         // Check validator information
         ValidatorInfo[] memory validators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Staked);
@@ -285,6 +287,82 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertTrue(consensusRegistry.isDelegated(validator5));
         assertEq(validators[0].stakeVersion, uint8(0));
         assertEq(uint8(validators[0].currentStatus), uint8(ValidatorStatus.Staked));
+    }
+
+    function test_delegateStake_revertsAfterDeadline() public {
+        uint256 validator5PrivateKey = 5;
+        validator5 = vm.addr(validator5PrivateKey);
+        address delegator = _addressFromPrivateKey(42);
+        vm.deal(delegator, stakeAmount_);
+
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
+        bytes memory validatorSig = abi.encodePacked(r, s, v);
+
+        vm.warp(deadline + 1);
+
+        vm.prank(delegator);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.DelegationExpired.selector, deadline));
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline
+        );
+    }
+
+    function test_delegateStake_ownerBypassesDeadline() public {
+        validator5 = vm.addr(5);
+        vm.deal(crOwner, stakeAmount_);
+
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        // governance path ignores both the deadline and the signature; an expired deadline is accepted
+        uint256 expired = block.timestamp;
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(crOwner);
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, "", expired
+        );
+
+        assertTrue(consensusRegistry.isDelegated(validator5));
+    }
+
+    function test_increaseNonce_invalidatesDelegationSignature() public {
+        uint256 validator5PrivateKey = 5;
+        validator5 = vm.addr(validator5PrivateKey);
+        address delegator = _addressFromPrivateKey(42);
+        vm.deal(delegator, stakeAmount_);
+
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
+        bytes memory validatorSig = abi.encodePacked(r, s, v);
+
+        vm.expectEmit(true, true, true, true);
+        emit DelegationNonceIncreased(validator5, 1);
+        vm.prank(validator5);
+        consensusRegistry.increaseNonce();
+
+        // the previously valid signature no longer matches because the signed nonce advanced
+        vm.prank(delegator);
+        vm.expectRevert(abi.encodeWithSelector(IConsensusRegistry.NotValidator.selector, validator5));
+        consensusRegistry.delegateStake{value: stakeAmount_}(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline
+        );
+    }
+
+    function test_increaseNonce_revertsForNonHolder() public {
+        address stranger = _addressFromPrivateKey(99);
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidTokenId.selector, uint256(uint160(stranger))));
+        consensusRegistry.increaseNonce();
     }
 
     function test_burnValidatorBeforeStake() public {
@@ -921,13 +999,14 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         consensusRegistry.mint(validator5);
 
-        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
         bytes memory validatorSig = abi.encodePacked(r, s, v);
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline
         );
 
         // Create new version with lower stake
@@ -1412,13 +1491,14 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
 
-        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
         bytes memory validatorSig = abi.encodePacked(r, s, v);
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline
         );
         assertTrue(consensusRegistry.isDelegated(validator5));
 
@@ -1467,13 +1547,14 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
 
-        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 structHash = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegator, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5PrivateKey, structHash);
         bytes memory validatorSig = abi.encodePacked(r, s, v);
 
         vm.prank(delegator);
         consensusRegistry.delegateStake{value: stakeAmount_}(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, validatorSig, deadline
         );
         assertTrue(consensusRegistry.isDelegated(validator5));
 
