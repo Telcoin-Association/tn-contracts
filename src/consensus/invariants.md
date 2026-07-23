@@ -52,13 +52,19 @@
 - Issuance only ever holds epoch reward funds, less claims
 - when unstaking, stake is sourced from the registry
 - when claiming or unstaking, rewards are sourced from Issuance
-- claims can revert if Issuance contract runs dry (eg TAO governance problem) but rewards ledger must continue being updated by applyIncentives or applySlashes
-- all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not
-- mid-epoch stake version upgrades cause the entire epoch's rewards to be weighted by the new version's `stakeAmount`, since `applyIncentives` reads `stakeVersion` at epoch end; there is no pro-rata split within an epoch
-- during a stake-decreasing version upgrade on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
-- validators with both accrued rewards and a pending slash should claim rewards before upgrading stake version; a stake-decreasing upgrade on a partially slashed validator may zero claimable rewards (the recipient still receives the correct total ETH via the refund)
-- `upgradeValidatorStakeVersion` only permits forward version upgrades (targetVersion > currentVersion); version downgrades are rejected
-- `upgradeValidatorStakeVersion` is restricted to validators with status Staked, PendingActivation, or Active
+- claims can revert if Issuance contract runs dry (eg TAO governance problem) but the rewards ledger must continue being updated by the incentive and slash stages of concludeEpoch
+- all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not; queue escrow returns are the one exception and flow to the recorded funder
+- concludeEpoch is the single boundary system call and its stage order is a security invariant: rewards, then slashes, then version-queue settlement, then epoch rotation, then refund transfers; no value leaves the registry at a boundary ahead of that boundary's slashes
+- in-service validator stake versions change only inside concludeEpoch, so reward weights are stable within an epoch: `_applyIncentives` always reads the version that was active for the entire closing epoch
+- a queued stake increase's escrow lives in the queue entry, never in `balances`, so it is invisible to reward accounting until the boundary flip credits it and raises the reward floor atomically
+- stake decreases age `STAKE_DECREASE_DELAY_EPOCHS` boundaries before settling; settlement refunds are computed from post-slash balances, and no request or cancellation timing can move value ahead of a slash
+- during a stake-decreasing settlement on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
+- validators with both accrued rewards and a pending slash should claim rewards before requesting a stake-decreasing change; a stake-decreasing settlement on a partially slashed validator may zero claimable rewards (the recipient still receives the correct total ETH via the refund)
+- boundary refund pushes are gas-capped and fall back to a `claimRefund` credit on failure, so no recipient can revert or grief concludeEpoch; credits are keyed by recipient and survive validator retirement
+- retiring a validator (unstake, governance burn, slash-to-zero) drops its queue entry and credits any escrow back to the funder; escrow is never confiscable
+- the registry's native balance always backs the sum of stake balances (up to lazily consolidated slash remainders), queue escrows, and unclaimed refund credits
+- `requestStakeVersionChange` only permits forward version changes (targetVersion > currentVersion); moving to an earlier version index is rejected
+- `requestStakeVersionChange` is restricted to validators with status Staked, PendingActivation, or Active; `Staked` validators settle immediately since they are not in service and can already unstake in full at any time
 
 **protocol**
 

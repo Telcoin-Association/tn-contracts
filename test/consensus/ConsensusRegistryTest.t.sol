@@ -184,11 +184,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.startPrank(sysAddress);
         address[] memory makeValidator1Wait = _createTokenIdCommittee(numActive);
         makeValidator1Wait[makeValidator1Wait.length - 1] = validator1;
-        consensusRegistry.concludeEpoch(makeValidator1Wait);
+        _concludeEpoch(makeValidator1Wait);
 
         address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
-        consensusRegistry.concludeEpoch(tokenIdCommittee);
-        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        _concludeEpoch(tokenIdCommittee);
+        _concludeEpoch(tokenIdCommittee);
         vm.stopPrank();
 
         uint256 activeAfterExit = numActive - 1;
@@ -196,7 +196,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         consensusRegistry.setNextCommitteeSize(uint16(activeAfterExit));
 
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(activeAfterExit));
+        _concludeEpoch(_createTokenIdCommittee(activeAfterExit));
 
         assertEq(uint8(consensusRegistry.getValidator(validator1).currentStatus), uint8(ValidatorStatus.Exited));
 
@@ -337,7 +337,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
                 validator5, activationEpoch, uint32(0), ValidatorStatus.Active, false, uint8(0), uint8(0)
             ));
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numEligible));
+        _concludeEpoch(_createTokenIdCommittee(numEligible));
 
         // Active set holds the genesis validators in order; validator5 is the lone PendingActivation
         assertEq(activeValidators[0].validatorAddress, validator1);
@@ -435,7 +435,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint16 size = consensusRegistry.getNextCommitteeSize();
         vm.prank(sysAddress);
         vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, uint256(size), uint256(0)));
-        consensusRegistry.concludeEpoch(empty);
+        _concludeEpoch(empty);
     }
 
     /// @notice eligibleValidatorCount tracks exits from the committee-eligible set (entries/+1 and the
@@ -486,13 +486,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // conclude epoch fails if nextCommitteeSize doesn't match arg length
         vm.prank(sysAddress);
         vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, numActiveBefore, numActiveAfter));
-        consensusRegistry.concludeEpoch(nextCommittee);
+        _concludeEpoch(nextCommittee);
 
         // update nextCommitteeSize and conclude epoch
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(numActiveAfter));
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(nextCommittee);
+        _concludeEpoch(nextCommittee);
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.PendingExit).length, 0);
 
@@ -523,8 +523,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // Finalize epoch twice to reach exit epoch
         vm.startPrank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        _concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        _concludeEpoch(_createTokenIdCommittee(numActiveBefore));
         vm.stopPrank();
 
         assertEq(consensusRegistry.getValidators(ValidatorStatus.PendingExit).length, 0);
@@ -576,12 +576,12 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.startPrank(sysAddress);
         address[] memory makeValidator1Wait = _createTokenIdCommittee(numActive);
         makeValidator1Wait[makeValidator1Wait.length - 1] = validator1;
-        consensusRegistry.concludeEpoch(makeValidator1Wait);
+        _concludeEpoch(makeValidator1Wait);
 
         // conclude epoch twice with placeholder committee to simulate protocol-determined exit
         address[] memory tokenIdCommittee = _createTokenIdCommittee(numActive);
-        consensusRegistry.concludeEpoch(tokenIdCommittee);
-        consensusRegistry.concludeEpoch(tokenIdCommittee);
+        _concludeEpoch(tokenIdCommittee);
+        _concludeEpoch(tokenIdCommittee);
         vm.stopPrank();
 
         // set nextCommitteeSize
@@ -605,13 +605,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.startPrank(sysAddress);
         address[] memory afterExitCommittee = _createTokenIdCommittee(activeAfterExit);
-        consensusRegistry.concludeEpoch(afterExitCommittee);
+        _concludeEpoch(afterExitCommittee);
 
         uint256 initialBalance = validator1.balance;
         assertEq(initialBalance, 0);
 
         // conclude one additional epoch to reach unstake eligibility epoch
-        consensusRegistry.concludeEpoch(afterExitCommittee);
+        _concludeEpoch(afterExitCommittee);
         vm.stopPrank();
 
         vm.expectEmit(true, true, true, true);
@@ -718,8 +718,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         // Call the function
         vm.startPrank(sysAddress);
-        consensusRegistry.concludeEpoch(newCommittee);
-        consensusRegistry.concludeEpoch(newCommittee);
+        _concludeEpoch(newCommittee);
+        _concludeEpoch(newCommittee);
         vm.stopPrank();
 
         // Fetch current epoch and verify it has incremented
@@ -737,7 +737,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     // Attempt to call without sysAddress should revert
     function testRevert_concludeEpoch_OnlySystemCall() public {
         vm.expectRevert(abi.encodeWithSelector(SystemCallable.OnlySystemCall.selector, address(this)));
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        _concludeEpoch(_createTokenIdCommittee(4));
     }
 
     function test_burnAutoAdjustsCommitteeSize() public {
@@ -770,8 +770,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         committee4[3] = validator4;
         _sortAddresses(committee4);
 
-        consensusRegistry.concludeEpoch(committee4);
-        consensusRegistry.concludeEpoch(committee4);
+        _concludeEpoch(committee4);
+        _concludeEpoch(committee4);
         vm.stopPrank();
 
         // burn validator1 who is in the current, next, and subsequent committees
@@ -793,16 +793,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     function test_slash_triggersEjection_correctSizeCheck() public {
-        // test that slashing to 0 balance (which triggers _consensusburn and _ejectfromcommittees)
-        // correctly handles committee size
+        // a slash to 0 balance triggers _consensusBurn -> _ejectFromCommittees inside the boundary
 
         // setup slash that reduces balance to 0
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, stakeAmount_ + 1); // slash more than balance
 
-        // this should trigger _consensusBurn -> _ejectFromCommittees
+        // the incoming committee must reflect the post-ejection state: the 3 sorted survivors
+        address[] memory survivors = new address[](3);
+        survivors[0] = validator2;
+        survivors[1] = validator3;
+        survivors[2] = validator4;
+        _sortAddresses(survivors);
+
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(survivors, slashes);
 
         // verify validator was ejected and committee size adjusted
         ValidatorInfo[] memory activeValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Active);
@@ -814,10 +819,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     /*
-     *   upgradeValidatorStakeVersion
+     *   requestStakeVersionChange
      */
 
-    function test_upgradeValidatorStakeVersion_increaseStake() public {
+    function test_requestStakeVersionChange_increase() public {
         // Create a new stake version with higher stake
         uint256 newStakeAmt = 2_000_000e18;
         vm.prank(crOwner);
@@ -825,15 +830,37 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
         );
 
-        // validator1 is Active with version 0
+        // validator1 is Active with version 0: the request queues, escrowing the exact deficit
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
+        uint256 registryBalBefore = address(consensusRegistry).balance;
 
         vm.expectEmit(true, true, true, true);
-        emit ValidatorStakeVersionUpgraded(validator1, 0, newVersion, stakeAmount_, newStakeAmt);
+        emit StakeVersionChangeRequested(validator1, newVersion, consensusRegistry.getCurrentEpoch(), deficit);
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: deficit}(validator1, newVersion);
+
+        // nothing flips at request time: the escrow is held in the queue entry, not the balance
+        ValidatorInfo memory infoQueued = consensusRegistry.getValidator(validator1);
+        assertEq(infoQueued.stakeVersion, 0);
+        (uint256 balQueued,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balQueued, stakeAmount_);
+        assertEq(consensusRegistry.getRewards(validator1), 0);
+        assertEq(address(consensusRegistry).balance, registryBalBefore + deficit);
+        (uint8 target, uint32 requestEpoch, address funder, uint256 escrow) =
+            consensusRegistry.versionChangeRequests(validator1);
+        assertEq(target, newVersion);
+        assertEq(requestEpoch, consensusRegistry.getCurrentEpoch());
+        assertEq(funder, validator1);
+        assertEq(escrow, deficit);
+        assertEq(consensusRegistry.getPendingVersionChanges().length, 1);
+
+        // increases settle at the first boundary
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorStakeVersionUpgraded(validator1, 0, newVersion, stakeAmount_, newStakeAmt);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         // Verify state
         ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
@@ -841,9 +868,12 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         (uint256 balance, uint256 stakeAmt,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balance, newStakeAmt);
         assertEq(stakeAmt, newStakeAmt);
+        assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
+        (uint8 targetAfter,,,) = consensusRegistry.versionChangeRequests(validator1);
+        assertEq(targetAfter, 0);
     }
 
-    function test_upgradeValidatorStakeVersion_decreaseStake() public {
+    function test_requestStakeVersionChange_decrease() public {
         // Create a new stake version with lower stake
         uint256 newStakeAmt = 500_000e18;
         vm.prank(crOwner);
@@ -853,8 +883,22 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         uint256 recipientBalBefore = validator1.balance;
 
+        // in-service decrease queues; no value moves at request time
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+        assertEq(validator1.balance, recipientBalBefore);
+
+        // the first boundary skips the entry: decreases age STAKE_DECREASE_DELAY_EPOCHS boundaries
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+        ValidatorInfo memory infoAged = consensusRegistry.getValidator(validator1);
+        assertEq(infoAged.stakeVersion, 0);
+        assertEq(validator1.balance, recipientBalBefore);
+        assertEq(consensusRegistry.getPendingVersionChanges().length, 1);
+
+        // the second boundary settles: version flips and the surplus is refunded
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         // Verify state
         ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
@@ -865,9 +909,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // surplus refunded to validator1 (who is the recipient since no delegator)
         uint256 surplus = stakeAmount_ - newStakeAmt;
         assertEq(validator1.balance, recipientBalBefore + surplus);
+        assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
     }
 
-    function test_upgradeValidatorStakeVersion_sameStake() public {
+    function test_requestStakeVersionChange_sameStake() public {
         // Create a new version with same stake amount
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -875,7 +920,14 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         );
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+
+        // an equal-amount change still queues for the boundary, then flips with no value movement
+        ValidatorInfo memory infoQueued = consensusRegistry.getValidator(validator1);
+        assertEq(infoQueued.stakeVersion, 0);
+
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
         assertEq(info.stakeVersion, newVersion);
@@ -883,7 +935,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(balance, stakeAmount_);
     }
 
-    function test_upgradeValidatorStakeVersion_stakedStatus() public {
+    function test_requestStakeVersionChange_stakedStatus() public {
         // Mint and stake validator5 (Staked status, not yet activated)
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
@@ -903,15 +955,17 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator5, deficit);
 
+        // `Staked` validators keep the immediate lane: the version flips in the same transaction
         vm.prank(validator5);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator5, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: deficit}(validator5, newVersion);
 
         ValidatorInfo memory info = consensusRegistry.getValidator(validator5);
         assertEq(info.stakeVersion, newVersion);
         assertEq(uint8(info.currentStatus), uint8(ValidatorStatus.Staked));
+        assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
     }
 
-    function test_upgradeValidatorStakeVersion_delegated() public {
+    function test_requestStakeVersionChange_delegatedStaked() public {
         // Setup delegated validator5
         vm.prank(crOwner);
         uint256 validator5PrivateKey = 5;
@@ -939,9 +993,9 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         uint256 delegatorBalBefore = delegator.balance;
 
-        // Delegator calls upgrade (they are the recipient)
+        // Delegator calls the request; validator5 is `Staked`, so the immediate lane settles now
         vm.prank(delegator);
-        consensusRegistry.upgradeValidatorStakeVersion(validator5, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator5, newVersion);
 
         // Verify delegation record updated
         ValidatorInfo memory info = consensusRegistry.getValidator(validator5);
@@ -952,27 +1006,18 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(delegator.balance, delegatorBalBefore + surplus);
     }
 
-    function test_upgradeValidatorStakeVersion_preservesRewards() public {
-        // First conclude an epoch and apply incentives so validator1 has rewards
-        address[] memory committee = new address[](4);
-        committee[0] = validator1;
-        committee[1] = validator2;
-        committee[2] = validator3;
-        committee[3] = validator4;
-        _sortAddresses(committee);
-
-        vm.prank(sysAddress);
+    function test_requestStakeVersionChange_preservesRewards() public {
+        // First conclude an epoch distributing incentives so validator1 has rewards
+        address[] memory committee = _sortedGenesisCommittee();
         RewardInfo[] memory rewards = new RewardInfo[](4);
         rewards[0] = RewardInfo(validator1, 10);
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
-        consensusRegistry.applyIncentives(rewards);
-
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(committee);
+        _concludeEpochWithRewards(committee, rewards);
 
-        // Record validator1's rewards before upgrade
+        // Record validator1's rewards before the version change
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
         assertTrue(rewardsBefore > 0);
 
@@ -987,25 +1032,20 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.deal(validator1, deficit);
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: deficit}(validator1, newVersion);
 
-        // Rewards should be preserved
-        uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
-        assertEq(rewardsAfter, rewardsBefore);
+        // Rewards are untouched while the escrow sits in the queue entry
+        assertEq(consensusRegistry.getRewards(validator1), rewardsBefore);
+
+        // and still untouched once the flip lands at the boundary
+        vm.prank(sysAddress);
+        _concludeEpoch(committee);
+        assertEq(consensusRegistry.getRewards(validator1), rewardsBefore);
+        assertEq(consensusRegistry.getValidator(validator1).stakeVersion, newVersion);
     }
 
-    function test_upgradeValidatorStakeVersion_slashedDecrease() public {
-        // Slash validator1 partially (lose 200k of 1M stake)
-        Slash[] memory slashes = new Slash[](1);
-        slashes[0] = Slash(validator1, 200_000e18);
-        vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
-
-        // validator1 balance is now 800k, stakeAmount is 1M
-        (uint256 balBefore,,) = consensusRegistry.getBalanceBreakdown(validator1);
-        assertEq(balBefore, 800_000e18);
-
-        // Create new version with 600k stake
+    function test_requestStakeVersionChange_slashLandsBeforeSettlement() public {
+        // Create new version with 600k stake and queue the decrease while unslashed
         uint256 newStakeAmt = 600_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1013,17 +1053,28 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         );
 
         uint256 recipientBalBefore = validator1.balance;
-
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
 
-        // Partial refund: balance(800k) - newStakeAmt(600k) = 200k refund (not full 400k surplus)
+        // first boundary: the decrease is still aging
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+
+        // second boundary carries a 200k slash; it lands on the full 1M collateral BEFORE the aged
+        // entry settles in the same call, so the refund is computed from the post-slash balance
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator1, 200_000e18);
+        vm.prank(sysAddress);
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+
+        // Partial refund: balance(800k) - newStakeAmt(600k) = 200k refund (not the full 400k surplus)
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balAfter, newStakeAmt);
         assertEq(validator1.balance, recipientBalBefore + 200_000e18);
+        assertEq(consensusRegistry.getValidator(validator1).stakeVersion, newVersion);
     }
 
-    function testRevert_upgradeValidatorStakeVersion_wrongMsgValue() public {
+    function testRevert_requestStakeVersionChange_wrongMsgValue() public {
         uint256 newStakeAmt = 2_000_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1036,22 +1087,33 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(validator1);
         vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeAmount.selector, wrongAmount));
-        consensusRegistry.upgradeValidatorStakeVersion{value: wrongAmount}(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: wrongAmount}(validator1, newVersion);
+
+        // a decrease must send no value
+        uint256 lowerStakeAmt = 500_000e18;
+        vm.prank(crOwner);
+        uint8 lowerVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(lowerStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+        vm.deal(validator1, 1 ether);
+        vm.prank(validator1);
+        vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeAmount.selector, 1 ether));
+        consensusRegistry.requestStakeVersionChange{value: 1 ether}(validator1, lowerVersion);
     }
 
-    function testRevert_upgradeValidatorStakeVersion_invalidVersion() public {
+    function testRevert_requestStakeVersionChange_invalidVersion() public {
         // Target version <= current (0)
         vm.prank(validator1);
         vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeVersion.selector, uint8(0), uint8(0)));
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, 0);
+        consensusRegistry.requestStakeVersionChange(validator1, 0);
 
         // Target version > global stakeVersion
         vm.prank(validator1);
         vm.expectRevert(abi.encodeWithSelector(IStakeManager.InvalidStakeVersion.selector, uint8(0), uint8(5)));
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, 5);
+        consensusRegistry.requestStakeVersionChange(validator1, 5);
     }
 
-    function testRevert_upgradeValidatorStakeVersion_pendingExit() public {
+    function testRevert_requestStakeVersionChange_pendingExit() public {
         // Put validator1 in PendingExit
         vm.prank(validator1);
         consensusRegistry.beginExit();
@@ -1063,10 +1125,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(validator1);
         vm.expectRevert(abi.encodeWithSelector(InvalidStatus.selector, ValidatorStatus.PendingExit));
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
     }
 
-    function testRevert_upgradeValidatorStakeVersion_notRecipient() public {
+    function testRevert_requestStakeVersionChange_notRecipient() public {
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
             StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, epochDuration_)
@@ -1075,21 +1137,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         address unauthorized = address(0xdead);
         vm.prank(unauthorized);
         vm.expectRevert(abi.encodeWithSelector(IStakeManager.NotRecipient.selector, validator1));
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
     }
 
-    function test_upgradeValidatorStakeVersion_strandedFundsFixVerification() public {
-        // Slash validator1 partially (200k of 1M stake)
+    function test_requestStakeVersionChange_slashedSurplusConsolidation() public {
+        // Slash validator1 partially (200k of 1M stake) at the first boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 200_000e18);
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // validator1 balance is now 800k
         (uint256 balBefore,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balBefore, 800_000e18);
 
-        // Create new version with 600k stake, downgrade
+        // Create new version with 600k stake and queue the decrease
         uint256 newStakeAmt = 600_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1101,7 +1163,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 registryBalBefore = address(consensusRegistry).balance;
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+
+        // age past the decrease delay and settle
+        vm.startPrank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+        _concludeEpoch(_sortedGenesisCommittee());
+        vm.stopPrank();
 
         // Verify balance = newStakeAmount (600k)
         (uint256 balAfter, uint256 stakeAmt,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1121,40 +1189,32 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(address(consensusRegistry).balance, registryBalBefore - fullSurplus);
     }
 
-    function test_upgradeValidatorStakeVersion_slashRewardsDowngrade() public {
-        // Apply incentives so validator1 earns rewards
-        address[] memory committee = new address[](4);
-        committee[0] = validator1;
-        committee[1] = validator2;
-        committee[2] = validator3;
-        committee[3] = validator4;
-        _sortAddresses(committee);
-
+    function test_requestStakeVersionChange_slashRewardsDecrease() public {
+        // Distribute incentives at the first boundary so validator1 earns rewards
+        address[] memory committee = _sortedGenesisCommittee();
         RewardInfo[] memory rewards = new RewardInfo[](4);
         rewards[0] = RewardInfo(validator1, 10);
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
-        vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(committee);
+        _concludeEpochWithRewards(committee, rewards);
 
         // Record rewards earned
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
         assertTrue(rewardsBefore > 0);
 
-        // Slash validator1 partially (200k)
+        // Slash validator1 partially (200k) at the next boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 200_000e18);
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(committee, slashes);
 
         // Balance after slash = stakeAmount + rewards - 200k
         (uint256 balAfterSlash,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balAfterSlash, stakeAmount_ + rewardsBefore - 200_000e18);
 
-        // Create new version with 600k stake, downgrade
+        // Create new version with 600k stake and queue the decrease
         uint256 newStakeAmt = 600_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1164,14 +1224,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+
+        // age past the decrease delay and settle
+        vm.startPrank(sysAddress);
+        _concludeEpoch(committee);
+        _concludeEpoch(committee);
+        vm.stopPrank();
 
         // Balance after = newStakeAmount (600k)
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balAfter, newStakeAmt);
 
-        // getRewards() = 0 (rewards zeroed — this is expected/documented behavior)
-        // After version change, rewards = balance - newStakeAmount = 600k - 600k = 0
+        // getRewards() = 0: for a slashed validator with accrued rewards, a stake-decreasing
+        // settlement folds the rewards into the refund (documented behavior)
+        // After the version change, rewards = balance - newStakeAmount = 600k - 600k = 0
         uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
         assertEq(rewardsAfter, 0);
 
@@ -1180,29 +1247,21 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validator1.balance, recipientBalBefore + expectedRefund);
     }
 
-    function test_upgradeValidatorStakeVersion_decreasePreservesRewardsNoSlash() public {
-        // Apply incentives so validator1 earns rewards
-        address[] memory committee = new address[](4);
-        committee[0] = validator1;
-        committee[1] = validator2;
-        committee[2] = validator3;
-        committee[3] = validator4;
-        _sortAddresses(committee);
-
+    function test_requestStakeVersionChange_decreasePreservesRewardsNoSlash() public {
+        // Distribute incentives at the first boundary so validator1 earns rewards
+        address[] memory committee = _sortedGenesisCommittee();
         RewardInfo[] memory rewards = new RewardInfo[](4);
         rewards[0] = RewardInfo(validator1, 10);
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
-        vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(committee);
+        _concludeEpochWithRewards(committee, rewards);
 
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
         assertTrue(rewardsBefore > 0);
 
-        // Create new version with 500k stake, downgrade (NO slash)
+        // Create new version with 500k stake and queue the decrease (NO slash)
         uint256 newStakeAmt = 500_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1212,7 +1271,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+
+        // age past the decrease delay and settle
+        vm.startPrank(sysAddress);
+        _concludeEpoch(committee);
+        _concludeEpoch(committee);
+        vm.stopPrank();
 
         // Balance after = newStakeAmount + rewardsBefore (rewards preserved)
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1227,8 +1292,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validator1.balance, recipientBalBefore + surplus);
     }
 
-    function test_upgradeValidatorStakeVersion_upgradeThenClaimRewards() public {
-        // Upgrade validator1 to higher version (2M stake)
+    function test_requestStakeVersionChange_increaseThenClaimRewards() public {
+        // Move validator1 to a higher version (2M stake) through the queue
         uint256 newStakeAmt = 2_000_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1238,29 +1303,24 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: deficit}(validator1, newVersion);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+        assertEq(consensusRegistry.getValidator(validator1).stakeVersion, newVersion);
 
-        // Allocate issuance and apply incentives, conclude epoch
+        // Allocate issuance and distribute incentives at the next boundary
         vm.deal(crOwner, epochIssuance_);
         vm.prank(crOwner);
         consensusRegistry.allocateIssuance{value: epochIssuance_}();
 
-        address[] memory committee = new address[](4);
-        committee[0] = validator1;
-        committee[1] = validator2;
-        committee[2] = validator3;
-        committee[3] = validator4;
-        _sortAddresses(committee);
-
+        address[] memory committee = _sortedGenesisCommittee();
         RewardInfo[] memory rewards = new RewardInfo[](4);
         rewards[0] = RewardInfo(validator1, 10);
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
-        vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(committee);
+        _concludeEpochWithRewards(committee, rewards);
 
         // Verify rewards earned > 0
         uint256 rewardsEarned = consensusRegistry.getRewards(validator1);
@@ -1280,8 +1340,8 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(contractBal, newStakeAmt);
     }
 
-    function test_upgradeValidatorStakeVersion_upgradeThenSlash() public {
-        // Upgrade validator1 to higher version (2M stake)
+    function test_requestStakeVersionChange_increaseThenSlash() public {
+        // Move validator1 to a higher version (2M stake) through the queue
         uint256 newStakeAmt = 2_000_000e18;
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1291,13 +1351,15 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 deficit = newStakeAmt - stakeAmount_;
         vm.deal(validator1, deficit);
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange{value: deficit}(validator1, newVersion);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
-        // Slash 500k
+        // Slash 500k at the next boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 500_000e18);
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // Verify balance = 2M - 500k = 1.5M
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1313,7 +1375,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(rewardsAfter, 0);
     }
 
-    function testRevert_upgradeValidatorStakeVersion_paused() public {
+    function testRevert_requestStakeVersionChange_paused() public {
         // Create new version
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1324,23 +1386,29 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.pause();
 
-        // Try upgrade — expect revert with EnforcedPause
+        // request reverts with EnforcedPause while paused
         vm.prank(validator1);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
 
-        // Unpause, verify upgrade succeeds
+        // but the boundary is never pausable
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+
+        // Unpause, verify the request succeeds
         vm.prank(crOwner);
         consensusRegistry.unpause();
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         ValidatorInfo memory info = consensusRegistry.getValidator(validator1);
         assertEq(info.stakeVersion, newVersion);
     }
 
-    function test_upgradeValidatorStakeVersion_zeroStakeVersion() public {
+    function test_requestStakeVersionChange_zeroStakeVersion() public {
         // Create version with stakeAmount = 0
         vm.prank(crOwner);
         uint8 newVersion = consensusRegistry.upgradeStakeVersion(
@@ -1350,7 +1418,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 recipientBalBefore = validator1.balance;
 
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion(validator1, newVersion);
+        consensusRegistry.requestStakeVersionChange(validator1, newVersion);
+
+        // age past the decrease delay and settle
+        vm.startPrank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
+        _concludeEpoch(_sortedGenesisCommittee());
+        vm.stopPrank();
 
         // Verify: full stake refunded, balance = 0
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1358,7 +1432,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validator1.balance, recipientBalBefore + stakeAmount_);
     }
 
-    function test_upgradeValidatorStakeVersion_sequentialUpgrades() public {
+    function test_requestStakeVersionChange_sequentialChanges() public {
         // Create v1 (1.5M) and v2 (2M)
         uint256 v1StakeAmt = 1_500_000e18;
         uint256 v2StakeAmt = 2_000_000e18;
@@ -1372,11 +1446,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         );
         vm.stopPrank();
 
-        // Upgrade v0 -> v1
+        // Change v0 -> v1 through the queue
         uint256 deficit1 = v1StakeAmt - stakeAmount_;
         vm.deal(validator1, deficit1);
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit1}(validator1, v1);
+        consensusRegistry.requestStakeVersionChange{value: deficit1}(validator1, v1);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         // Verify state after v0 -> v1
         ValidatorInfo memory info1 = consensusRegistry.getValidator(validator1);
@@ -1385,11 +1461,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(bal1, v1StakeAmt);
         assertEq(stakeAmt1, v1StakeAmt);
 
-        // Upgrade v1 -> v2
+        // Change v1 -> v2 through the queue
         uint256 deficit2 = v2StakeAmt - v1StakeAmt;
         vm.deal(validator1, deficit2);
         vm.prank(validator1);
-        consensusRegistry.upgradeValidatorStakeVersion{value: deficit2}(validator1, v2);
+        consensusRegistry.requestStakeVersionChange{value: deficit2}(validator1, v2);
+        vm.prank(sysAddress);
+        _concludeEpoch(_sortedGenesisCommittee());
 
         // Verify state after v1 -> v2
         ValidatorInfo memory info2 = consensusRegistry.getValidator(validator1);
@@ -1397,9 +1475,6 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         (uint256 bal2, uint256 stakeAmt2,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(bal2, v2StakeAmt);
         assertEq(stakeAmt2, v2StakeAmt);
-
-        // Check total balance equals v2 stake amount
-        assertEq(bal2, v2StakeAmt);
     }
 
     function test_delegatedValidator_voluntaryExit_clearedDelegation() public {
@@ -1430,7 +1505,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(numActiveAfter));
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveAfter));
+        _concludeEpoch(_createTokenIdCommittee(numActiveAfter));
 
         // --- begin exit ---
         vm.prank(validator5);
@@ -1441,11 +1516,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(numActiveBefore));
         vm.startPrank(sysAddress);
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        _concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        _concludeEpoch(_createTokenIdCommittee(numActiveBefore));
 
         // conclude 1 more epoch for unstake eligibility
-        consensusRegistry.concludeEpoch(_createTokenIdCommittee(numActiveBefore));
+        _concludeEpoch(_createTokenIdCommittee(numActiveBefore));
         vm.stopPrank();
 
         // --- delegator unstakes ---

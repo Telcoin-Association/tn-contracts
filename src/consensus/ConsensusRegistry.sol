@@ -50,9 +50,30 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// in sync by `_setStatus` so the hot count path (`concludeEpoch` et al.) stays a single SLOAD rather
     /// than three set-length reads. Invariant-tested against the eligible set sizes.
     uint256 internal eligibleValidatorCount;
+    /// @dev Queue of in-service stake version changes, settled automatically inside `concludeEpoch`.
+    /// One entry per validator; `versionChangeRequests[addr].targetVersion == 0` means none pending.
+    /// Appended at the storage tail: this contract's variables follow all inherited ones in the
+    /// flattened layout, so growth here preserves every existing slot for in-place upgrades.
+    EnumerableSet.AddressSet private pendingVersionChanges;
+    /// @dev The queue entries backing `pendingVersionChanges` membership
+    mapping(address => PendingStakeVersionChange) public versionChangeRequests;
+    /// @dev Refund credits keyed by recipient, detached from the validator lifecycle: escrow returns
+    /// and boundary refunds that could not be pushed accumulate here until `claimRefund`
+    mapping(address => uint256) public claimableRefunds;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
+
+    /// @dev Boundaries a stake-decreasing version change must age before settling. The closing
+    /// boundary's slashes always land before settlement regardless, so this covers only slashes
+    /// whose detection lags the offense, by up to this many epochs. Must track the slashing
+    /// pipeline's worst-case detection latency when programmatic slashing ships.
+    uint32 internal constant STAKE_DECREASE_DELAY_EPOCHS = 1;
+
+    /// @dev Gas forwarded with settlement pushes initiated inside `concludeEpoch`. Covers an EOA
+    /// receive or a multisig fallback-handler dispatch while bounding what a hostile recipient can
+    /// consume inside the system call; failed pushes fall back to a `claimRefund` credit.
+    uint256 internal constant REFUND_GAS_LIMIT = 100_000;
 
     /// @dev Namespace for the per-epoch transient committee-membership set (see `_markCommitteeMembers`)
     bytes32 private constant _COMMITTEE_TSET = keccak256("ConsensusRegistry.committeeMembership.v1");
@@ -67,28 +88,57 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
      */
 
     /// @inheritdoc IConsensusRegistry
-    function concludeEpoch(address[] calldata futureCommittee) external override onlySystemCall {
+    function concludeEpoch(
+        address[] calldata newCommittee,
+        RewardInfo[] calldata rewardInfos,
+        Slash[] calldata slashes
+    )
+        external
+        override
+        onlySystemCall
+    {
         // ensure future committee is sorted
-        _enforceSorting(futureCommittee);
+        _enforceSorting(newCommittee);
 
-        // ensure future committee is the correct length
-        if (futureCommittee.length != nextCommitteeSize) {
-            revert InvalidCommitteeSize(nextCommitteeSize, futureCommittee.length);
+        // stage order is a security invariant: rewards are weighted by the versions active during
+        // the closing epoch, slashes land on full old-version collateral, and only then does the
+        // version queue settle, computing refunds from post-slash balances - so no value can leave
+        // the registry at a boundary ahead of that boundary's slashes
+        _applyIncentives(rewardInfos);
+        _applySlashes(slashes);
+        (address[] memory refundees, uint256[] memory refunds) = _processStakeVersionQueue();
+
+        // ensure future committee is the correct length; checked after slashes so that a
+        // slash-to-zero ejection, which shrinks the next committee size, validates the incoming
+        // committee against the post-ejection state
+        if (newCommittee.length != nextCommitteeSize) {
+            revert InvalidCommitteeSize(nextCommitteeSize, newCommittee.length);
         }
 
         // update epoch ring buffer info, validator queue
-        (uint32 newEpoch, uint256 issuance, uint32 duration, address[] memory newCommittee) =
-            _updateEpochInfo(futureCommittee);
-        _updateValidatorQueue(futureCommittee, newEpoch);
+        (uint32 newEpoch, uint256 epochIssuance, uint32 duration, address[] memory startingCommittee) =
+            _updateEpochInfo(newCommittee);
+        _updateValidatorQueue(newCommittee, newEpoch);
 
         // assert future epoch committee is valid against total now eligible
-        _checkCommitteeSize(_eligibleValidatorCount(), futureCommittee.length);
+        _checkCommitteeSize(_eligibleValidatorCount(), newCommittee.length);
 
-        emit NewEpoch(EpochInfo(newCommittee, issuance, uint64(block.number + 1), newEpoch, duration, stakeVersion));
+        emit NewEpoch(
+            EpochInfo(startingCommittee, epochIssuance, uint64(block.number + 1), newEpoch, duration, stakeVersion)
+        );
+
+        // settle version-change refunds last, after every ledger and epoch mutation; `_settleValue`
+        // is gas-capped and falls back to a `claimRefund` credit, so no recipient can revert or
+        // grief the boundary
+        for (uint256 i; i < refundees.length; ++i) {
+            _settleValue(refundees[i], refunds[i]);
+        }
     }
 
-    /// @inheritdoc IConsensusRegistry
-    function applyIncentives(RewardInfo[] calldata rewardInfos) public override onlySystemCall {
+    /// @dev Distributes the closing epoch's issuance to stake originators, weighted by initial
+    /// stake and consensus header count. First stage of `concludeEpoch`: runs before slashes land
+    /// and before any version flip, so weights reflect the versions active during the closing epoch
+    function _applyIncentives(RewardInfo[] calldata rewardInfos) internal {
         // identify total & individual weight factoring in stake & consensus headers
         uint256 totalWeight;
         uint256[] memory weights = new uint256[](rewardInfos.length);
@@ -131,8 +181,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         undistributedIssuance = totalAvailableToDistribute - amountDistributed;
     }
 
-    /// @inheritdoc IConsensusRegistry
-    function applySlashes(Slash[] calldata slashes) external override onlySystemCall {
+    /// @dev Applies the closing epoch's penalties to outstanding balances, ejecting validators
+    /// slashed to zero. Second stage of `concludeEpoch`: lands on the full old-version collateral
+    /// of any validator with a queued stake decrease, before the version queue settles
+    function _applySlashes(Slash[] calldata slashes) internal {
         for (uint256 i; i < slashes.length; ++i) {
             Slash calldata slash = slashes[i];
             // signed consensus header means validator is whitelisted, staked, & active
@@ -147,6 +199,85 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             }
 
             emit ValidatorSlashed(slash);
+        }
+    }
+
+    /// @dev Third stage of `concludeEpoch`: settles queued stake version changes against post-slash
+    /// balances. Never reverts and pushes no value itself: stale entries are skipped and cleared,
+    /// unaged decreases stay queued, and refunds are returned to the caller for settlement after
+    /// every ledger and epoch mutation. Iteration is bounded by the validator count (one
+    /// ConsensusNFT-gated entry per validator), the same bound `_updateValidatorQueue` iterates
+    function _processStakeVersionQueue() internal returns (address[] memory refundees, uint256[] memory refunds) {
+        // snapshot to memory first: processing mutates the live set as we iterate
+        address[] memory queued = pendingVersionChanges.values();
+        refundees = new address[](queued.length);
+        refunds = new uint256[](queued.length);
+        uint32 closingEpoch = currentEpoch;
+        uint256 totalConfiscated;
+
+        for (uint256 i; i < queued.length; ++i) {
+            address validatorAddress = queued[i];
+            PendingStakeVersionChange memory pending = versionChangeRequests[validatorAddress];
+
+            // defensive: `_retire` drops entries eagerly, so a retired or emptied entry here means
+            // only stale set membership is left to clear
+            if (pending.targetVersion == 0 || validators[validatorAddress].isRetired) {
+                _dropVersionChangeRequest(validatorAddress);
+                continue;
+            }
+
+            ValidatorInfo storage validator = validators[validatorAddress];
+            uint8 oldVersion = validator.stakeVersion;
+            uint256 oldStakeAmount = versions[oldVersion].stakeAmount;
+            uint256 newStakeAmount = versions[pending.targetVersion].stakeAmount;
+
+            // decreases age extra boundaries so slashes detected up to that many epochs after the
+            // offense still land on the full old collateral; increases settle at the first boundary
+            if (newStakeAmount < oldStakeAmount && closingEpoch < pending.requestEpoch + STAKE_DECREASE_DELAY_EPOCHS)
+            {
+                continue;
+            }
+
+            delete versionChangeRequests[validatorAddress];
+            pendingVersionChanges.remove(validatorAddress);
+
+            uint256 refund;
+            if (newStakeAmount > oldStakeAmount) {
+                // the escrowed deficit becomes stake in the same operation as the flip below raises
+                // the reward floor to `newStakeAmount`, so it is never observable as rewards
+                balances[validatorAddress] += pending.escrow;
+            } else {
+                // post-slash tiered settlement: refund the surplus above the new stake amount,
+                // capped by the outstanding balance for slashed validators; the slashed remainder
+                // of the surplus consolidates on Issuance
+                uint256 surplus = oldStakeAmount - newStakeAmount;
+                uint256 currentBalance = balances[validatorAddress];
+                if (currentBalance >= oldStakeAmount) {
+                    refund = surplus;
+                } else if (currentBalance > newStakeAmount) {
+                    refund = currentBalance - newStakeAmount;
+                }
+                if (refund > 0) balances[validatorAddress] -= refund;
+                totalConfiscated += surplus - refund;
+            }
+
+            validator.stakeVersion = pending.targetVersion;
+            if (_isDelegated(validatorAddress)) {
+                delegations[validatorAddress].validatorVersion = pending.targetVersion;
+            }
+
+            refundees[i] = _getRecipient(validatorAddress);
+            refunds[i] = refund;
+            emit ValidatorStakeVersionUpgraded(
+                validatorAddress, oldVersion, pending.targetVersion, oldStakeAmount, newStakeAmount
+            );
+        }
+
+        // consolidate the slashed surplus remainders on Issuance in one transfer
+        if (totalConfiscated > 0) {
+            (bool r,) = issuance.call{ value: totalConfiscated }("");
+            // this is believed to be impossible
+            if (!r) revert IssuanceTransferFailed();
         }
     }
 
@@ -495,7 +626,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IStakeManager
-    function upgradeValidatorStakeVersion(
+    function requestStakeVersionChange(
         address validatorAddress,
         uint8 targetVersion
     )
@@ -524,56 +655,113 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             revert InvalidStakeVersion(oldVersion, targetVersion);
         }
 
-        // 4. Compute stake difference
+        // 4. Compute the stake difference; increases must escrow the exact deficit up front
         uint256 oldStakeAmount = versions[oldVersion].stakeAmount;
         uint256 newStakeAmount = versions[targetVersion].stakeAmount;
+        uint256 deficit = newStakeAmount > oldStakeAmount ? newStakeAmount - oldStakeAmount : 0;
+        if (msg.value != deficit) revert InvalidStakeAmount(msg.value);
 
-        // 5. Balance adjustment
-        if (newStakeAmount > oldStakeAmount) {
-            // Stake increase: caller must send exact deficit
-            uint256 deficit = newStakeAmount - oldStakeAmount;
-            if (msg.value != deficit) revert InvalidStakeAmount(msg.value);
-            balances[validatorAddress] += deficit;
-        } else if (newStakeAmount < oldStakeAmount) {
-            // Stake decrease: refund surplus to recipient
-            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
-            uint256 surplus = oldStakeAmount - newStakeAmount;
-            uint256 currentBalance = balances[validatorAddress];
-            uint256 refundAmount;
-            if (currentBalance >= oldStakeAmount) {
-                // Not slashed: full surplus refund
-                refundAmount = surplus;
-            } else if (currentBalance > newStakeAmount) {
-                // Partially slashed: partial refund down to newStakeAmount
-                refundAmount = currentBalance - newStakeAmount;
-            }
-            // else: slashed below new stake amount, no refund
-
-            if (refundAmount > 0) {
-                balances[validatorAddress] -= refundAmount;
-                // Route through Issuance (same pattern as _unstake)
-                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
+        // 5. `Staked` validators settle immediately: they are not in service, never members of a
+        // committee, and can already reclaim their full stake at any time via `unstake`
+        if (status == ValidatorStatus.Staked) {
+            if (deficit > 0) {
+                balances[validatorAddress] += deficit;
+            } else if (newStakeAmount < oldStakeAmount) {
+                _settleStakeDecrease(validatorAddress, recipient, oldStakeAmount, newStakeAmount);
             }
 
-            // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
-            uint256 confiscatedAmount = surplus - refundAmount;
-            if (confiscatedAmount > 0) {
-                (bool r,) = issuance.call{ value: confiscatedAmount }("");
-                // this is believed to be impossible
-                if (!r) revert IssuanceTransferFailed();
+            validator.stakeVersion = targetVersion;
+            if (_isDelegated(validatorAddress)) {
+                delegations[validatorAddress].validatorVersion = targetVersion;
             }
-        } else {
-            // Same stake amount: just a metadata update
-            if (msg.value != 0) revert InvalidStakeAmount(msg.value);
+
+            emit ValidatorStakeVersionUpgraded(
+                validatorAddress, oldVersion, targetVersion, oldStakeAmount, newStakeAmount
+            );
+            return;
         }
 
-        // 6. Update state
-        validator.stakeVersion = targetVersion;
-        if (_isDelegated(validatorAddress)) {
-            delegations[validatorAddress].validatorVersion = targetVersion;
+        // 6. In-service validators queue for settlement inside `concludeEpoch`. A repeat request
+        // overwrites the entry (re-stamping its request epoch) and returns the prior escrow to its
+        // funder after the new entry is recorded
+        PendingStakeVersionChange memory prior = versionChangeRequests[validatorAddress];
+        versionChangeRequests[validatorAddress] =
+            PendingStakeVersionChange(targetVersion, currentEpoch, msg.sender, deficit);
+        pendingVersionChanges.add(validatorAddress);
+        if (prior.escrow > 0) _settleValue(prior.funder, prior.escrow);
+
+        emit StakeVersionChangeRequested(validatorAddress, targetVersion, currentEpoch, deficit);
+    }
+
+    /// @inheritdoc IStakeManager
+    function cancelStakeVersionChange(address validatorAddress) external override whenNotPaused nonReentrant {
+        // Access control: the validator or its delegator may act
+        _checkStakeOriginator(validatorAddress);
+
+        PendingStakeVersionChange memory pending = versionChangeRequests[validatorAddress];
+        if (pending.targetVersion == 0) revert NoPendingVersionChange();
+
+        delete versionChangeRequests[validatorAddress];
+        pendingVersionChanges.remove(validatorAddress);
+        if (pending.escrow > 0) _settleValue(pending.funder, pending.escrow);
+
+        emit StakeVersionChangeCanceled(validatorAddress);
+    }
+
+    /// @inheritdoc IStakeManager
+    function claimRefund() external override whenNotPaused nonReentrant {
+        uint256 amount = claimableRefunds[msg.sender];
+        if (amount == 0) revert NoClaimableRefund();
+        claimableRefunds[msg.sender] = 0;
+
+        // full-gas push through Issuance; a revert here affects only the caller, whose credit is
+        // preserved by the transaction reverting as a whole
+        Issuance(issuance).distributeStakeReward{ value: amount }(msg.sender, 0);
+
+        emit RefundClaimed(msg.sender, amount);
+    }
+
+    /// @notice Returns the validators with a queued stake version change, in set order
+    function getPendingVersionChanges() external view returns (address[] memory) {
+        return pendingVersionChanges.values();
+    }
+
+    /// @dev Tiered stake-decrease settlement for the immediate `Staked` lane: refunds the surplus
+    /// above `newStakeAmount` to the recipient, capped by the current balance for partially slashed
+    /// validators, and consolidates any slashed remainder of the surplus on the Issuance contract
+    function _settleStakeDecrease(
+        address validatorAddress,
+        address recipient,
+        uint256 oldStakeAmount,
+        uint256 newStakeAmount
+    )
+        private
+    {
+        uint256 surplus = oldStakeAmount - newStakeAmount;
+        uint256 currentBalance = balances[validatorAddress];
+        uint256 refundAmount;
+        if (currentBalance >= oldStakeAmount) {
+            // Not slashed: full surplus refund
+            refundAmount = surplus;
+        } else if (currentBalance > newStakeAmount) {
+            // Partially slashed: partial refund down to newStakeAmount
+            refundAmount = currentBalance - newStakeAmount;
+        }
+        // else: slashed below new stake amount, no refund
+
+        if (refundAmount > 0) {
+            balances[validatorAddress] -= refundAmount;
+            // Route through Issuance (same pattern as _unstake)
+            Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
         }
 
-        emit ValidatorStakeVersionUpgraded(validatorAddress, oldVersion, targetVersion, oldStakeAmount, newStakeAmount);
+        // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
+        uint256 confiscatedAmount = surplus - refundAmount;
+        if (confiscatedAmount > 0) {
+            (bool r,) = issuance.call{ value: confiscatedAmount }("");
+            // this is believed to be impossible
+            if (!r) revert IssuanceTransferFailed();
+        }
     }
 
     /// @inheritdoc IConsensusRegistry
@@ -831,8 +1019,45 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // burn of an active validator, or the normal Exited -> retired flow)
         _setStatus(validator, ValidatorStatus.Any);
         validator.isRetired = true;
+        // a retired validator can never settle a queued version change, so drop any entry and
+        // credit its escrow back to the funder; covers the unstake, governance burn, and
+        // slash-to-zero paths
+        _dropVersionChangeRequest(validator.validatorAddress);
 
         emit ValidatorRetired(validator);
+    }
+
+    /// @dev Removes a validator's queue entry, crediting any escrow back to its funder as a
+    /// `claimRefund` credit. Credit rather than push: this runs inside retirement and boundary
+    /// flows where an external transfer must not revert or consume unbounded gas. The escrowed
+    /// deficit never became stake, so it is not confiscable by burns or slashes.
+    function _dropVersionChangeRequest(address validatorAddress) internal {
+        PendingStakeVersionChange memory pending = versionChangeRequests[validatorAddress];
+        if (pending.targetVersion == 0) {
+            // no entry; clear any stale set membership
+            pendingVersionChanges.remove(validatorAddress);
+            return;
+        }
+
+        delete versionChangeRequests[validatorAddress];
+        pendingVersionChanges.remove(validatorAddress);
+        if (pending.escrow > 0) {
+            claimableRefunds[pending.funder] += pending.escrow;
+            emit RefundQueued(pending.funder, pending.escrow);
+        }
+    }
+
+    /// @dev Delivers `amount` to `recipient` through Issuance with a bounded gas stipend, falling
+    /// back to a `claimRefund` credit if the push fails. Keeps every settlement initiated inside
+    /// `concludeEpoch` non-reverting and gas-bounded, so no recipient can disrupt the boundary.
+    function _settleValue(address recipient, uint256 amount) internal {
+        if (amount == 0) return;
+        try Issuance(issuance).distributeStakeReward{ value: amount, gas: REFUND_GAS_LIMIT }(recipient, 0) { }
+        catch {
+            // the value stays on this contract, backing the credit
+            claimableRefunds[recipient] += amount;
+            emit RefundQueued(recipient, amount);
+        }
     }
 
     /// @dev The single point that mutates per-status set membership and the cached eligible count. Removes

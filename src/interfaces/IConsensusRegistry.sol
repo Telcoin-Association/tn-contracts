@@ -131,6 +131,27 @@ interface IConsensusRegistry {
         uint256 oldStakeAmount,
         uint256 newStakeAmount
     );
+    /// @notice Emitted when an in-service validator requests a stake version change, queued for
+    /// automatic settlement inside `concludeEpoch`
+    /// @param validatorAddress The validator whose version change was requested
+    /// @param targetVersion The version to adopt at the boundary flip
+    /// @param requestEpoch The epoch in which the request was recorded
+    /// @param escrow The exact stake deficit escrowed for an increase; zero otherwise
+    event StakeVersionChangeRequested(
+        address indexed validatorAddress, uint8 targetVersion, uint32 requestEpoch, uint256 escrow
+    );
+    /// @notice Emitted when a pending stake version change is withdrawn before settlement
+    /// @param validatorAddress The validator whose pending change was cancelled
+    event StakeVersionChangeCanceled(address indexed validatorAddress);
+    /// @notice Emitted when a refund or escrow return could not be pushed to its recipient and was
+    /// credited for a later `claimRefund` pull instead
+    /// @param recipient The address holding the claimable credit
+    /// @param amount The amount added to the recipient's credit
+    event RefundQueued(address indexed recipient, uint256 amount);
+    /// @notice Emitted when an accumulated refund credit is claimed
+    /// @param recipient The address that received its credit
+    /// @param amount The amount transferred
+    event RefundClaimed(address indexed recipient, uint256 amount);
     /// @notice Emitted when governance or the protocol adjusts the next epoch's committee size
     /// @param oldSize The previous nextCommitteeSize value
     /// @param newSize The updated nextCommitteeSize value
@@ -163,24 +184,26 @@ interface IConsensusRegistry {
         Any
     }
 
-    /// @notice Voting Validator Committee changes at the end every epoch via syscall
-    /// @dev Accepts the committee of voting validators for 2 epochs in the future
+    /// @notice The single epoch-boundary system call: distributes the closing epoch's rewards,
+    /// applies its slashes, settles queued stake version changes, and rotates the epoch
+    /// @dev The internal stage order is a security invariant. Incentives are weighted by the version
+    /// active during the closing epoch, slashes land on the full old-version collateral, and only
+    /// then does the version queue settle, computing refunds from post-slash balances - so no value
+    /// can leave the registry at a boundary ahead of that boundary's slashes. Validator activation/
+    /// exit processing and the epoch rotation follow; refund transfers run last, after every ledger
+    /// and epoch mutation, through a gas-capped push with a pull-based credit fallback that cannot
+    /// revert this call.
     /// @param newCommittee The future validator committee for `$.currentEpoch + 3`
-    function concludeEpoch(address[] calldata newCommittee) external;
-
-    /// @dev The network's epoch issuance distribution method, rewarding stake originators
-    /// based on initial stake and on the validator's performance (consensus header count)
-    /// @notice Stake originators are either a delegator if one exists, or the validator itself
-    /// @notice Called just before concluding the current epoch
-    /// @notice Not yet enabled during pilot, but scaffolding is included here.
-    /// For the time being, system calls to this fn can provide empty calldata arrays
-    function applyIncentives(RewardInfo[] calldata rewardInfos) external;
-
-    /// @dev The network's slashing mechanism, which penalizes validators for misbehaving
-    /// @notice Called just before concluding the current epoch
-    /// @notice Not yet enabled during pilot, but scaffolding is included here.
-    /// For the time being, system calls to this fn can provide empty calldata arrays
-    function applySlashes(Slash[] calldata slashes) external;
+    /// @param rewardInfos The closing epoch's per-validator consensus header counts; issuance
+    /// distribution is not yet enabled during the pilot, so the protocol passes an empty array
+    /// @param slashes The closing epoch's penalties; slashing is not yet enabled during the pilot,
+    /// so the protocol passes an empty array
+    function concludeEpoch(
+        address[] calldata newCommittee,
+        RewardInfo[] calldata rewardInfos,
+        Slash[] calldata slashes
+    )
+        external;
 
     /// @dev Self-activation function for validators, gaining `PendingActivation` status and setting
     /// next epoch as activation epoch to ensure rewards eligibility only after completing a full epoch
