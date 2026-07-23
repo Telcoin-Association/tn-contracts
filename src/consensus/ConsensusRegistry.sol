@@ -599,7 +599,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc StakeManager
-    function unstake(address validatorAddress, bool emergencyExit) external override whenNotPaused nonReentrant {
+    function unstake(address validatorAddress, bool acceptRewardShortfall) external override whenNotPaused nonReentrant {
         // require validator holds a ConsensusNFT and the caller is the validator or its delegator
         address recipient = _checkStakeOriginator(validatorAddress);
 
@@ -610,8 +610,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // permanently retire the validator and burn the ConsensusNFT
         _retire(validator);
 
-        // return stake plus rewards; an emergency exit forfeits only rewards Issuance cannot cover
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, emergencyExit);
+        // return stake plus rewards; accepting a reward shortfall forfeits only rewards Issuance cannot cover
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, acceptRewardShortfall);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }

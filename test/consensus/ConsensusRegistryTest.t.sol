@@ -1487,7 +1487,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     /*
-     *   emergency exit
+     *   reward-shortfall unstaking
      */
 
     /// @dev Exits genesis `validator1` through the pending-exit queue and elapses one further
@@ -1520,7 +1520,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.stopPrank();
     }
 
-    function test_unstake_emergencyExit_paysFullRewardsWhenFunded() public {
+    function test_unstake_acceptRewardShortfall_paysFullRewardsWhenFunded() public {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
@@ -1533,7 +1533,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         uint256 issuanceBalBefore = issuance.balance;
 
-        // with a funded reward pool an emergency exit is identical to a normal unstake:
+        // with a funded reward pool a shortfall-accepting unstake is identical to a normal unstake:
         // nothing payable is ever forfeited
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_ + accrued);
@@ -1545,7 +1545,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(issuance.balance, issuanceBalBefore - accrued);
     }
 
-    function test_unstake_emergencyExit_insufficientIssuanceBalance() public {
+    function test_unstake_acceptRewardShortfall_insufficientIssuanceBalance() public {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
@@ -1566,7 +1566,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         );
         consensusRegistry.unstake(validator1, false);
 
-        // the emergency exit path still returns the stake, forfeiting only the unpayable rewards
+        // the shortfall-accepting path still returns the stake, forfeiting only the unpayable rewards
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_);
         vm.prank(validator1);
@@ -1575,7 +1575,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(issuance.balance, 0);
     }
 
-    function test_unstake_emergencyExit_partialShortfall() public {
+    function test_unstake_acceptRewardShortfall_partialShortfall() public {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
@@ -1599,7 +1599,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         );
         consensusRegistry.unstake(validator1, false);
 
-        // the emergency exit pays the stake plus the payable portion, forfeiting only the shortfall
+        // the shortfall-accepting path pays the stake plus the payable portion, forfeiting only the shortfall
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_ + payableRewards);
         vm.prank(validator1);
