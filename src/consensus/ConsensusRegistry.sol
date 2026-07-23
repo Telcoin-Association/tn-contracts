@@ -552,7 +552,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (refundAmount > 0) {
                 balances[validatorAddress] -= refundAmount;
                 // Route through Issuance (same pattern as _unstake)
-                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0, false);
+                Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
             }
 
             // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
@@ -610,7 +610,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // permanently retire the validator and burn the ConsensusNFT
         _retire(validator);
 
-        // return stake and send any outstanding rewards unless forfeited via emergency exit
+        // return stake plus rewards; an emergency exit forfeits only rewards Issuance cannot cover
         uint256 stakeAndRewards = _unstake(validatorAddress, recipient, emergencyExit);
 
         emit RewardsClaimed(recipient, stakeAndRewards);

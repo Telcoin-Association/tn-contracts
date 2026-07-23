@@ -189,7 +189,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         // check rewards are claimable and send via the Issuance contract
         uint256 rewards = _checkRewards(validatorAddress, validatorVersion);
         balances[validatorAddress] -= rewards;
-        Issuance(issuance).distributeStakeReward(recipient, rewards, false);
+        Issuance(issuance).distributeStakeReward(recipient, rewards);
 
         return rewards;
     }
@@ -227,11 +227,14 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
             if (!r) revert IssuanceTransferFailed();
         }
 
-        // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance
-        // balance unless the recipient opted to forfeit rewards via emergency exit
-        Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards, emergencyExit);
+        // an emergency exit caps the rewards leg at what Issuance can cover, forfeiting only the
+        // shortfall, so an underfunded reward pool can never block a stake withdrawal
+        if (emergencyExit && rewards > issuance.balance) rewards = issuance.balance;
 
-        return emergencyExit ? unstakeAmt : unstakeAmt + rewards;
+        // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
+        Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards);
+
+        return unstakeAmt + rewards;
     }
 
     function _checkRewards(address validatorAddress, uint8 validatorVersion) internal virtual returns (uint256) {
