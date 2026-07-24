@@ -9,6 +9,7 @@ import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { IConsensusRegistry } from "src/interfaces/IConsensusRegistry.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
@@ -137,6 +138,30 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.setValidatorRegion(validator5, 3);
         assertEq(consensusRegistry.getValidator(validator5).region, 3);
+    }
+
+    function test_stake_preservesRegionSetBeforeStake() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        // region assigned while the validator is minted but not yet staked
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator5, 7);
+        assertEq(consensusRegistry.getValidator(validator5).region, 7);
+
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig)
+        );
+
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Staked));
+        assertEq(consensusRegistry.getValidator(validator5).region, 7);
+    }
+
+    function test_constructor_revertsOnZeroEpochDuration() public {
+        StakeConfig memory badConfig = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, 0);
+        vm.expectRevert(abi.encodeWithSelector(IConsensusRegistry.InvalidDuration.selector, uint32(0)));
+        new ConsensusRegistry(badConfig, initialValidators, initialBlsPubkeys, initialBLSPops, crOwner);
     }
 
     function test_setValidatorRegion_pendingActivationValidator() public {
@@ -618,7 +643,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_);
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
 
         // validator1 earned 4 epochs' rewards, split between 4 validators
         uint256 finalBalance = validator1.balance;
@@ -641,7 +666,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // unstake to abort activation
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator5, stakeAmount_);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
 
@@ -659,7 +684,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(nonValidator);
         vm.expectRevert();
-        consensusRegistry.unstake(nonValidator);
+        consensusRegistry.unstake(nonValidator, false);
     }
 
     // Test for unstake by a validator who has not exited
@@ -680,7 +705,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             ValidatorInfo(validator5, 1, 0, ValidatorStatus.PendingActivation, false, 0, 0)
         );
         vm.expectRevert(err);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
     }
@@ -1452,7 +1477,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // --- delegator unstakes ---
         vm.deal(address(consensusRegistry), stakeAmount_);
         vm.prank(delegator);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         // delegation must be cleared
         assertFalse(consensusRegistry.isDelegated(validator5));
@@ -1660,7 +1685,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 issuanceBalBefore = issuance.balance;
 
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
 
         // the full stake returns and no native TEL is left stranded on the registry
         assertEq(validator1.balance, stakeAmount_);
@@ -1798,5 +1823,176 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         vm.expectRevert(abi.encodeWithSelector(Issuance.OnlyStakeManager.selector, address(consensusRegistry)));
         Issuance(issuance).withdraw(1, crOwner);
+    }
+
+    /*
+     *   slashing settlement
+     */
+
+    function test_applySlashes_partial_consolidatesAtUnstake() public {
+        uint256 slashAmt = 200_000e18;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorSlashed(Slash(validator1, slashAmt));
+        _slashValidator1(slashAmt);
+
+        // a partial slash decrements only the balance ledger; no native TEL moves until settlement
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, stakeAmount_ - slashAmt);
+        assertEq(address(consensusRegistry).balance, registryBalBefore);
+        assertEq(issuance.balance, issuanceBalBefore);
+
+        // on unstake the slashed remainder consolidates on Issuance and the reduced stake returns
+        _exitValidator1ToUnstakeEligibility();
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, false);
+
+        assertEq(validator1.balance, stakeAmount_ - slashAmt);
+        assertEq(issuance.balance, issuanceBalBefore + slashAmt);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_applySlashes_fullSlash_consolidatesFullStake() public {
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // a slash consuming the whole balance ejects the validator and confiscates its full stake
+        _slashValidator1(stakeAmount_);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, 0);
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_applySlashes_partialThenFull_noOrphanedFunds() public {
+        _slashValidator1(200_000e18);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // the second slash consumes the whole remaining balance, triggering ejection via burn
+        _slashValidator1(800_000e18);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        // the full original stake consolidates on Issuance, including the earlier slashed portion
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    function test_burn_slashedValidator_noOrphanedFunds() public {
+        uint256 slashAmt = 200_000e18;
+        _slashValidator1(slashAmt);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // governance ejection confiscates the full stake-backed native, including the slashed portion
+        vm.prank(crOwner);
+        consensusRegistry.burn(validator1);
+
+        assertTrue(consensusRegistry.isRetired(validator1));
+        (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(balAfter, 0);
+        assertEq(validator1.balance, 0);
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
+        assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    /*
+     *   reward-shortfall unstaking
+     */
+
+    function test_unstake_acceptRewardShortfall_paysFullRewardsWhenFunded() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // with a funded reward pool a shortfall-accepting unstake is identical to a normal unstake:
+        // nothing payable is ever forfeited
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_ + accrued);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+
+        assertEq(validator1.balance, stakeAmount_ + accrued);
+        assertTrue(consensusRegistry.isRetired(validator1));
+        assertEq(issuance.balance, issuanceBalBefore - accrued);
+    }
+
+    function test_unstake_acceptRewardShortfall_insufficientIssuanceBalance() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        // empty the reward pool so accrued rewards can no longer be paid out
+        vm.deal(issuance, 0);
+
+        // a normal unstake cannot cover the rewards owed and reverts
+        vm.prank(validator1);
+        vm.expectRevert(
+            abi.encodeWithSelector(Issuance.InsufficientBalance.selector, stakeAmount_, stakeAmount_ + accrued)
+        );
+        consensusRegistry.unstake(validator1, false);
+
+        // the shortfall-accepting path still returns the stake, forfeiting only the unpayable rewards
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+        assertEq(validator1.balance, stakeAmount_);
+        assertEq(issuance.balance, 0);
+    }
+
+    function test_unstake_acceptRewardShortfall_partialShortfall() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 1);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        // leave the reward pool able to cover only part of the accrued rewards
+        uint256 payableRewards = accrued / 2;
+        vm.deal(issuance, payableRewards);
+
+        // a normal unstake still reverts on the shortfall
+        vm.prank(validator1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Issuance.InsufficientBalance.selector, payableRewards + stakeAmount_, stakeAmount_ + accrued
+            )
+        );
+        consensusRegistry.unstake(validator1, false);
+
+        // the shortfall-accepting path pays the stake plus the payable portion, forfeiting only the shortfall
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_ + payableRewards);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+
+        assertEq(validator1.balance, stakeAmount_ + payableRewards);
+        assertEq(issuance.balance, 0);
+        assertTrue(consensusRegistry.isRetired(validator1));
     }
 }
