@@ -6,12 +6,13 @@ import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
-/// Governance-ejection lifecycle coverage: `burn` and slash-to-zero forcibly remove a validator
-/// from the current, next, and subsequent stored committees via swap-and-pop (`_eject`), shrinking
-/// and reordering those arrays mid-epoch. These tests pin the full lifecycle around that mutation:
-/// epoch conclusion over shrunken committees, ring-buffer consistency, stake confiscation to
-/// Issuance, the retired-skip branches in `applyIncentives`/`applySlashes`, guard behavior, and the
-/// exact post-ejection array order the Rust epoch-record producer performs ordered reads against.
+/// Governance-ejection lifecycle coverage: `burn` (mid-epoch) and a slash-to-zero inside
+/// `concludeEpoch` forcibly remove a validator from the current, next, and subsequent stored
+/// committees via swap-and-pop (`_eject`), shrinking and reordering those arrays. These tests pin
+/// the full lifecycle around that mutation: epoch conclusion over shrunken committees, ring-buffer
+/// consistency, stake confiscation to Issuance, the retired-skip branches in `concludeEpoch`'s
+/// incentive and slash stages, guard behavior, and the exact post-ejection array order the Rust
+/// epoch-record producer performs ordered reads against.
 contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
     bytes32 internal constant VALIDATOR_SLASHED_TOPIC = keccak256("ValidatorSlashed((address,uint256))");
 
@@ -52,7 +53,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
 
     function _conclude(address[] memory futureCommittee) internal {
         vm.prank(sysAddress);
-        consensusRegistry.concludeEpoch(futureCommittee);
+        _concludeEpoch(futureCommittee);
     }
 
     /// @dev The three genesis survivors after removing `burned`, sorted for `concludeEpoch`.
@@ -366,40 +367,42 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
     }
 
     /*
-     *   C. applySlashes
+     *   C. boundary slashes
      */
 
     /// C1: the ejection boundary is strict `>`: a validator survives while balance > slash amount,
     /// so slashing to exactly zero remaining (amount == balance) ejects.
     function test_applySlashes_exactBalanceBoundary() public {
-        // slash all but 1 wei: balance (1M TEL) > amount (1M TEL - 1) -> ledger decrement only
+        // epoch 1 boundary slashes all but 1 wei: balance (1M TEL) > amount (1M TEL - 1) -> ledger
+        // decrement only, the full committee concludes
         Slash[] memory nearTotal = new Slash[](1);
         nearTotal[0] = Slash(validator1, stakeAmount_ - 1);
         vm.expectEmit(true, true, true, true);
         emit ValidatorSlashed(Slash(validator1, stakeAmount_ - 1));
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(nearTotal);
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), nearTotal);
 
         (uint256 outstanding,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(outstanding, 1, "1 wei must survive the near-total slash");
         assertFalse(consensusRegistry.isRetired(validator1));
         assertEq(uint8(consensusRegistry.getValidator(validator1).currentStatus), uint8(ValidatorStatus.Active));
         assertEq(consensusRegistry.getEligibleValidatorCount(), 4);
-        assertEq(_committeeOf(0).length, 4);
+        assertEq(_committeeOf(1).length, 4, "no ejection on a survivable slash");
 
-        // one more wei: balance (1) > amount (1) is false -> ejection; the full initial stake
-        // consolidates on Issuance, covering the previously slashed remainder
+        // epoch 2 boundary slashes one more wei: balance (1) > amount (1) is false -> ejection;
+        // the full initial stake consolidates on Issuance, covering the previously slashed
+        // remainder, and the incoming committee must already match the post-ejection size
         uint256 issuanceBalBefore = issuance.balance;
         Slash[] memory finalWei = new Slash[](1);
         finalWei[0] = Slash(validator1, 1);
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(finalWei);
+        _concludeEpochWithSlashes(_sortedSurvivors(validator1), finalWei);
 
         assertTrue(consensusRegistry.isRetired(validator1));
         assertEq(issuance.balance, issuanceBalBefore + stakeAmount_, "the full initial stake consolidates");
         assertEq(consensusRegistry.getEligibleValidatorCount(), 3);
         assertEq(consensusRegistry.getNextCommitteeSize(), 3);
-        _assertWindowExcludes(0, 2, validator1, 3);
+        _assertWindowExcludes(1, 4, validator1, 3);
         _assertSetInvariant();
     }
 
@@ -413,7 +416,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
 
         vm.recordLogs();
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedSurvivors(validator1), slashes);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countSlashedLogs(logs), 1, "exactly one ValidatorSlashed expected");
@@ -436,7 +439,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
 
         vm.recordLogs();
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedSurvivors(validator2), slashes);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         assertEq(_countSlashedLogs(logs), 1, "second entry must hit the retired skip");
@@ -446,7 +449,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
 
         assertTrue(consensusRegistry.isRetired(validator2));
         assertEq(consensusRegistry.getEligibleValidatorCount(), 3);
-        _assertWindowExcludes(0, 2, validator2, 3);
+        _assertWindowExcludes(0, 3, validator2, 3);
         _assertSetInvariant();
     }
 
@@ -454,24 +457,24 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
     /// min(outstanding, initialStake) moves to Issuance; the reward portion is confiscated purely on
     /// the ledger (those funds already sit on Issuance).
     function test_applySlashes_confiscationSplitWithRewards() public {
-        // give validator2 the full epoch issuance as rewards
+        // epoch 1 boundary gives validator2 the full epoch issuance as rewards
         RewardInfo[] memory rewards = new RewardInfo[](1);
         rewards[0] = RewardInfo(validator2, 100);
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
+        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewards);
 
         (uint256 outstanding,, uint256 rewardAmount) = consensusRegistry.getBalanceBreakdown(validator2);
         assertEq(outstanding, stakeAmount_ + epochIssuance_);
         assertEq(rewardAmount, epochIssuance_);
 
-        // slash the exact outstanding balance -> ejection; Issuance receives exactly the initial
-        // stake, NOT stake + rewards
+        // epoch 2 boundary slashes the exact outstanding balance -> ejection; Issuance receives
+        // exactly the initial stake, NOT stake + rewards
         uint256 issuanceBalBefore = issuance.balance;
         uint256 registryBalBefore = address(consensusRegistry).balance;
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator2, outstanding);
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedSurvivors(validator2), slashes);
 
         assertTrue(consensusRegistry.isRetired(validator2));
         assertEq(issuance.balance, issuanceBalBefore + stakeAmount_, "exactly min(outstanding, initialStake) moves");
@@ -482,7 +485,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
     }
 
     /*
-     *   D. applyIncentives with retired validators
+     *   D. boundary incentives with retired validators
      */
 
     /// D1: a retired rewardee contributes zero weight, so its share is redistributed to live
@@ -498,7 +501,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         rewards[3] = RewardInfo(validator4, 5);
 
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
+        _concludeEpochWithRewards(_sortedSurvivors(validator1), rewards);
 
         // weights count live validators only: totalWeight = stake * (1 + 1 + 5)
         uint256 total = epochIssuance_;
@@ -526,8 +529,8 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
     }
 
     /// D2: when every weighted rewardee is retired (or has zero headers), totalWeight is zero and
-    /// applyIncentives returns early: the epoch's issuance is NOT rolled into undistributedIssuance
-    /// on this path, and no balances move.
+    /// the incentive stage returns early: the epoch's issuance is NOT rolled into
+    /// undistributedIssuance on this path, and no balances move.
     function test_applyIncentives_allRetiredRewardees_earlyReturn() public {
         _burn(validator1);
 
@@ -536,20 +539,19 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 0); // zero headers: zero weight
 
         vm.prank(sysAddress);
-        consensusRegistry.applyIncentives(rewards);
+        _concludeEpochWithRewards(_sortedSurvivors(validator1), rewards);
 
         assertEq(consensusRegistry.undistributedIssuance(), 0, "early return must not roll issuance into dust");
         (uint256 outstanding2,,) = consensusRegistry.getBalanceBreakdown(validator2);
         assertEq(outstanding2, stakeAmount_, "no rewards distributed on early return");
     }
 
-    /// D3: the exact closing-block system-call sequence (applyIncentives -> applySlashes ->
-    /// concludeEpoch) succeeds in one block after a mid-epoch burn. Foundry twin of the e2e
+    /// D3: the closing-block system call carries incentives, slashes, and the rotation over the
+    /// shrunken committee in one `concludeEpoch` after a mid-epoch burn: the retired leader is
+    /// skipped for rewards, then the survivable slash lands. Foundry twin of the e2e
     /// current-committee ejection test's epoch boundary.
-    function test_applyIncentives_thenConclude_fullClosingBlockSequence() public {
+    function test_concludeEpoch_fullClosingBlockSequence() public {
         _burn(validator1);
-
-        vm.startPrank(sysAddress);
 
         // incentives: the retired leader is skipped, live validators split the epoch issuance
         RewardInfo[] memory rewards = new RewardInfo[](4);
@@ -557,16 +559,14 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 1);
         rewards[2] = RewardInfo(validator3, 1);
         rewards[3] = RewardInfo(validator4, 1);
-        consensusRegistry.applyIncentives(rewards);
 
         // slashes: a survivable penalty against a live validator
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator4, 1000);
-        consensusRegistry.applySlashes(slashes);
 
-        // conclude over the shrunken committee
-        consensusRegistry.concludeEpoch(_sortedSurvivors(validator1));
-        vm.stopPrank();
+        // one boundary call: incentives, then slashes, then rotation over the shrunken committee
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(_sortedSurvivors(validator1), rewards, slashes);
 
         assertEq(consensusRegistry.getCurrentEpoch(), 1);
         _assertWindowExcludes(0, 3, validator1, 3);
@@ -672,9 +672,10 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         _assertSetInvariant();
     }
 
-    /// E5: an applySlashes batch that would empty the network reverts as a whole: the first three
-    /// ejections are rolled back together with the fourth's InvalidCommitteeSize(0, 0). Matters for
-    /// a future Rust slash producer: a batch is all-or-nothing.
+    /// E5: a slash batch that would empty the network reverts the whole boundary call: the first
+    /// three ejections are rolled back together with the fourth's InvalidCommitteeSize(0, 0), and
+    /// the epoch does not advance. Matters for a future Rust slash producer: a boundary is
+    /// all-or-nothing.
     function test_applySlashes_batchEmptyingNetworkRevertsAtomically() public {
         uint256 issuanceBalBefore = issuance.balance;
 
@@ -686,7 +687,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
 
         vm.expectRevert(abi.encodeWithSelector(InvalidCommitteeSize.selector, 0, 0));
         vm.prank(sysAddress);
-        consensusRegistry.applySlashes(slashes);
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // all-or-nothing: every validator remains Active, funded, and seated
         address[4] memory genesis = [validator1, validator2, validator3, validator4];
@@ -699,6 +700,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.getEligibleValidatorCount(), 4);
         assertEq(consensusRegistry.getNextCommitteeSize(), 4);
         assertEq(_committeeOf(0).length, 4);
+        assertEq(consensusRegistry.getCurrentEpoch(), 0, "reverted boundary must not advance the epoch");
         assertEq(issuance.balance, issuanceBalBefore, "reverted batch must not move funds");
         _assertSetInvariant();
     }

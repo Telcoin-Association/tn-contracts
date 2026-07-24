@@ -53,6 +53,22 @@ interface IStakeManager {
         uint64 nonce;
     }
 
+    /// @notice A stake version change requested by an in-service validator, queued for automatic
+    /// settlement inside `concludeEpoch` at an epoch boundary, after that boundary's slashes land
+    struct PendingStakeVersionChange {
+        /// @notice The version to adopt at settlement; 0 is the no-pending sentinel
+        /// (valid targets are always >= 1 since they must exceed the validator's current version)
+        uint8 targetVersion;
+        /// @notice The epoch the change was requested in; stake decreases settle only once
+        /// `STAKE_DECREASE_DELAY_EPOCHS` further boundaries have passed
+        uint32 requestEpoch;
+        /// @notice The address that paid the escrow; escrow returns go here, never to the recipient
+        address funder;
+        /// @notice The exact stake deficit held for a stake-increasing change; zero otherwise.
+        /// Held here rather than in `balances` so it is invisible to reward accounting until the flip
+        uint256 escrow;
+    }
+
     /// @notice Represents a validator's compressed BLS12-381 proof of possession.
     /// @param signature A 48-byte compressed G1 point: the PoP over the protocol's PoP message.
     /// @dev The proven public key is the separate 96-byte compressed `blsPubkey` passed to stake and
@@ -91,6 +107,10 @@ interface IStakeManager {
     error InvalidStakeVersion(uint8 currentVersion, uint8 targetVersion);
     /// @notice Thrown when a low-level ETH transfer to the Issuance contract fails
     error IssuanceTransferFailed();
+    /// @notice Thrown when cancelling a stake version change for a validator with none pending
+    error NoPendingVersionChange();
+    /// @notice Thrown when `claimRefund` is called by an address with no claimable refund credit
+    error NoClaimableRefund();
     /// @notice Thrown when no BLS public key is stored for the queried validator address
     /// @dev Covers both the zero-address case and addresses that have never staked
     /// (or have been burned/retired and had their pubkey state cleared)
@@ -180,18 +200,43 @@ interface IStakeManager {
     /// @notice Only governance may allocate TEL in this manner
     function allocateIssuance() external payable;
 
-    /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place.
+    /// @dev Requests a stake version change for a validator; callable by the validator or its delegator.
     /// Only callable for validators with status Staked, PendingActivation, or Active.
-    /// @param validatorAddress The validator whose stake version should be upgraded
-    /// @param targetVersion The new stake version to upgrade to (must be strictly greater than current)
-    /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit
-    /// @notice If the new version requires less stake, the surplus is refunded to the reward recipient.
-    /// For partially slashed validators, only the balance above `newStakeAmount` is refunded.
-    /// @notice If a validator has been slashed and has accrued rewards, upgrading to a lower
+    /// @param validatorAddress The validator whose stake version should change
+    /// @param targetVersion The version to adopt (must be strictly greater than current and not
+    /// exceed the latest authored version)
+    /// @notice `Staked` validators settle immediately: they are not in service, are never members of
+    /// a committee, and can already reclaim their full stake at any time via `unstake`.
+    /// @notice In-service (PendingActivation/Active) validators are queued instead: the change is
+    /// applied automatically inside `concludeEpoch` at an epoch boundary, after that boundary's
+    /// slashes have landed, so no request or settlement timing can move value ahead of a slash.
+    /// Stake increases settle at the first boundary; stake decreases settle only once
+    /// `STAKE_DECREASE_DELAY_EPOCHS` further boundaries have passed, covering slashes whose
+    /// detection lags the offense by up to that many epochs.
+    /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit; it
+    /// is escrowed in the queue entry (not in the stake balance) until the boundary flip.
+    /// @notice If the new version requires less stake, no value moves at request time. At settlement
+    /// the surplus above the new stake amount is refunded to the reward recipient from the balance
+    /// as it stands post-slash; the slashed remainder of the surplus is consolidated on Issuance.
+    /// @notice A repeat request overwrites the pending entry, returning any prior escrow to its
+    /// funder and re-stamping the request epoch.
+    /// @notice If a validator has been slashed and has accrued rewards, settling a lower
     /// `stakeAmount` may zero claimable rewards since rewards are derived as `balance - stakeAmount`.
     /// The recipient still receives the correct total ETH via the refund. Validators should claim
-    /// rewards before upgrading if they have both accrued rewards and pending slashes.
-    function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable;
+    /// rewards before requesting if they have both accrued rewards and pending slashes.
+    function requestStakeVersionChange(address validatorAddress, uint8 targetVersion) external payable;
+
+    /// @dev Withdraws a pending stake version change without settling it, returning any escrow to
+    /// its funder
+    /// @param validatorAddress The validator whose pending change should be cancelled
+    /// @notice Callable by the validator or its delegator
+    function cancelStakeVersionChange(address validatorAddress) external;
+
+    /// @dev Transfers the caller's accumulated refund credit
+    /// @notice Credits accrue when a boundary refund or escrow return could not be pushed to its
+    /// recipient (or when the recipient was retired mid-queue); they are detached from the validator
+    /// lifecycle and survive burns and retirement
+    function claimRefund() external;
 
     /// @dev Permissioned function to withdraw TEL from the Issuance contract to the caller
     /// @notice Only governance may withdraw in this manner, eg to recover consolidated slash

@@ -86,7 +86,13 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function upgradeStakeVersion(StakeConfig calldata config) external virtual returns (uint8);
 
     /// @inheritdoc IStakeManager
-    function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable virtual;
+    function requestStakeVersionChange(address validatorAddress, uint8 targetVersion) external payable virtual;
+
+    /// @inheritdoc IStakeManager
+    function cancelStakeVersionChange(address validatorAddress) external virtual;
+
+    /// @inheritdoc IStakeManager
+    function claimRefund() external virtual;
 
     /// @inheritdoc IStakeManager
     function allocateIssuance() external payable virtual override;

@@ -3,7 +3,7 @@ pragma solidity 0.8.35;
 
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
-import { RewardInfo, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { BlsG1PrecompileMockDeployed } from "./BlsG1PrecompileMock.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
@@ -445,7 +445,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
         );
     }
 
-    function _fuzz_upgradeValidatorStakeVersions(
+    function _fuzz_requestStakeVersionChanges(
         uint24 numValidators,
         uint8 targetVersion,
         uint256 newStakeAmount,
@@ -459,8 +459,32 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
                 vm.deal(validatorAddr, deficit);
             }
             vm.prank(validatorAddr);
-            consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validatorAddr, targetVersion);
+            consensusRegistry.requestStakeVersionChange{value: deficit}(validatorAddr, targetVersion);
         }
+    }
+
+    function _noRewards() internal pure returns (RewardInfo[] memory) {
+        return new RewardInfo[](0);
+    }
+
+    function _noSlashes() internal pure returns (Slash[] memory) {
+        return new Slash[](0);
+    }
+
+    /// @dev Concludes an epoch with no rewards and no slashes. Caller manages the system-address
+    /// prank; pranks apply to the external registry call this helper makes.
+    function _concludeEpoch(address[] memory committee) internal {
+        consensusRegistry.concludeEpoch(committee, _noRewards(), _noSlashes());
+    }
+
+    /// @dev Concludes an epoch distributing `rewardInfos`, with no slashes
+    function _concludeEpochWithRewards(address[] memory committee, RewardInfo[] memory rewardInfos) internal {
+        consensusRegistry.concludeEpoch(committee, rewardInfos, _noSlashes());
+    }
+
+    /// @dev Concludes an epoch applying `slashes`, with no rewards
+    function _concludeEpochWithSlashes(address[] memory committee, Slash[] memory slashes) internal {
+        consensusRegistry.concludeEpoch(committee, _noRewards(), slashes);
     }
 
     /// @dev The four genesis validators in ascending address order, as `concludeEpoch` requires
@@ -481,8 +505,8 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
     function _seatCommittees() internal {
         address[] memory committee = _sortedGenesisCommittee();
         vm.startPrank(consensusRegistry.SYSTEM_ADDRESS());
-        consensusRegistry.concludeEpoch(committee);
-        consensusRegistry.concludeEpoch(committee);
+        _concludeEpoch(committee);
+        _concludeEpoch(committee);
         vm.stopPrank();
     }
 
