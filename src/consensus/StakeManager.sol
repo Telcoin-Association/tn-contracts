@@ -77,6 +77,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
 
     /// @inheritdoc IStakeManager
     function getCurrentStakeConfig() public view returns (StakeConfig memory) {
+        // the latest authored configuration; it activates at the next epoch start, when
+        // `concludeEpoch` stamps it into the new epoch's info
         return versions[stakeVersion];
     }
 

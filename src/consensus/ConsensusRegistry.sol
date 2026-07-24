@@ -244,6 +244,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IStakeManager
     function getCurrentStakeVersion() public view override returns (uint8) {
+        // the version stamped into the current epoch at its start; a version authored
+        // mid-epoch is reflected by `getCurrentStakeConfig` but not here until the next epoch
         return getCurrentEpochInfo().stakeVersion;
     }
 
@@ -266,7 +268,16 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         uint8 currentPointer = epochPointer;
         if (epoch > current) {
-            return _getFutureEpochInfo(epoch, current, currentPointer);
+            // future slots store only the committee and epoch id; project the config fields
+            // from the latest authored configuration - the values the epoch would be stamped
+            // with if it began now. They can change until the epoch is stamped at its start.
+            // Block height is unknowable ahead of time and remains 0
+            EpochInfo memory future = _getFutureEpochInfo(epoch, current, currentPointer);
+            StakeConfig storage latestConfig = versions[stakeVersion];
+            future.epochIssuance = latestConfig.epochIssuance;
+            future.epochDuration = latestConfig.epochDuration;
+            future.stakeVersion = stakeVersion;
+            return future;
         } else {
             return _getRecentEpochInfo(epoch, current, currentPointer);
         }
@@ -1067,16 +1078,18 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             stakeVersion
         );
 
-        // update future epoch info
+        // update future epoch info; only the committee and epoch id are knowable ahead of time,
+        // so the config fields and block height are explicitly zeroed. The epoch's actual config
+        // is stamped above when it begins, since governance may change it up until then
         uint8 twoEpochsInFuturePointer = (newEpochPointer + 2) % 4;
-        futureEpochInfo[twoEpochsInFuturePointer].committee = futureCommittee;
-        futureEpochInfo[twoEpochsInFuturePointer].epochId = newEpoch + 2;
+        futureEpochInfo[twoEpochsInFuturePointer] = EpochInfo(futureCommittee, 0, 0, newEpoch + 2, 0, 0);
 
         return (newEpoch, newStakeConfig.epochIssuance, newStakeConfig.epochDuration, newCommittee);
     }
 
     /// @dev Fetch info for a future epoch; two epochs into future are stored
-    /// @notice Block height is not known for future epochs, so it will be 0
+    /// @notice Storage carries only the committee and epoch id; the config fields and block
+    /// height are zero. `getEpochInfo` overlays a projection of the config fields at read time
     function _getFutureEpochInfo(
         uint32 future,
         uint32 current,
@@ -1241,17 +1254,16 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // NOTE: committees are expected to always be < 100
         nextCommitteeSize = uint16(initialValidators_.length);
 
-        // set first three epochs with genesis config
+        // set first three epochs with genesis config; future epoch slots carry only the
+        // committee and epoch id, since a future epoch's configuration is undefined until
+        // it is stamped into `epochInfo` at that epoch's start
         for (uint256 j; j <= 2; ++j) {
             EpochInfo storage epoch = epochInfo[j];
             epoch.epochId = uint32(j);
             epoch.epochDuration = genesisConfig_.epochDuration;
             epoch.epochIssuance = genesisConfig_.epochIssuance;
 
-            EpochInfo storage futureEpoch = futureEpochInfo[j];
-            futureEpoch.epochId = uint32(j);
-            futureEpoch.epochDuration = genesisConfig_.epochDuration;
-            futureEpoch.epochIssuance = genesisConfig_.epochIssuance;
+            futureEpochInfo[j].epochId = uint32(j);
         }
 
         // set initial validators

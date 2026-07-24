@@ -1428,6 +1428,69 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(bal2, v2StakeAmt);
     }
 
+    function test_stakeVersionGetters_divergeForPendingVersion() public {
+        uint256 newStakeAmt = 2_000_000e18;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+
+        // mid-epoch the epoch-active version is unchanged, while the config getter already
+        // returns the newly authored configuration that activates at the next epoch start
+        assertEq(consensusRegistry.getCurrentStakeVersion(), 0);
+        assertEq(consensusRegistry.getCurrentStakeConfig().stakeAmount, newStakeAmt);
+
+        // at the next epoch start the authored version is stamped in and the getters agree
+        vm.prank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        assertEq(consensusRegistry.getCurrentStakeVersion(), newVersion);
+        assertEq(consensusRegistry.getCurrentStakeConfig().stakeAmount, newStakeAmt);
+        assertEq(
+            consensusRegistry.getCurrentStakeConfig().stakeAmount,
+            consensusRegistry.stakeConfig(consensusRegistry.getCurrentStakeVersion()).stakeAmount
+        );
+    }
+
+    function test_getEpochInfo_futureEpochProjection() public {
+        // advance two epochs so both future ring buffer slots have been rewritten
+        vm.startPrank(sysAddress);
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        consensusRegistry.concludeEpoch(_createTokenIdCommittee(4));
+        vm.stopPrank();
+
+        uint32 current = consensusRegistry.getCurrentEpoch();
+        for (uint32 ahead = 1; ahead <= 2; ++ahead) {
+            EpochInfo memory info = consensusRegistry.getEpochInfo(current + ahead);
+            // committee and epoch id are known for future epochs
+            assertEq(info.epochId, current + ahead);
+            assertEq(info.committee.length, 4);
+            // config fields project the latest authored configuration (still genesis here)
+            assertEq(info.epochIssuance, epochIssuance_);
+            assertEq(uint256(info.epochDuration), uint256(epochDuration_));
+            assertEq(uint256(info.stakeVersion), 0);
+            // block height is unknowable for future epochs
+            assertEq(uint256(info.blockHeight), 0);
+        }
+
+        // authoring a new version mid-epoch updates the projection immediately
+        uint256 newIssuance = epochIssuance_ * 2;
+        uint32 newDuration = epochDuration_ + 1;
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(2_000_000e18, minWithdrawAmount_, newIssuance, newDuration)
+        );
+
+        for (uint32 ahead = 1; ahead <= 2; ++ahead) {
+            EpochInfo memory info = consensusRegistry.getEpochInfo(current + ahead);
+            assertEq(info.epochId, current + ahead);
+            assertEq(info.committee.length, 4);
+            assertEq(info.epochIssuance, newIssuance);
+            assertEq(uint256(info.epochDuration), uint256(newDuration));
+            assertEq(uint256(info.stakeVersion), uint256(newVersion));
+            assertEq(uint256(info.blockHeight), 0);
+        }
+    }
+
     function test_delegatedValidator_voluntaryExit_clearedDelegation() public {
         // --- setup delegation for validator5 ---
         uint256 validator5PrivateKey = 5;

@@ -155,13 +155,19 @@ interface IStakeManager {
     /// @dev Returns staking information for the given address
     function getBalanceBreakdown(address validatorAddress) external view returns (uint256, uint256, uint256);
 
-    /// @dev Returns the current version
+    /// @dev Returns the stake version active for the current epoch, ie the version stamped
+    /// into the epoch's info at its start
+    /// @notice Differs from `getCurrentStakeConfig` during any epoch in which governance has
+    /// authored a new version, since newly authored versions activate at the next epoch start
     function getCurrentStakeVersion() external view returns (uint8);
 
     /// @dev Returns the queried stake configuration
     function stakeConfig(uint8 version) external view returns (StakeConfig memory);
 
-    /// @dev Returns the current stake configuration
+    /// @dev Returns the latest authored stake configuration, which becomes active at the
+    /// next epoch start
+    /// @notice Not necessarily the epoch-active config: during any epoch in which governance
+    /// has authored a new version, this differs from `stakeConfig(getCurrentStakeVersion())`
     function getCurrentStakeConfig() external view returns (StakeConfig memory);
 
     /// @dev Permissioned function to upgrade stake, withdrawal, and consensus block reward configurations

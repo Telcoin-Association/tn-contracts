@@ -234,7 +234,9 @@ interface IConsensusRegistry {
     function getCurrentEpochInfo() external view returns (EpochInfo memory);
 
     /// @dev Returns information about the provided epoch. Only four latest & two future epochs are stored
-    /// @notice When querying for future epochs, `blockHeight` will be 0 as they are not yet known
+    /// @notice For future epochs, the config fields (issuance, duration, stake version) are a
+    /// projection from the latest authored configuration and can change until the epoch is
+    /// stamped at its start; `blockHeight` is always 0 as it is not yet known
     function getEpochInfo(uint32 epoch) external view returns (EpochInfo memory);
 
     /// @dev Returns the addresses of validators in exactly the provided status's set, in the set's
