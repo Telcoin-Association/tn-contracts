@@ -113,4 +113,60 @@ contract GitAttestationRegistryTest is Test {
         result = fuzzGitAttestationRegistry.gitCommitHashAttested(gitHash);
         assertTrue(result);
     }
+
+    /// @dev Fills the 4-slot buffer so `head` wraps to 0. Hashes start at 1 because the zero value
+    /// means "empty".
+    function _fillBuffer() internal {
+        vm.startPrank(maintainer);
+        for (uint8 i; i < 4; ++i) {
+            gitAttestationRegistry.attestGitCommitHash(bytes20(uint160(i + 1)), true);
+        }
+        vm.stopPrank();
+    }
+
+    /// @notice Growing materializes the new tail slots, so the next attestation writes in bounds.
+    function test_growThenAttest_doesNotPanic() public {
+        _fillBuffer();
+
+        vm.prank(admin);
+        gitAttestationRegistry.setBufferSize(6);
+
+        bytes20 fresh = bytes20(uint160(0xbeef));
+        vm.prank(maintainer);
+        gitAttestationRegistry.attestGitCommitHash(fresh, true);
+
+        assertTrue(gitAttestationRegistry.gitCommitHashAttested(fresh));
+    }
+
+    /// @notice After a grow, a lookup that misses returns false; every slot in [0, bufferSize) exists.
+    function test_growThenMissingLookup_returnsFalse() public {
+        _fillBuffer();
+
+        vm.prank(admin);
+        gitAttestationRegistry.setBufferSize(6);
+
+        assertFalse(gitAttestationRegistry.gitCommitHashAttested(bytes20(uint160(0xdead))));
+    }
+
+    /// @notice `ringBuffer.length` tracks `bufferSize` across a grow, so the top slot is addressable.
+    function test_growMaterializesEverySlot() public {
+        vm.prank(admin);
+        gitAttestationRegistry.setBufferSize(6);
+
+        assertEq(gitAttestationRegistry.bufferSize(), 6);
+        (bytes20 hash_,) = gitAttestationRegistry.ringBuffer(5);
+        assertEq(hash_, bytes20(0x0));
+    }
+
+    /// @notice A second grow does not revert; `head < ringBuffer.length` holds after the first.
+    function test_consecutiveGrows() public {
+        _fillBuffer();
+
+        vm.startPrank(admin);
+        gitAttestationRegistry.setBufferSize(6);
+        gitAttestationRegistry.setBufferSize(8);
+        vm.stopPrank();
+
+        assertEq(gitAttestationRegistry.bufferSize(), 8);
+    }
 }
