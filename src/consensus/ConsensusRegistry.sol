@@ -1326,6 +1326,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint8 newVersion = ++stakeVersion;
         versions[newVersion] = newConfig;
 
+        emit StakeVersionAuthored(
+            newVersion,
+            newConfig.stakeAmount,
+            newConfig.minWithdrawAmount,
+            newConfig.epochIssuance,
+            newConfig.epochDuration
+        );
+
         return newVersion;
     }
 }
