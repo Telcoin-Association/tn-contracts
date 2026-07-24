@@ -9,6 +9,7 @@ import { SystemCallable } from "src/consensus/SystemCallable.sol";
 import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { IConsensusRegistry } from "src/interfaces/IConsensusRegistry.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
@@ -136,6 +137,30 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.setValidatorRegion(validator5, 3);
         assertEq(consensusRegistry.getValidator(validator5).region, 3);
+    }
+
+    function test_stake_preservesRegionSetBeforeStake() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        // region assigned while the validator is minted but not yet staked
+        vm.prank(crOwner);
+        consensusRegistry.setValidatorRegion(validator5, 7);
+        assertEq(consensusRegistry.getValidator(validator5).region, 7);
+
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig)
+        );
+
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Staked));
+        assertEq(consensusRegistry.getValidator(validator5).region, 7);
+    }
+
+    function test_constructor_revertsOnZeroEpochDuration() public {
+        StakeConfig memory badConfig = StakeConfig(stakeAmount_, minWithdrawAmount_, epochIssuance_, 0);
+        vm.expectRevert(abi.encodeWithSelector(IConsensusRegistry.InvalidDuration.selector, uint32(0)));
+        new ConsensusRegistry(badConfig, initialValidators, initialBlsPubkeys, initialBLSPops, crOwner);
     }
 
     function test_setValidatorRegion_pendingActivationValidator() public {

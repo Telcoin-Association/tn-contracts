@@ -777,8 +777,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     {
         // record the validator as `Undefined`, then transition to `Staked` through `_setStatus` so the
         // `Staked` set add happens in the one place that maintains membership (the address is already set)
+        uint8 region = validators[validatorAddress].region;
         validators[validatorAddress] = ValidatorInfo(
-            validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Undefined, false, stakeVersion, uint8(0)
+            validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Undefined, false, stakeVersion, region
         );
         ValidatorInfo storage newValidator = validators[validatorAddress];
         _setStatus(newValidator, ValidatorStatus.Staked);
@@ -1158,6 +1159,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // set stake storage configs
+        if (genesisConfig_.epochDuration == 0) revert InvalidDuration(genesisConfig_.epochDuration);
         versions[0] = genesisConfig_;
 
         // set nextCommitteeSize based on current committee
