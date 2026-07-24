@@ -169,9 +169,9 @@ interface IStakeManager {
     function upgradeStakeVersion(StakeConfig calldata newVersion) external returns (uint8);
 
     /// @dev Permissioned function to allocate TEL for epoch issuance, ie consensus block rewards
-    /// @notice Allocated TEL cannot be recovered; it is effectively burned cryptographically
-    /// The only way received TEL can be re-minted is as staking issuance rewards
-    /// @notice Only governance may burn TEL in this manner
+    /// @notice Allocated TEL leaves the Issuance contract only as staking issuance rewards or
+    /// through a governance withdrawal via `issuanceWithdrawal`
+    /// @notice Only governance may allocate TEL in this manner
     function allocateIssuance() external payable;
 
     /// @dev Allows a staked validator (or its delegator) to upgrade their stake version in-place.
@@ -186,4 +186,10 @@ interface IStakeManager {
     /// The recipient still receives the correct total ETH via the refund. Validators should claim
     /// rewards before upgrading if they have both accrued rewards and pending slashes.
     function upgradeValidatorStakeVersion(address validatorAddress, uint8 targetVersion) external payable;
+
+    /// @dev Permissioned function to withdraw TEL from the Issuance contract to the caller
+    /// @notice Only governance may withdraw in this manner, eg to recover consolidated slash
+    /// funds or to reduce a prior issuance allocation
+    /// @param amount The amount of TEL to withdraw from the Issuance contract
+    function issuanceWithdrawal(uint256 amount) external;
 }

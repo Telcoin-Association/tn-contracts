@@ -51,6 +51,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// than three set-length reads. Invariant-tested against the eligible set sizes.
     uint256 internal eligibleValidatorCount;
 
+    /// @notice When true, `topUpSlashedStake` is restricted to governance; when false, validators
+    /// and their delegators may also restore their own slashed stake
+    bool public topUpAuthorityRequired;
+
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
 
@@ -101,8 +105,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (isRetired(reward.validatorAddress)) continue;
 
             uint8 rewardeeVersion = validators[reward.validatorAddress].stakeVersion;
-            // derive validator's weight using initial stake for stability
-            uint256 stakeAmount = versions[rewardeeVersion].stakeAmount;
+            // derive validator's weight from its effective stake: the version's full stake amount,
+            // capped to the outstanding balance when slashes have reduced it below that amount
+            // (restorable via `topUpSlashedStake`). Rewards above the stake amount never add weight
+            uint256 versionStakeAmount = versions[rewardeeVersion].stakeAmount;
+            uint256 balance = balances[reward.validatorAddress];
+            uint256 stakeAmount = balance < versionStakeAmount ? balance : versionStakeAmount;
             uint256 weight = stakeAmount * reward.consensusHeaderCount;
 
             totalWeight += weight;
@@ -475,6 +483,51 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function topUpSlashedStake(address validatorAddress) external payable override whenNotPaused {
+        // require `validatorAddress` is known & whitelisted, having been issued a ConsensusNFT by governance
+        _checkConsensusNFTOwner(validatorAddress);
+
+        // governance may always top up; other callers must be the validator or its delegator,
+        // and only while self-service top-ups are enabled
+        if (msg.sender != owner()) {
+            if (topUpAuthorityRequired) revert TopUpAuthorityRequired();
+            address recipient = _getRecipient(validatorAddress);
+            if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+        }
+
+        // require validator status is `Staked`, `PendingActivation`, or `Active`
+        ValidatorStatus status = validators[validatorAddress].currentStatus;
+        if (
+            status != ValidatorStatus.Staked && status != ValidatorStatus.PendingActivation
+                && status != ValidatorStatus.Active
+        ) {
+            revert InvalidStatus(status);
+        }
+
+        uint8 validatorVersion = validators[validatorAddress].stakeVersion;
+        uint256 stakeAmount = versions[validatorVersion].stakeAmount;
+        uint256 currentBalance = balances[validatorAddress];
+        if (currentBalance >= stakeAmount) {
+            revert StakeNotSlashed(validatorAddress, currentBalance, validatorVersion);
+        }
+
+        uint256 deficit = stakeAmount - currentBalance;
+        if (msg.value != deficit) {
+            revert InvalidDeficitAmount(validatorAddress, msg.value, validatorVersion);
+        }
+
+        balances[validatorAddress] += deficit;
+        // this contract already holds the full stake-backed native TEL for a slashed validator
+        // (slashes decrement only the balance ledger), so the top-up value is consolidated on
+        // Issuance where it is repurposed for future reward distribution
+        (bool r,) = issuance.call{ value: msg.value }("");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
+
+        emit ValidatorStakeToppedUp(validatorAddress, deficit);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function activate() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
         _checkConsensusNFTOwner(msg.sender);
@@ -665,6 +718,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         (bool r,) = issuance.call{ value: msg.value }("");
         // this is believed to be impossible
         if (!r) revert IssuanceTransferFailed();
+    }
+
+    /// @inheritdoc StakeManager
+    function issuanceWithdrawal(uint256 amount) external override onlyOwner {
+        Issuance(issuance).withdraw(amount, msg.sender);
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function setTopUpAuthorityRequired(bool required) external override onlyOwner {
+        topUpAuthorityRequired = required;
+        emit TopUpAuthorityRequirementUpdated(required);
     }
 
     /**

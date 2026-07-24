@@ -89,6 +89,9 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     /// @inheritdoc IStakeManager
     function allocateIssuance() external payable virtual override;
 
+    /// @inheritdoc IStakeManager
+    function issuanceWithdrawal(uint256 amount) external virtual override;
+
     /**
      *
      *   ERC721
