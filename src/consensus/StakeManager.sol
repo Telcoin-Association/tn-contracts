@@ -62,7 +62,7 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
     function claimStakeRewards(address ecsdaPubkey) external virtual;
 
     /// @inheritdoc IStakeManager
-    function unstake(address validatorAddress) external virtual;
+    function unstake(address validatorAddress, bool acceptRewardShortfall) external virtual;
 
     /// @inheritdoc IStakeManager
     function getRewards(address validatorAddress) public view virtual returns (uint256);
@@ -77,6 +77,8 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
 
     /// @inheritdoc IStakeManager
     function getCurrentStakeConfig() public view returns (StakeConfig memory) {
+        // the latest authored configuration; it activates at the next epoch start, when
+        // `concludeEpoch` stamps it into the new epoch's info
         return versions[stakeVersion];
     }
 
@@ -94,6 +96,9 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
 
     /// @inheritdoc IStakeManager
     function allocateIssuance() external payable virtual override;
+
+    /// @inheritdoc IStakeManager
+    function issuanceWithdrawal(uint256 amount) external virtual override;
 
     /**
      *
@@ -200,7 +205,15 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         return rewards;
     }
 
-    function _unstake(address validatorAddress, address recipient) internal virtual returns (uint256) {
+    function _unstake(
+        address validatorAddress,
+        address recipient,
+        bool acceptRewardShortfall
+    )
+        internal
+        virtual
+        returns (uint256)
+    {
         _burn(_getTokenId(validatorAddress));
         if (totalSupply() == 0) revert InvalidSupply();
 
@@ -224,6 +237,10 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
             // this is believed to be impossible
             if (!r) revert IssuanceTransferFailed();
         }
+
+        // accepting a reward shortfall caps the rewards leg at what Issuance can cover, forfeiting only the
+        // shortfall, so an underfunded reward pool can never block a stake withdrawal
+        if (acceptRewardShortfall && rewards > issuance.balance) rewards = issuance.balance;
 
         // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
         Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards);

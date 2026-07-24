@@ -390,8 +390,8 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         assertEq(_committeeOf(1).length, 4, "no ejection on a survivable slash");
 
         // epoch 2 boundary slashes one more wei: balance (1) > amount (1) is false -> ejection;
-        // only the 1-wei remainder is confiscated to Issuance, and the incoming committee must
-        // already match the post-ejection size
+        // the full initial stake consolidates on Issuance, covering the previously slashed
+        // remainder, and the incoming committee must already match the post-ejection size
         uint256 issuanceBalBefore = issuance.balance;
         Slash[] memory finalWei = new Slash[](1);
         finalWei[0] = Slash(validator1, 1);
@@ -399,7 +399,7 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         _concludeEpochWithSlashes(_sortedSurvivors(validator1), finalWei);
 
         assertTrue(consensusRegistry.isRetired(validator1));
-        assertEq(issuance.balance, issuanceBalBefore + 1, "only the outstanding wei is confiscated");
+        assertEq(issuance.balance, issuanceBalBefore + stakeAmount_, "the full initial stake consolidates");
         assertEq(consensusRegistry.getEligibleValidatorCount(), 3);
         assertEq(consensusRegistry.getNextCommitteeSize(), 3);
         _assertWindowExcludes(1, 4, validator1, 3);

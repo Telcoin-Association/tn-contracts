@@ -149,7 +149,10 @@ interface IStakeManager {
     /// @dev Returns previously staked funds in addition to accrued rewards, if any, to the staker
     /// @notice May be used to reverse validator onboarding pre-activation or permanently retire after full exit
     /// @notice Once unstaked and retired, validator addresses cannot be reused
-    function unstake(address validatorAddress) external;
+    /// @param acceptRewardShortfall When true, caps the rewards payout at the Issuance contract's available
+    /// balance and permanently forfeits only the shortfall, so an underfunded reward pool can never
+    /// block a stake withdrawal; identical to a normal unstake whenever Issuance can cover the rewards
+    function unstake(address validatorAddress, bool acceptRewardShortfall) external;
 
     /// @notice Returns the delegation digest that a validator should sign to accept a delegation
     /// @return _ EIP-712 typed struct hash used to enable delegated proof of stake
@@ -172,13 +175,19 @@ interface IStakeManager {
     /// @dev Returns staking information for the given address
     function getBalanceBreakdown(address validatorAddress) external view returns (uint256, uint256, uint256);
 
-    /// @dev Returns the current version
+    /// @dev Returns the stake version active for the current epoch, ie the version stamped
+    /// into the epoch's info at its start
+    /// @notice Differs from `getCurrentStakeConfig` during any epoch in which governance has
+    /// authored a new version, since newly authored versions activate at the next epoch start
     function getCurrentStakeVersion() external view returns (uint8);
 
     /// @dev Returns the queried stake configuration
     function stakeConfig(uint8 version) external view returns (StakeConfig memory);
 
-    /// @dev Returns the current stake configuration
+    /// @dev Returns the latest authored stake configuration, which becomes active at the
+    /// next epoch start
+    /// @notice Not necessarily the epoch-active config: during any epoch in which governance
+    /// has authored a new version, this differs from `stakeConfig(getCurrentStakeVersion())`
     function getCurrentStakeConfig() external view returns (StakeConfig memory);
 
     /// @dev Permissioned function to upgrade stake, withdrawal, and consensus block reward configurations
@@ -186,9 +195,9 @@ interface IStakeManager {
     function upgradeStakeVersion(StakeConfig calldata newVersion) external returns (uint8);
 
     /// @dev Permissioned function to allocate TEL for epoch issuance, ie consensus block rewards
-    /// @notice Allocated TEL cannot be recovered; it is effectively burned cryptographically
-    /// The only way received TEL can be re-minted is as staking issuance rewards
-    /// @notice Only governance may burn TEL in this manner
+    /// @notice Allocated TEL leaves the Issuance contract only as staking issuance rewards or
+    /// through a governance withdrawal via `issuanceWithdrawal`
+    /// @notice Only governance may allocate TEL in this manner
     function allocateIssuance() external payable;
 
     /// @dev Requests a stake version change for a validator; callable by the validator or its delegator.
@@ -228,4 +237,10 @@ interface IStakeManager {
     /// recipient (or when the recipient was retired mid-queue); they are detached from the validator
     /// lifecycle and survive burns and retirement
     function claimRefund() external;
+
+    /// @dev Permissioned function to withdraw TEL from the Issuance contract to the caller
+    /// @notice Only governance may withdraw in this manner, eg to recover consolidated slash
+    /// funds or to reduce a prior issuance allocation
+    /// @param amount The amount of TEL to withdraw from the Issuance contract
+    function issuanceWithdrawal(uint256 amount) external;
 }

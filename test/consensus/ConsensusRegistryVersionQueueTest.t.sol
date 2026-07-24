@@ -362,7 +362,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
 
         // unstake settles at the version actually in force
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
         assertEq(validator1.balance, balBefore + 400_000e18 + 600_000e18);
         assertTrue(consensusRegistry.isRetired(validator1));
     }
