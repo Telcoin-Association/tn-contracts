@@ -51,6 +51,10 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// than three set-length reads. Invariant-tested against the eligible set sizes.
     uint256 internal eligibleValidatorCount;
 
+    /// @notice When true, `topUpSlashedStake` is restricted to governance; when false, validators
+    /// and their delegators may also restore their own slashed stake
+    bool public topUpAuthorityRequired;
+
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
 
@@ -101,8 +105,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (isRetired(reward.validatorAddress)) continue;
 
             uint8 rewardeeVersion = validators[reward.validatorAddress].stakeVersion;
-            // derive validator's weight using initial stake for stability
-            uint256 stakeAmount = versions[rewardeeVersion].stakeAmount;
+            // derive validator's weight from its effective stake: the version's full stake amount,
+            // capped to the outstanding balance when slashes have reduced it below that amount
+            // (restorable via `topUpSlashedStake`). Rewards above the stake amount never add weight
+            uint256 versionStakeAmount = versions[rewardeeVersion].stakeAmount;
+            uint256 balance = balances[reward.validatorAddress];
+            uint256 stakeAmount = balance < versionStakeAmount ? balance : versionStakeAmount;
             uint256 weight = stakeAmount * reward.consensusHeaderCount;
 
             totalWeight += weight;
@@ -140,6 +148,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             if (isRetired(slash.validatorAddress)) continue;
 
             if (balances[slash.validatorAddress] > slash.amount) {
+                // ledger-only decrement: the confiscated native TEL remains held by this contract
+                // and is consolidated on Issuance at settlement (unstake or burn)
                 balances[slash.validatorAddress] -= slash.amount;
             } else {
                 // eject validators whose balance would reach 0
@@ -150,8 +160,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
-    /// @notice One-time back-fill of the per-status validator sets and the cached eligible count for
-    /// an in-place upgrade from a deployment that predates the sets.
+    /// @notice One-time back-fill of the per-status validator sets, the cached eligible count, and the
+    /// BLS pubkey reverse index for an in-place upgrade from a deployment that predates them.
     /// @dev The storage layout is a clean append (the sets were appended after the pre-existing
     /// variables), so `validators[*]` and the ConsensusNFTs survive the code swap untouched; only
     /// `validatorSets` / `eligibleValidatorCount` start empty and must be rebuilt before the new read
@@ -166,6 +176,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         uint256 eligible;
         for (uint256 i; i < supply; ++i) {
             address validatorAddress = ownerOf(tokenByIndex(i));
+
+            // key the BLS reverse index by `_blsKeyId` so `isValidator` and `_spendBLSPubkey` resolve
+            // this validator and enforce dedup; clear the pubkey-hash-keyed slot
+            bytes memory blsPubkey = blsPubkeys[validatorAddress];
+            if (blsPubkey.length == 96) {
+                delete blsPubkeyHashToValidator[keccak256(blsPubkey)];
+                blsPubkeyHashToValidator[_blsKeyId(blsPubkey)] = validatorAddress;
+            }
+
             ValidatorInfo storage validator = validators[validatorAddress];
             if (validator.isRetired) continue;
 
@@ -475,6 +494,51 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
+    function topUpSlashedStake(address validatorAddress) external payable override whenNotPaused {
+        // require `validatorAddress` is known & whitelisted, having been issued a ConsensusNFT by governance
+        _checkConsensusNFTOwner(validatorAddress);
+
+        // governance may always top up; other callers must be the validator or its delegator,
+        // and only while self-service top-ups are enabled
+        if (msg.sender != owner()) {
+            if (topUpAuthorityRequired) revert TopUpAuthorityRequired();
+            address recipient = _getRecipient(validatorAddress);
+            if (msg.sender != validatorAddress && msg.sender != recipient) revert NotRecipient(recipient);
+        }
+
+        // require validator status is `Staked`, `PendingActivation`, or `Active`
+        ValidatorStatus status = validators[validatorAddress].currentStatus;
+        if (
+            status != ValidatorStatus.Staked && status != ValidatorStatus.PendingActivation
+                && status != ValidatorStatus.Active
+        ) {
+            revert InvalidStatus(status);
+        }
+
+        uint8 validatorVersion = validators[validatorAddress].stakeVersion;
+        uint256 stakeAmount = versions[validatorVersion].stakeAmount;
+        uint256 currentBalance = balances[validatorAddress];
+        if (currentBalance >= stakeAmount) {
+            revert StakeNotSlashed(validatorAddress, currentBalance, validatorVersion);
+        }
+
+        uint256 deficit = stakeAmount - currentBalance;
+        if (msg.value != deficit) {
+            revert InvalidDeficitAmount(validatorAddress, msg.value, validatorVersion);
+        }
+
+        balances[validatorAddress] += deficit;
+        // this contract already holds the full stake-backed native TEL for a slashed validator
+        // (slashes decrement only the balance ledger), so the top-up value is consolidated on
+        // Issuance where it is repurposed for future reward distribution
+        (bool r,) = issuance.call{ value: msg.value }("");
+        // this is believed to be impossible
+        if (!r) revert IssuanceTransferFailed();
+
+        emit ValidatorStakeToppedUp(validatorAddress, deficit);
+    }
+
+    /// @inheritdoc IConsensusRegistry
     function activate() external override whenNotPaused {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
         _checkConsensusNFTOwner(msg.sender);
@@ -610,7 +674,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc StakeManager
-    function unstake(address validatorAddress) external override whenNotPaused nonReentrant {
+    function unstake(address validatorAddress, bool acceptRewardShortfall) external override whenNotPaused nonReentrant {
         // require validator holds a ConsensusNFT and the caller is the validator or its delegator
         address recipient = _checkStakeOriginator(validatorAddress);
 
@@ -621,8 +685,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // permanently retire the validator and burn the ConsensusNFT
         _retire(validator);
 
-        // return stake and send any outstanding rewards
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient);
+        // return stake plus rewards; accepting a reward shortfall forfeits only rewards Issuance cannot cover
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, acceptRewardShortfall);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }
@@ -665,6 +729,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         (bool r,) = issuance.call{ value: msg.value }("");
         // this is believed to be impossible
         if (!r) revert IssuanceTransferFailed();
+    }
+
+    /// @inheritdoc StakeManager
+    function issuanceWithdrawal(uint256 amount) external override onlyOwner {
+        Issuance(issuance).withdraw(amount, msg.sender);
+    }
+
+    /// @inheritdoc IConsensusRegistry
+    function setTopUpAuthorityRequired(bool required) external override onlyOwner {
+        topUpAuthorityRequired = required;
+        emit TopUpAuthorityRequirementUpdated(required);
     }
 
     /**
@@ -788,8 +863,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     {
         // record the validator as `Undefined`, then transition to `Staked` through `_setStatus` so the
         // `Staked` set add happens in the one place that maintains membership (the address is already set)
+        uint8 region = validators[validatorAddress].region;
         validators[validatorAddress] = ValidatorInfo(
-            validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Undefined, false, stakeVersion, uint8(0)
+            validatorAddress, PENDING_EPOCH, uint32(0), ValidatorStatus.Undefined, false, stakeVersion, region
         );
         ValidatorInfo storage newValidator = validators[validatorAddress];
         _setStatus(newValidator, ValidatorStatus.Staked);
@@ -962,13 +1038,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _ejectFromCommittees(validatorAddress, numEligible);
 
         // settle ledgers
-        (uint256 outstandingBalance, uint256 initialStakeAmt,) = getBalanceBreakdown(validatorAddress);
+        (, uint256 initialStakeAmt,) = getBalanceBreakdown(validatorAddress);
         // rewards are already held on Issuance contract, so wiping registry's balance ledger effectively confiscates
         // them
         balances[validatorAddress] = 0;
-        // confiscate outstanding stake balance by consolidating it on the Issuance contract
-        uint256 confiscatedStake = outstandingBalance < initialStakeAmt ? outstandingBalance : initialStakeAmt;
-        (bool r,) = issuance.call{ value: confiscatedStake }("");
+        // confiscate the validator's entire stake-backed native TEL, including any previously
+        // slashed remainder still held by this contract, by consolidating it on Issuance
+        (bool r,) = issuance.call{ value: initialStakeAmt }("");
         // this is believed to be impossible
         if (!r) revert IssuanceTransferFailed();
 
@@ -976,7 +1052,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _exit(validator, currentEpoch);
         _retire(validator);
         address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient);
+        _unstake(validatorAddress, recipient, true);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch
@@ -1171,6 +1247,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
 
         // set stake storage configs
+        if (genesisConfig_.epochDuration == 0) revert InvalidDuration(genesisConfig_.epochDuration);
         versions[0] = genesisConfig_;
 
         // set nextCommitteeSize based on current committee

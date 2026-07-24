@@ -462,4 +462,48 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
             consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validatorAddr, targetVersion);
         }
     }
+
+    /// @dev The four genesis validators in ascending address order, as `concludeEpoch` requires
+    /// for future committees. Note genesis storage committees are in constructor push order
+    /// (`[validator1..validator4]`), not this sorted order.
+    function _sortedGenesisCommittee() internal view returns (address[] memory sorted) {
+        sorted = new address[](4);
+        sorted[0] = validator1;
+        sorted[1] = validator2;
+        sorted[2] = validator3;
+        sorted[3] = validator4;
+        _sortAddresses(sorted);
+    }
+
+    /// @dev Concludes two epochs with the sorted genesis committee so every ring-buffer slot has
+    /// been written by `_updateEpochInfo` (recent epochs 0-2 seated, futures 3-4 scheduled) and the
+    /// registry sits at epoch 2 in steady state.
+    function _seatCommittees() internal {
+        address[] memory committee = _sortedGenesisCommittee();
+        vm.startPrank(consensusRegistry.SYSTEM_ADDRESS());
+        consensusRegistry.concludeEpoch(committee);
+        consensusRegistry.concludeEpoch(committee);
+        vm.stopPrank();
+    }
+
+    /// @dev Mints, stakes, and activates `validator5`, leaving it `PendingActivation`
+    /// (committee-eligible but not yet seated in any stored committee).
+    function _addFifthValidator() internal {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        vm.startPrank(validator5);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
+        consensusRegistry.activate();
+        vm.stopPrank();
+    }
+
+    /// @dev Asserts `who` does not appear in the stored committee for `epoch`.
+    function _assertCommitteeExcludes(uint32 epoch, address who) internal view {
+        address[] memory committee = consensusRegistry.getEpochInfo(epoch).committee;
+        for (uint256 i; i < committee.length; ++i) {
+            assertTrue(committee[i] != who, "committee contains excluded validator");
+        }
+    }
 }
