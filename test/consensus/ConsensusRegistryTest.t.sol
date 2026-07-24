@@ -10,6 +10,7 @@ import { StakeManager } from "src/consensus/StakeManager.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { IConsensusRegistry } from "src/interfaces/IConsensusRegistry.sol";
+import { Issuance } from "src/consensus/Issuance.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
 contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
@@ -642,7 +643,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator1, stakeAmount_);
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
 
         // validator1 earned 4 epochs' rewards, split between 4 validators
         uint256 finalBalance = validator1.balance;
@@ -665,7 +666,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // unstake to abort activation
         vm.expectEmit(true, true, true, true);
         emit RewardsClaimed(validator5, stakeAmount_);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
 
@@ -683,7 +684,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
 
         vm.prank(nonValidator);
         vm.expectRevert();
-        consensusRegistry.unstake(nonValidator);
+        consensusRegistry.unstake(nonValidator, false);
     }
 
     // Test for unstake by a validator who has not exited
@@ -704,7 +705,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
             ValidatorInfo(validator5, 1, 0, ValidatorStatus.PendingActivation, false, 0, 0)
         );
         vm.expectRevert(err);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         vm.stopPrank();
     }
@@ -1476,7 +1477,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // --- delegator unstakes ---
         vm.deal(address(consensusRegistry), stakeAmount_);
         vm.prank(delegator);
-        consensusRegistry.unstake(validator5);
+        consensusRegistry.unstake(validator5, false);
 
         // delegation must be cleared
         assertFalse(consensusRegistry.isDelegated(validator5));
@@ -1570,7 +1571,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // on unstake the slashed remainder consolidates on Issuance and the reduced stake returns
         _exitValidator1ToUnstakeEligibility();
         vm.prank(validator1);
-        consensusRegistry.unstake(validator1);
+        consensusRegistry.unstake(validator1, false);
 
         assertEq(validator1.balance, stakeAmount_ - slashAmt);
         assertEq(issuance.balance, issuanceBalBefore + slashAmt);
@@ -1623,5 +1624,99 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validator1.balance, 0);
         assertEq(issuance.balance, issuanceBalBefore + stakeAmount_);
         assertEq(address(consensusRegistry).balance, registryBalBefore - stakeAmount_);
+    }
+
+    /*
+     *   reward-shortfall unstaking
+     */
+
+    function test_unstake_acceptRewardShortfall_paysFullRewardsWhenFunded() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // with a funded reward pool a shortfall-accepting unstake is identical to a normal unstake:
+        // nothing payable is ever forfeited
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_ + accrued);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+
+        assertEq(validator1.balance, stakeAmount_ + accrued);
+        assertTrue(consensusRegistry.isRetired(validator1));
+        assertEq(issuance.balance, issuanceBalBefore - accrued);
+    }
+
+    function test_unstake_acceptRewardShortfall_insufficientIssuanceBalance() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 0);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        // empty the reward pool so accrued rewards can no longer be paid out
+        vm.deal(issuance, 0);
+
+        // a normal unstake cannot cover the rewards owed and reverts
+        vm.prank(validator1);
+        vm.expectRevert(
+            abi.encodeWithSelector(Issuance.InsufficientBalance.selector, stakeAmount_, stakeAmount_ + accrued)
+        );
+        consensusRegistry.unstake(validator1, false);
+
+        // the shortfall-accepting path still returns the stake, forfeiting only the unpayable rewards
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+        assertEq(validator1.balance, stakeAmount_);
+        assertEq(issuance.balance, 0);
+    }
+
+    function test_unstake_acceptRewardShortfall_partialShortfall() public {
+        // validator1 accrues rewards
+        RewardInfo[] memory rewardInfos = new RewardInfo[](1);
+        rewardInfos[0] = RewardInfo(validator1, 10);
+        vm.prank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        uint256 accrued = consensusRegistry.getRewards(validator1);
+        assertGt(accrued, 1);
+
+        _exitValidator1ToUnstakeEligibility();
+
+        // leave the reward pool able to cover only part of the accrued rewards
+        uint256 payableRewards = accrued / 2;
+        vm.deal(issuance, payableRewards);
+
+        // a normal unstake still reverts on the shortfall
+        vm.prank(validator1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Issuance.InsufficientBalance.selector, payableRewards + stakeAmount_, stakeAmount_ + accrued
+            )
+        );
+        consensusRegistry.unstake(validator1, false);
+
+        // the shortfall-accepting path pays the stake plus the payable portion, forfeiting only the shortfall
+        vm.expectEmit(true, true, true, true);
+        emit RewardsClaimed(validator1, stakeAmount_ + payableRewards);
+        vm.prank(validator1);
+        consensusRegistry.unstake(validator1, true);
+
+        assertEq(validator1.balance, stakeAmount_ + payableRewards);
+        assertEq(issuance.balance, 0);
+        assertTrue(consensusRegistry.isRetired(validator1));
     }
 }

@@ -610,7 +610,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc StakeManager
-    function unstake(address validatorAddress) external override whenNotPaused nonReentrant {
+    function unstake(address validatorAddress, bool acceptRewardShortfall) external override whenNotPaused nonReentrant {
         // require validator holds a ConsensusNFT and the caller is the validator or its delegator
         address recipient = _checkStakeOriginator(validatorAddress);
 
@@ -621,8 +621,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // permanently retire the validator and burn the ConsensusNFT
         _retire(validator);
 
-        // return stake and send any outstanding rewards
-        uint256 stakeAndRewards = _unstake(validatorAddress, recipient);
+        // return stake plus rewards; accepting a reward shortfall forfeits only rewards Issuance cannot cover
+        uint256 stakeAndRewards = _unstake(validatorAddress, recipient, acceptRewardShortfall);
 
         emit RewardsClaimed(recipient, stakeAndRewards);
     }
@@ -977,7 +977,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         _exit(validator, currentEpoch);
         _retire(validator);
         address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient);
+        _unstake(validatorAddress, recipient, true);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch
