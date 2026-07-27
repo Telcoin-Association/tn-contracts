@@ -116,4 +116,45 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
         emit log_named_uint("concludeEpoch gas: N=150 committee + 150 rewards + 15 slashes + 150 settling decreases", gasUsed);
         emit log_named_uint("budget", SYSTEM_CALL_GAS_BUDGET);
     }
+
+    /// @dev The committee stays protocol-capped while the settlement wave scales with the full
+    /// in-service set: every validator queues a decrease and all entries age out at one boundary
+    function test_gas_concludeEpoch_settlementWave_1000() public {
+        uint256 n = 1000;
+        _scaleValidators(n);
+        vm.prank(crOwner);
+        consensusRegistry.setNextCommitteeSize(100);
+        address[] memory committee = _createTokenIdCommittee(100);
+
+        vm.startPrank(sysAddress);
+        _concludeEpoch(committee);
+        vm.stopPrank();
+
+        vm.prank(crOwner);
+        uint8 lowVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(600_000e18, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+        for (uint256 secret = 1; secret <= n; ++secret) {
+            address v = _addressFromPrivateKey(secret);
+            vm.prank(v);
+            consensusRegistry.requestStakeVersionChange(v, lowVersion);
+        }
+
+        // one aging boundary so every queued decrease settles at the measured call
+        vm.startPrank(sysAddress);
+        _concludeEpoch(committee);
+        vm.stopPrank();
+
+        RewardInfo[] memory rewardInfos = new RewardInfo[](100);
+        for (uint256 i; i < 100; ++i) {
+            rewardInfos[i] = RewardInfo(_addressFromPrivateKey(i + 1), 10);
+        }
+
+        vm.prank(sysAddress);
+        uint256 g = gasleft();
+        consensusRegistry.concludeEpoch(committee, rewardInfos, _noSlashes());
+        uint256 gasUsed = g - gasleft();
+        emit log_named_uint("concludeEpoch gas: 100 committee + 100 rewards + 1000 settling decreases", gasUsed);
+        emit log_named_uint("budget", SYSTEM_CALL_GAS_BUDGET);
+    }
 }
