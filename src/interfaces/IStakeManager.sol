@@ -216,8 +216,9 @@ interface IStakeManager {
     /// @notice If the new version requires more stake, `msg.value` must equal the exact deficit; it
     /// is escrowed in the queue entry (not in the stake balance) until the boundary flip.
     /// @notice If the new version requires less stake, no value moves at request time. At settlement
-    /// the surplus above the new stake amount is refunded to the reward recipient from the balance
-    /// as it stands post-slash; the slashed remainder of the surplus is consolidated on Issuance.
+    /// the surplus above the new stake amount, computed from the balance as it stands post-slash,
+    /// is credited to the reward recipient for `claimRefund` withdrawal; the slashed remainder of
+    /// the surplus is consolidated on Issuance.
     /// @notice A repeat request overwrites the pending entry, returning any prior escrow to its
     /// funder and re-stamping the request epoch.
     /// @notice If a validator has been slashed and has accrued rewards, settling a lower
@@ -233,8 +234,8 @@ interface IStakeManager {
     function cancelStakeVersionChange(address validatorAddress) external;
 
     /// @dev Transfers the caller's accumulated refund credit
-    /// @notice Credits accrue when a boundary refund or escrow return could not be pushed to its
-    /// recipient (or when the recipient was retired mid-queue); they are detached from the validator
+    /// @notice Credits accrue from boundary settlement refunds, escrow returns on retirement, and
+    /// user-initiated escrow returns whose push failed; they are detached from the validator
     /// lifecycle and survive burns and retirement
     function claimRefund() external;
 

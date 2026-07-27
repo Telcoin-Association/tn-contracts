@@ -252,14 +252,18 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         vm.prank(validator5);
         consensusRegistry.requestStakeVersionChange(validator5, lowVersion);
 
-        // age past the decrease delay and settle; the refund goes to the delegator (the recipient)
+        // age past the decrease delay and settle; the refund credits to the delegator (the recipient)
         vm.startPrank(sysAddress);
         _concludeEpoch(_sortedGenesisCommittee());
         _concludeEpoch(_sortedGenesisCommittee());
         vm.stopPrank();
 
         assertEq(consensusRegistry.getValidator(validator5).stakeVersion, lowVersion);
-        assertEq(delegator.balance, stakeAmount_ - 600_000e18);
+        uint256 refund = stakeAmount_ - 600_000e18;
+        assertEq(consensusRegistry.claimableRefunds(delegator), refund);
+        vm.prank(delegator);
+        consensusRegistry.claimRefund();
+        assertEq(delegator.balance, refund);
         assertEq(validator5.balance, stakeAmount_); // untouched setUp funds
     }
 
@@ -347,8 +351,10 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         _concludeEpoch(tokenIdCommittee);
         vm.stopPrank();
 
-        // settled during the exit tail: version flipped, surplus refunded
+        // settled during the exit tail: version flipped, surplus credited and claimable
         assertEq(consensusRegistry.getValidator(validator1).stakeVersion, lowVersion);
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, balBefore + 400_000e18);
 
         // resolve the exit and reach unstake eligibility
@@ -501,11 +507,13 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.getValidator(validator2).stakeVersion, 0);
         assertEq(consensusRegistry.getPendingVersionChanges().length, 1);
 
-        // second boundary: the decrease settles
+        // second boundary: the decrease settles as a claimable credit
         uint256 validator2BalBefore = validator2.balance;
         vm.prank(sysAddress);
         _concludeEpoch(_sortedGenesisCommittee());
         assertEq(consensusRegistry.getValidator(validator2).stakeVersion, lowVersion);
+        vm.prank(validator2);
+        consensusRegistry.claimRefund();
         assertEq(validator2.balance, validator2BalBefore + 400_000e18);
         assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
 
@@ -541,9 +549,12 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         vm.prank(sysAddress);
         _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
-        // registry native balance exactly backs the stake ledger: no queue entries, no credits
-        uint256 expected = start + deficit - 200_000e18 - 200_000e18;
-        assertEq(address(consensusRegistry).balance, expected);
+        // registry native balance backs the stake ledger plus the outstanding refund credit:
+        // only the confiscated slash remainder has left for Issuance
+        uint256 refund = 200_000e18;
+        uint256 confiscated = 200_000e18;
+        assertEq(consensusRegistry.claimableRefunds(validator2), refund);
+        assertEq(address(consensusRegistry).balance, start + deficit - confiscated);
 
         uint256 ledgerSum;
         address[4] memory genesis = [validator1, validator2, validator3, validator4];
@@ -551,8 +562,14 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
             (uint256 bal,,) = consensusRegistry.getBalanceBreakdown(genesis[i]);
             ledgerSum += bal;
         }
-        assertEq(ledgerSum, expected);
+        assertEq(ledgerSum + refund, address(consensusRegistry).balance);
         assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
+
+        // draining the credit restores exact stake-ledger backing
+        vm.prank(validator2);
+        consensusRegistry.claimRefund();
+        assertEq(address(consensusRegistry).balance, start + deficit - confiscated - refund);
+        assertEq(ledgerSum, address(consensusRegistry).balance);
     }
 
     /*

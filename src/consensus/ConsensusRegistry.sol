@@ -106,11 +106,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         // stage order is a security invariant: rewards are weighted by the versions active during
         // the closing epoch, slashes land on full old-version collateral, and only then does the
-        // version queue settle, computing refunds from post-slash balances - so no value can leave
-        // the registry at a boundary ahead of that boundary's slashes
+        // version queue settle, computing refunds from post-slash balances. Refunds accrue as
+        // `claimRefund` credits rather than transfers, so no value leaves the registry within this
+        // call and its cost is storage-bounded regardless of recipient behavior
         _applyIncentives(rewardInfos);
         _applySlashes(slashes);
-        (address[] memory refundees, uint256[] memory refunds) = _processStakeVersionQueue();
+        _processStakeVersionQueue();
 
         // ensure future committee is the correct length; checked after slashes so that a
         // slash-to-zero ejection, which shrinks the next committee size, validates the incoming
@@ -130,13 +131,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         emit NewEpoch(
             EpochInfo(startingCommittee, epochIssuance, uint64(block.number + 1), newEpoch, duration, stakeVersion)
         );
-
-        // settle version-change refunds last, after every ledger and epoch mutation; `_settleValue`
-        // is gas-capped and falls back to a `claimRefund` credit, so no recipient can revert or
-        // grief the boundary
-        for (uint256 i; i < refundees.length; ++i) {
-            _settleValue(refundees[i], refunds[i]);
-        }
     }
 
     /// @dev Distributes the closing epoch's issuance to stake originators, weighted by initial
@@ -214,15 +208,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Third stage of `concludeEpoch`: settles queued stake version changes against post-slash
-    /// balances. Never reverts and pushes no value itself: stale entries are skipped and cleared,
-    /// unaged decreases stay queued, and refunds are returned to the caller for settlement after
-    /// every ledger and epoch mutation. Iteration is bounded by the validator count (one
-    /// ConsensusNFT-gated entry per validator), the same bound `_updateValidatorQueue` iterates
-    function _processStakeVersionQueue() internal returns (address[] memory refundees, uint256[] memory refunds) {
+    /// balances. Never reverts and makes no external calls beyond the trusted Issuance
+    /// consolidation: stale entries are skipped and cleared, unaged decreases stay queued, and
+    /// refunds accrue to `claimableRefunds` for pull-based claiming, so per-entry cost is
+    /// storage-bounded and independent of recipient behavior. Iteration is bounded by the validator
+    /// count (one ConsensusNFT-gated entry per validator), the same bound `_updateValidatorQueue`
+    /// iterates
+    function _processStakeVersionQueue() internal {
         // snapshot to memory first: processing mutates the live set as we iterate
         address[] memory queued = pendingVersionChanges.values();
-        refundees = new address[](queued.length);
-        refunds = new uint256[](queued.length);
         uint32 closingEpoch = currentEpoch;
         uint256 totalConfiscated;
 
@@ -268,7 +262,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 } else if (currentBalance > newStakeAmount) {
                     refund = currentBalance - newStakeAmount;
                 }
-                if (refund > 0) balances[validatorAddress] -= refund;
+                if (refund > 0) {
+                    balances[validatorAddress] -= refund;
+                    address recipient = _getRecipient(validatorAddress);
+                    claimableRefunds[recipient] += refund;
+                    emit RefundQueued(recipient, refund);
+                }
                 totalConfiscated += surplus - refund;
             }
 
@@ -277,8 +276,6 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 delegations[validatorAddress].validatorVersion = pending.targetVersion;
             }
 
-            refundees[i] = _getRecipient(validatorAddress);
-            refunds[i] = refund;
             emit ValidatorStakeVersionUpgraded(
                 validatorAddress, oldVersion, pending.targetVersion, oldStakeAmount, newStakeAmount
             );
@@ -1136,8 +1133,8 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @dev Delivers `amount` to `recipient` through Issuance with a bounded gas stipend, falling
-    /// back to a `claimRefund` credit if the push fails. Keeps every settlement initiated inside
-    /// `concludeEpoch` non-reverting and gas-bounded, so no recipient can disrupt the boundary.
+    /// back to a `claimRefund` credit if the push fails. Used for user-initiated escrow returns
+    /// (cancel and request overwrite); boundary settlements always credit directly instead.
     function _settleValue(address recipient, uint256 amount) internal {
         if (amount == 0) return;
         try Issuance(issuance).distributeStakeReward{ value: amount, gas: REFUND_GAS_LIMIT }(recipient, 0) { }

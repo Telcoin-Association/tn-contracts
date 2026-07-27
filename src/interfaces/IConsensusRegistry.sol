@@ -157,8 +157,9 @@ interface IConsensusRegistry {
     /// @notice Emitted when a pending stake version change is withdrawn before settlement
     /// @param validatorAddress The validator whose pending change was cancelled
     event StakeVersionChangeCanceled(address indexed validatorAddress);
-    /// @notice Emitted when a refund or escrow return could not be pushed to its recipient and was
-    /// credited for a later `claimRefund` pull instead
+    /// @notice Emitted when a refund or escrow return is credited for a later `claimRefund` pull:
+    /// every boundary settlement refund, escrow returns on retirement, and user-initiated escrow
+    /// returns whose push failed
     /// @param recipient The address holding the claimable credit
     /// @param amount The amount added to the recipient's credit
     event RefundQueued(address indexed recipient, uint256 amount);
@@ -213,9 +214,9 @@ interface IConsensusRegistry {
     /// active during the closing epoch, slashes land on the full old-version collateral, and only
     /// then does the version queue settle, computing refunds from post-slash balances - so no value
     /// can leave the registry at a boundary ahead of that boundary's slashes. Validator activation/
-    /// exit processing and the epoch rotation follow; refund transfers run last, after every ledger
-    /// and epoch mutation, through a gas-capped push with a pull-based credit fallback that cannot
-    /// revert this call.
+    /// exit processing and the epoch rotation follow. Settlement refunds accrue as `claimRefund`
+    /// credits rather than transfers, so this call performs no external calls beyond the trusted
+    /// Issuance consolidation and its cost is storage-bounded regardless of recipient behavior.
     /// @param newCommittee The future validator committee for `$.currentEpoch + 3`
     /// @param rewardInfos The closing epoch's per-validator consensus header counts; issuance
     /// distribution is not yet enabled during the pilot, so the protocol passes an empty array

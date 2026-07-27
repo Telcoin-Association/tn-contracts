@@ -32,7 +32,7 @@ At the epoch boundary, the protocol performs gasless system calls to the Consens
   - *Stage order*: rewards, then slashes, then version-queue settlement, then epoch rotation, then refund transfers. The order is a security invariant: rewards are weighted by the versions active during the closing epoch, slashes land on full old-version collateral, and settlement refunds are computed from post-slash balances, so no value can leave the registry at a boundary ahead of that boundary's slashes.
   - *Rewards*: incremented per validator based on performance (consensus header count) and stake version weight. Not yet enabled during the pilot; the protocol passes an empty array.
   - *Slashing*: decrements validators' stakes as penalties; a slash to zero ejects and retires the validator. Not yet enabled during the pilot; the protocol passes an empty array.
-  - *Refund delivery*: settlement refunds are pushed through Issuance with a bounded gas stipend; a failed push falls back to a `claimRefund` credit, so no recipient can revert or grief the boundary.
+  - *Refund delivery*: settlement refunds accrue as `claimRefund` credits rather than transfers, so the boundary call performs no external calls beyond the trusted Issuance consolidation and its gas cost is storage-bounded regardless of recipient behavior. User-initiated escrow returns (cancel, request overwrite) push through Issuance with a bounded gas stipend, falling back to the same credit on failure.
 
 ### Committee Size Configuration
 

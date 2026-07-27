@@ -922,7 +922,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(validator1.balance, recipientBalBefore);
         assertEq(consensusRegistry.getPendingVersionChanges().length, 1);
 
-        // the second boundary settles: version flips and the surplus is refunded
+        // the second boundary settles: version flips and the surplus is credited for claiming
         vm.prank(sysAddress);
         _concludeEpoch(_sortedGenesisCommittee());
 
@@ -932,9 +932,13 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         (uint256 balance, uint256 stakeAmt,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balance, newStakeAmt);
         assertEq(stakeAmt, newStakeAmt);
-        // surplus refunded to validator1 (who is the recipient since no delegator)
+        // surplus credited to validator1 (who is the recipient since no delegator) and claimable
         uint256 surplus = stakeAmount_ - newStakeAmt;
+        assertEq(consensusRegistry.claimableRefunds(validator1), surplus);
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + surplus);
+        assertEq(consensusRegistry.claimableRefunds(validator1), 0);
         assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
     }
 
@@ -1093,9 +1097,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         vm.prank(sysAddress);
         _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
-        // Partial refund: balance(800k) - newStakeAmt(600k) = 200k refund (not the full 400k surplus)
+        // Partial refund: balance(800k) - newStakeAmt(600k) = 200k credit (not the full 400k surplus)
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balAfter, newStakeAmt);
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + 200_000e18);
         assertEq(consensusRegistry.getValidator(validator1).stakeVersion, newVersion);
     }
@@ -1202,8 +1208,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         assertEq(balAfter, newStakeAmt);
         assertEq(stakeAmt, newStakeAmt);
 
-        // Recipient gets refund: 800k - 600k = 200k
+        // Recipient claims the refund credit: 800k - 600k = 200k
         uint256 refundAmount = 200_000e18;
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + refundAmount);
 
         // Confiscated amount (1M - 800k = 200k) sent to Issuance
@@ -1268,8 +1276,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
         assertEq(rewardsAfter, 0);
 
-        // Recipient gets correct refund (balanceAfterSlash - newStakeAmt)
+        // Recipient claims the correct refund credit (balanceAfterSlash - newStakeAmt)
         uint256 expectedRefund = balAfterSlash - newStakeAmt;
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + expectedRefund);
     }
 
@@ -1313,8 +1323,10 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 rewardsAfter = consensusRegistry.getRewards(validator1);
         assertEq(rewardsAfter, rewardsBefore);
 
-        // Recipient gets exact surplus (oldStake - newStake = 500k)
+        // Recipient claims the exact surplus (oldStake - newStake = 500k)
         uint256 surplus = stakeAmount_ - newStakeAmt;
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + surplus);
     }
 
@@ -1452,9 +1464,11 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         _concludeEpoch(_sortedGenesisCommittee());
         vm.stopPrank();
 
-        // Verify: full stake refunded, balance = 0
+        // Verify: full stake credited and claimable, balance = 0
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
         assertEq(balAfter, 0);
+        vm.prank(validator1);
+        consensusRegistry.claimRefund();
         assertEq(validator1.balance, recipientBalBefore + stakeAmount_);
     }
 

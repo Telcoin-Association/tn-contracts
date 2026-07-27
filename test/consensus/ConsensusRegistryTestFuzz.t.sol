@@ -413,7 +413,10 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             assertEq(info.stakeVersion, newVersion);
 
             if (expectedRefunds[i] > 0) {
-                // refund goes through Issuance.distributeStakeReward, which sends to recipient (v)
+                // the refund accrues as a claimRefund credit for the recipient (v)
+                assertEq(consensusRegistry.claimableRefunds(v), expectedRefunds[i]);
+                vm.prank(v);
+                consensusRegistry.claimRefund();
                 assertEq(v.balance, recipientBalsBefore[i] + expectedRefunds[i]);
             }
 

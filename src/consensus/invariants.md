@@ -60,7 +60,7 @@
 - stake decreases age `STAKE_DECREASE_DELAY_EPOCHS` boundaries before settling; settlement refunds are computed from post-slash balances, and no request or cancellation timing can move value ahead of a slash
 - during a stake-decreasing settlement on a slashed validator, the confiscated slash portion is sent to Issuance for future epoch rewards, matching the `_unstake` confiscation pattern
 - validators with both accrued rewards and a pending slash should claim rewards before requesting a stake-decreasing change; a stake-decreasing settlement on a partially slashed validator may zero claimable rewards (the recipient still receives the correct total ETH via the refund)
-- boundary refund pushes are gas-capped and fall back to a `claimRefund` credit on failure, so no recipient can revert or grief concludeEpoch; credits are keyed by recipient and survive validator retirement
+- boundary settlement refunds always accrue as `claimRefund` credits, so concludeEpoch performs no recipient-facing external calls and no recipient can revert or grief it; credits are keyed by recipient and survive validator retirement; user-initiated escrow returns push with a gas cap and fall back to the same credit
 - retiring a validator (unstake, governance burn, slash-to-zero) drops its queue entry and credits any escrow back to the funder; escrow is never confiscable
 - the registry's native balance always backs the sum of stake balances (up to lazily consolidated slash remainders), queue escrows, and unclaimed refund credits
 - `requestStakeVersionChange` only permits forward version changes (targetVersion > currentVersion); moving to an earlier version index is rejected
