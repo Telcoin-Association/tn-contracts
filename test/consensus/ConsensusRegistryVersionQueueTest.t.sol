@@ -32,12 +32,13 @@ contract QueueRecipientMock {
         bytes memory blsPubkey,
         IStakeManager.ProofOfPossession memory pop,
         address validatorAddress,
-        bytes memory validatorSig
+        bytes memory validatorSig,
+        uint256 deadline
     )
         external
         payable
     {
-        registry.delegateStake{ value: msg.value }(blsPubkey, pop, validatorAddress, validatorSig);
+        registry.delegateStake{ value: msg.value }(blsPubkey, pop, validatorAddress, validatorSig, deadline);
     }
 
     function claim() external {
@@ -92,13 +93,20 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         );
     }
 
-    /// @dev Mints validator5 and returns its EIP-712 delegation signature for `delegatorAddr`
+    /// @dev Mints validator5 and returns its EIP-712 delegation signature for `delegatorAddr`,
+    /// bound to `_delegationDeadline()`
     function _mintValidator5AndSignDelegation(address delegatorAddr) internal returns (bytes memory sig) {
         vm.prank(crOwner);
         consensusRegistry.mint(validator5);
-        bytes32 digest = consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegatorAddr);
+        bytes32 digest =
+            consensusRegistry.delegationDigest(validator5BlsPubkey, validator5, delegatorAddr, _delegationDeadline());
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validator5Secret, digest);
         sig = abi.encodePacked(r, s, v);
+    }
+
+    /// @dev Deterministic delegation deadline shared between digest signing and delegateStake
+    function _delegationDeadline() internal view returns (uint256) {
+        return block.timestamp + 1 days;
     }
 
     /*
@@ -241,7 +249,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         vm.deal(delegator, stakeAmount_);
         vm.prank(delegator);
         consensusRegistry.delegateStake{ value: stakeAmount_ }(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig, _delegationDeadline()
         );
 
         // enter service so the request routes through the queue
@@ -274,7 +282,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         vm.deal(delegator, stakeAmount_);
         vm.prank(delegator);
         consensusRegistry.delegateStake{ value: stakeAmount_ }(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig, _delegationDeadline()
         );
         vm.prank(validator5);
         consensusRegistry.activate();
@@ -383,7 +391,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
 
         vm.deal(address(this), stakeAmount_);
         mock.delegate{ value: stakeAmount_ }(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig, _delegationDeadline()
         );
         vm.prank(validator5);
         consensusRegistry.activate();
@@ -424,7 +432,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
 
         vm.deal(address(this), stakeAmount_);
         mock.delegate{ value: stakeAmount_ }(
-            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig), validator5, sig, _delegationDeadline()
         );
         vm.prank(validator5);
         consensusRegistry.activate();
