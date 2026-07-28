@@ -3,7 +3,7 @@ pragma solidity 0.8.35;
 
 import "forge-std/Test.sol";
 import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
-import { RewardInfo, IStakeManager } from "src/interfaces/IStakeManager.sol";
+import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { BlsG1PrecompileMockDeployed } from "./BlsG1PrecompileMock.sol";
 import { Issuance } from "src/consensus/Issuance.sol";
 import { GenesisPrecompiler } from "deployments/genesis/GenesisPrecompiler.sol";
@@ -445,7 +445,7 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
         );
     }
 
-    function _fuzz_upgradeValidatorStakeVersions(
+    function _fuzz_requestStakeVersionChanges(
         uint24 numValidators,
         uint8 targetVersion,
         uint256 newStakeAmount,
@@ -459,7 +459,75 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
                 vm.deal(validatorAddr, deficit);
             }
             vm.prank(validatorAddr);
-            consensusRegistry.upgradeValidatorStakeVersion{value: deficit}(validatorAddr, targetVersion);
+            consensusRegistry.requestStakeVersionChange{value: deficit}(validatorAddr, targetVersion);
+        }
+    }
+
+    function _noRewards() internal pure returns (RewardInfo[] memory) {
+        return new RewardInfo[](0);
+    }
+
+    function _noSlashes() internal pure returns (Slash[] memory) {
+        return new Slash[](0);
+    }
+
+    /// @dev Concludes an epoch with no rewards and no slashes. Caller manages the system-address
+    /// prank; pranks apply to the external registry call this helper makes.
+    function _concludeEpoch(address[] memory committee) internal {
+        consensusRegistry.concludeEpoch(committee, _noRewards(), _noSlashes());
+    }
+
+    /// @dev Concludes an epoch distributing `rewardInfos`, with no slashes
+    function _concludeEpochWithRewards(address[] memory committee, RewardInfo[] memory rewardInfos) internal {
+        consensusRegistry.concludeEpoch(committee, rewardInfos, _noSlashes());
+    }
+
+    /// @dev Concludes an epoch applying `slashes`, with no rewards
+    function _concludeEpochWithSlashes(address[] memory committee, Slash[] memory slashes) internal {
+        consensusRegistry.concludeEpoch(committee, _noRewards(), slashes);
+    }
+
+    /// @dev The four genesis validators in ascending address order, as `concludeEpoch` requires
+    /// for future committees. Note genesis storage committees are in constructor push order
+    /// (`[validator1..validator4]`), not this sorted order.
+    function _sortedGenesisCommittee() internal view returns (address[] memory sorted) {
+        sorted = new address[](4);
+        sorted[0] = validator1;
+        sorted[1] = validator2;
+        sorted[2] = validator3;
+        sorted[3] = validator4;
+        _sortAddresses(sorted);
+    }
+
+    /// @dev Concludes two epochs with the sorted genesis committee so every ring-buffer slot has
+    /// been written by `_updateEpochInfo` (recent epochs 0-2 seated, futures 3-4 scheduled) and the
+    /// registry sits at epoch 2 in steady state.
+    function _seatCommittees() internal {
+        address[] memory committee = _sortedGenesisCommittee();
+        vm.startPrank(consensusRegistry.SYSTEM_ADDRESS());
+        _concludeEpoch(committee);
+        _concludeEpoch(committee);
+        vm.stopPrank();
+    }
+
+    /// @dev Mints, stakes, and activates `validator5`, leaving it `PendingActivation`
+    /// (committee-eligible but not yet seated in any stored committee).
+    function _addFifthValidator() internal {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        vm.startPrank(validator5);
+        consensusRegistry.stake{
+            value: stakeAmount_
+        }(validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig));
+        consensusRegistry.activate();
+        vm.stopPrank();
+    }
+
+    /// @dev Asserts `who` does not appear in the stored committee for `epoch`.
+    function _assertCommitteeExcludes(uint32 epoch, address who) internal view {
+        address[] memory committee = consensusRegistry.getEpochInfo(epoch).committee;
+        for (uint256 i; i < committee.length; ++i) {
+            assertTrue(committee[i] != who, "committee contains excluded validator");
         }
     }
 }

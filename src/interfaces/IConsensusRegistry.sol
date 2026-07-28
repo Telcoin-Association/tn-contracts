@@ -53,9 +53,6 @@ interface IConsensusRegistry {
     error GenesisArityMismatch();
     /// @notice Thrown when a BLS public key has already been registered to another validator
     error DuplicateBLSPubkey();
-    /// @notice Thrown when the compressed `blsPubkey` does not match the uncompressed key whose
-    /// possession was proven (their x-coordinates differ)
-    error BLSPubkeyMismatch();
     /// @notice Thrown when a committee size is zero or exceeds the number of eligible validators
     /// @param minCommitteeSize The minimum acceptable committee size
     /// @param providedCommitteeSize The committee size that was rejected
@@ -82,6 +79,20 @@ interface IConsensusRegistry {
     /// @dev Validators may unstake only if Staked (pre-activation) or Exited with at least one full epoch elapsed
     /// @param validator The full ValidatorInfo of the ineligible validator
     error IneligibleUnstake(ValidatorInfo validator);
+
+    /// @notice Thrown on top-up attempts for a validator whose balance is not below its stake amount
+    /// @param validatorAddress The validator that is not slashed
+    /// @param balance The validator's current outstanding balance
+    /// @param stakeVersion The validator's stake version defining the required stake amount
+    error StakeNotSlashed(address validatorAddress, uint256 balance, uint8 stakeVersion);
+    /// @notice Thrown when a top-up is attempted by a non-governance caller while top-ups
+    /// are restricted to the governance top-up authority
+    error TopUpAuthorityRequired();
+    /// @notice Thrown when a top-up's `msg.value` does not exactly match the validator's stake deficit
+    /// @param validatorAddress The validator being topped up
+    /// @param value The `msg.value` that was provided
+    /// @param stakeVersion The validator's stake version defining the required stake amount
+    error InvalidDeficitAmount(address validatorAddress, uint256 value, uint8 stakeVersion);
 
     /// @notice Emitted when a validator first stakes, entering the Staked lifecycle state
     /// @param validator The newly staked validator's info
@@ -131,6 +142,28 @@ interface IConsensusRegistry {
         uint256 oldStakeAmount,
         uint256 newStakeAmount
     );
+    /// @notice Emitted when an in-service validator requests a stake version change, queued for
+    /// automatic settlement inside `concludeEpoch`
+    /// @param validatorAddress The validator whose version change was requested
+    /// @param targetVersion The version to adopt at the boundary flip
+    /// @param requestEpoch The epoch in which the request was recorded
+    /// @param escrow The exact stake deficit escrowed for an increase; zero otherwise
+    event StakeVersionChangeRequested(
+        address indexed validatorAddress, uint8 targetVersion, uint32 requestEpoch, uint256 escrow
+    );
+    /// @notice Emitted when a pending stake version change is withdrawn before settlement
+    /// @param validatorAddress The validator whose pending change was cancelled
+    event StakeVersionChangeCanceled(address indexed validatorAddress);
+    /// @notice Emitted when a refund or escrow return is credited for a later `claimRefund` pull:
+    /// every boundary settlement refund, escrow returns on retirement, and user-initiated escrow
+    /// returns whose push failed
+    /// @param recipient The address holding the claimable credit
+    /// @param amount The amount added to the recipient's credit
+    event RefundQueued(address indexed recipient, uint256 amount);
+    /// @notice Emitted when an accumulated refund credit is claimed
+    /// @param recipient The address that received its credit
+    /// @param amount The amount transferred
+    event RefundClaimed(address indexed recipient, uint256 amount);
     /// @notice Emitted when governance or the protocol adjusts the next epoch's committee size
     /// @param oldSize The previous nextCommitteeSize value
     /// @param newSize The updated nextCommitteeSize value
@@ -141,6 +174,30 @@ interface IConsensusRegistry {
     /// in-place upgrade from a deployment that predates them
     /// @param eligibleValidatorCount The committee-eligible count after the back-fill
     event ValidatorSetsMigrated(uint256 eligibleValidatorCount);
+
+    /// @notice Emitted when governance authors a new global stake-config version, which validators
+    /// may subsequently adopt via per-validator version changes
+    /// @param version The newly authored version index (the new global `stakeVersion`)
+    /// @param stakeAmount The version's required native TEL stake per validator
+    /// @param minWithdrawAmount The version's minimum reward threshold for claims
+    /// @param epochIssuance The version's total TEL distributed as rewards per epoch
+    /// @param epochDuration The version's epoch duration
+    event StakeVersionAuthored(
+        uint8 indexed version,
+        uint256 stakeAmount,
+        uint256 minWithdrawAmount,
+        uint256 epochIssuance,
+        uint32 epochDuration
+    );
+
+    /// @notice Emitted when governance toggles whether `topUpSlashedStake` is restricted to
+    /// the governance top-up authority
+    /// @param required The new value of the `topUpAuthorityRequired` flag
+    event TopUpAuthorityRequirementUpdated(bool required);
+    /// @notice Emitted when a slashed validator's balance is restored to its version's full stake amount
+    /// @param validatorAddress The validator whose stake was topped up
+    /// @param amount The deficit that was provided and consolidated on the Issuance contract
+    event ValidatorStakeToppedUp(address indexed validatorAddress, uint256 amount);
 
     /// @dev Validators marked `Active || PendingActivation || PendingExit` are still operational
     /// and thus eligible for committees. Queriable via `getValidators(Active)` status
@@ -163,24 +220,26 @@ interface IConsensusRegistry {
         Any
     }
 
-    /// @notice Voting Validator Committee changes at the end every epoch via syscall
-    /// @dev Accepts the committee of voting validators for 2 epochs in the future
+    /// @notice The single epoch-boundary system call: distributes the closing epoch's rewards,
+    /// applies its slashes, settles queued stake version changes, and rotates the epoch
+    /// @dev The internal stage order is a security invariant. Incentives are weighted by the version
+    /// active during the closing epoch, slashes land on the full old-version collateral, and only
+    /// then does the version queue settle, computing refunds from post-slash balances - so no value
+    /// can leave the registry at a boundary ahead of that boundary's slashes. Validator activation/
+    /// exit processing and the epoch rotation follow. Settlement refunds accrue as `claimRefund`
+    /// credits rather than transfers, so this call performs no external calls beyond the trusted
+    /// Issuance consolidation and its cost is storage-bounded regardless of recipient behavior.
     /// @param newCommittee The future validator committee for `$.currentEpoch + 3`
-    function concludeEpoch(address[] calldata newCommittee) external;
-
-    /// @dev The network's epoch issuance distribution method, rewarding stake originators
-    /// based on initial stake and on the validator's performance (consensus header count)
-    /// @notice Stake originators are either a delegator if one exists, or the validator itself
-    /// @notice Called just before concluding the current epoch
-    /// @notice Not yet enabled during pilot, but scaffolding is included here.
-    /// For the time being, system calls to this fn can provide empty calldata arrays
-    function applyIncentives(RewardInfo[] calldata rewardInfos) external;
-
-    /// @dev The network's slashing mechanism, which penalizes validators for misbehaving
-    /// @notice Called just before concluding the current epoch
-    /// @notice Not yet enabled during pilot, but scaffolding is included here.
-    /// For the time being, system calls to this fn can provide empty calldata arrays
-    function applySlashes(Slash[] calldata slashes) external;
+    /// @param rewardInfos The closing epoch's per-validator consensus header counts; issuance
+    /// distribution is not yet enabled during the pilot, so the protocol passes an empty array
+    /// @param slashes The closing epoch's penalties; slashing is not yet enabled during the pilot,
+    /// so the protocol passes an empty array
+    function concludeEpoch(
+        address[] calldata newCommittee,
+        RewardInfo[] calldata rewardInfos,
+        Slash[] calldata slashes
+    )
+        external;
 
     /// @dev Self-activation function for validators, gaining `PendingActivation` status and setting
     /// next epoch as activation epoch to ensure rewards eligibility only after completing a full epoch
@@ -211,7 +270,9 @@ interface IConsensusRegistry {
     function getCurrentEpochInfo() external view returns (EpochInfo memory);
 
     /// @dev Returns information about the provided epoch. Only four latest & two future epochs are stored
-    /// @notice When querying for future epochs, `blockHeight` will be 0 as they are not yet known
+    /// @notice For future epochs, the config fields (issuance, duration, stake version) are a
+    /// projection from the latest authored configuration and can change until the epoch is
+    /// stamped at its start; `blockHeight` is always 0 as it is not yet known
     function getEpochInfo(uint32 epoch) external view returns (EpochInfo memory);
 
     /// @dev Returns the addresses of validators in exactly the provided status's set, in the set's
@@ -251,4 +312,16 @@ interface IConsensusRegistry {
     /// @notice After retiring, a validator's `tokenId == validatorAddress` cannot be reused
     function isRetired(address validatorAddress) external view returns (bool);
 
+    /// @notice Restores a slashed validator's balance to its version's full stake amount
+    /// @dev `msg.value` must equal the exact deficit; it is consolidated on the Issuance contract
+    /// since this contract retains the full stake-backed native TEL when slashes are applied
+    /// @dev Callable by governance at any time; by the validator or its delegator only while
+    /// `topUpAuthorityRequired` is false
+    /// @param validatorAddress The slashed validator to top up; must be `Staked`,
+    /// `PendingActivation`, or `Active`
+    function topUpSlashedStake(address validatorAddress) external payable;
+
+    /// @notice Toggles whether `topUpSlashedStake` is restricted to the governance top-up authority
+    /// @dev Only callable by governance (owner)
+    function setTopUpAuthorityRequired(bool required) external;
 }

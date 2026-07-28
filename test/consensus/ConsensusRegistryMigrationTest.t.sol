@@ -88,6 +88,28 @@ contract ConsensusRegistryMigrationTest is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.getValidators(ValidatorStatus.Active).length, 4);
     }
 
+    function test_migrateValidatorSets_reindexesBlsReverseLookup() public {
+        // emulate a deployment whose BLS reverse index is keyed by keccak256(blsPubkey) rather than the
+        // canonical `_blsKeyId` (x-coordinate) used by every current read path
+        for (uint256 i; i < initialValidators.length; ++i) {
+            bytes memory pubkey = initialBlsPubkeys[i];
+            address v = initialValidators[i].validatorAddress;
+
+            _storeBlsReverseIndex(_blsKeyIdLocal(pubkey), address(0));
+            _storeBlsReverseIndex(keccak256(pubkey), v);
+
+            assertFalse(consensusRegistry.isValidator(pubkey), "reverse index should miss pre-migration");
+        }
+
+        vm.prank(sysAddress);
+        consensusRegistry.migrateValidatorSets();
+
+        // every validator now resolves through the `_blsKeyId`-keyed slot, and the stale slot is cleared
+        for (uint256 i; i < initialValidators.length; ++i) {
+            assertTrue(consensusRegistry.isValidator(initialBlsPubkeys[i]), "reverse index reindexed");
+        }
+    }
+
     function test_migrateValidatorSets_revertsForNonSystemCaller() public {
         vm.expectRevert(abi.encodeWithSelector(SystemCallable.OnlySystemCall.selector, address(this)));
         consensusRegistry.migrateValidatorSets();
@@ -128,5 +150,20 @@ contract ConsensusRegistryMigrationTest is ConsensusRegistryTestUtils {
             }
         }
         vm.store(address(consensusRegistry), bytes32(uint256(43)), bytes32(0)); // eligibleValidatorCount = 0
+    }
+
+    /// @dev Writes `blsPubkeyHashToValidator[key] = v` directly. The mapping lives at storage slot 16
+    /// (see `forge inspect ConsensusRegistry storage-layout`).
+    function _storeBlsReverseIndex(bytes32 key, address v) internal {
+        bytes32 slot = keccak256(abi.encode(key, uint256(16)));
+        vm.store(address(consensusRegistry), slot, bytes32(uint256(uint160(v))));
+    }
+
+    /// @dev Mirrors `ConsensusRegistry._blsKeyId`: keccak of the 96-byte compressed key with the three
+    /// flag bits in the most-significant byte cleared.
+    function _blsKeyIdLocal(bytes memory compressed) internal pure returns (bytes32) {
+        bytes memory b = bytes.concat(compressed);
+        b[0] = b[0] & bytes1(0x1f);
+        return keccak256(b);
     }
 }
