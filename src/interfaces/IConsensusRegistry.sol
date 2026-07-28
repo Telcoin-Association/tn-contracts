@@ -53,9 +53,6 @@ interface IConsensusRegistry {
     error GenesisArityMismatch();
     /// @notice Thrown when a BLS public key has already been registered to another validator
     error DuplicateBLSPubkey();
-    /// @notice Thrown when the compressed `blsPubkey` does not match the uncompressed key whose
-    /// possession was proven (their x-coordinates differ)
-    error BLSPubkeyMismatch();
     /// @notice Thrown when a committee size is zero or exceeds the number of eligible validators
     /// @param minCommitteeSize The minimum acceptable committee size
     /// @param providedCommitteeSize The committee size that was rejected
@@ -177,6 +174,21 @@ interface IConsensusRegistry {
     /// in-place upgrade from a deployment that predates them
     /// @param eligibleValidatorCount The committee-eligible count after the back-fill
     event ValidatorSetsMigrated(uint256 eligibleValidatorCount);
+
+    /// @notice Emitted when governance authors a new global stake-config version, which validators
+    /// may subsequently adopt via per-validator version changes
+    /// @param version The newly authored version index (the new global `stakeVersion`)
+    /// @param stakeAmount The version's required native TEL stake per validator
+    /// @param minWithdrawAmount The version's minimum reward threshold for claims
+    /// @param epochIssuance The version's total TEL distributed as rewards per epoch
+    /// @param epochDuration The version's epoch duration
+    event StakeVersionAuthored(
+        uint8 indexed version,
+        uint256 stakeAmount,
+        uint256 minWithdrawAmount,
+        uint256 epochIssuance,
+        uint32 epochDuration
+    );
 
     /// @notice Emitted when governance toggles whether `topUpSlashedStake` is restricted to
     /// the governance top-up authority

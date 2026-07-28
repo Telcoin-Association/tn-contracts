@@ -845,6 +845,30 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     }
 
     /*
+     *   upgradeStakeVersion (governance authoring)
+     */
+
+    function test_upgradeStakeVersion_emitsStakeVersionAuthored() public {
+        uint256 newStakeAmt = 2_000_000e18;
+
+        vm.expectEmit(true, true, true, true);
+        emit StakeVersionAuthored(1, newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_);
+        vm.prank(crOwner);
+        uint8 newVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+        assertEq(newVersion, 1);
+
+        // each authored version emits with its own incremented index
+        vm.expectEmit(true, true, true, true);
+        emit StakeVersionAuthored(2, newStakeAmt / 2, minWithdrawAmount_, epochIssuance_, epochDuration_);
+        vm.prank(crOwner);
+        consensusRegistry.upgradeStakeVersion(
+            StakeConfig(newStakeAmt / 2, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+    }
+
+    /*
      *   requestStakeVersionChange
      */
 
