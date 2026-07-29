@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
+import { SystemCallable } from "./SystemCallable.sol";
 
 /// @title WorkerConfigs
 /// @notice Strategy-agnostic per-worker fee config store.
@@ -16,12 +17,7 @@ import { IWorkerConfigs } from "../interfaces/IWorkerConfigs.sol";
 /// `numWorkers()` and iterates `getWorkerConfig(0 .. numWorkers-1)` to
 /// build the per-worker fee parameters for the upcoming epoch. The contract
 /// therefore acts as the on-chain source of truth for worker fee policy.
-contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
-    /// @notice Highest strategy id this contract accepts.
-    /// @dev Must move in lockstep with the `WorkerFeeConfig` enum in
-    ///      `tn-types::gas_accumulator` (0 = EIP-1559, 1 = Static).
-    uint8 public constant MAX_STRATEGY = 1;
-
+contract WorkerConfigs is Ownable2Step, IWorkerConfigs, SystemCallable {
     /// @notice The number of workers (used by protocol at epoch boundaries).
     uint16 public numWorkers;
 
@@ -32,7 +28,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     struct WorkerConfig {
         uint8 strategy;
         uint64 value;
-        uint128 data;
+        uint184 data;
     }
 
     /// @notice Per-worker config storage.
@@ -42,6 +38,13 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     /// @dev Lets us treat zero values as legal data (e.g. `Static{fee: 0}`) while still
     ///      detecting "never configured" workers in `setNumWorkers`.
     mapping(uint256 => bool) internal _workerConfigSet;
+
+    /// @notice Highest strategy id this contract accepts.
+    /// @dev Must move in lockstep with the `WorkerFeeConfig` enum in
+    ///      `tn-types::gas_accumulator` (0 = EIP-1559, 1 = Static); governance raises it via
+    ///      `setMaxStrategy` when the protocol ships a new strategy. Appended at the storage
+    ///      tail so every pre-existing slot is preserved for in-place upgrades.
+    uint8 internal maxStrategy = 1;
 
     /// @notice Deploy with initial configs for every worker.
     /// @dev Reverts `NumWorkersBelowMinimum()` if `strategies` is empty.
@@ -54,7 +57,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     constructor(
         uint8[] memory strategies,
         uint64[] memory values,
-        uint128[] memory datas,
+        uint184[] memory datas,
         address owner_
     )
         Ownable(owner_)
@@ -65,11 +68,54 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         numWorkers = count;
 
         for (uint256 i; i < count; i++) {
-            if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
+            if (strategies[i] > maxStrategy) revert InvalidStrategy(strategies[i]);
             _workerConfigs[i] = WorkerConfig({ strategy: strategies[i], value: values[i], data: datas[i] });
             _workerConfigSet[i] = true;
             emit WorkerConfigUpdated(uint16(i), strategies[i], values[i], datas[i]);
         }
+    }
+
+    /// @inheritdoc IWorkerConfigs
+    function setWorkerConfigsData(uint16[] calldata workerIds, uint184[] calldata datas) external onlySystemCall {
+        if (workerIds.length != datas.length) revert LengthMismatch();
+        for (uint256 i; i < workerIds.length; i++) {
+            uint16 workerId = workerIds[i];
+            // only previously configured workers may be updated, so a system call can never
+            // fabricate coverage that `setNumWorkers` would treat as governance-set
+            if (!_workerConfigSet[workerId]) revert MissingWorkerConfig(workerId);
+            WorkerConfig storage c = _workerConfigs[workerId];
+            c.data = datas[i];
+            emit WorkerConfigUpdated(workerId, c.strategy, c.value, datas[i]);
+        }
+    }
+
+    /// @inheritdoc IWorkerConfigs
+    function setWorkerConfigsValue(uint16[] calldata workerIds, uint64[] calldata values) external onlySystemCall {
+        if (workerIds.length != values.length) revert LengthMismatch();
+        for (uint256 i; i < workerIds.length; i++) {
+            uint16 workerId = workerIds[i];
+            // only previously configured workers may be updated, so a system call can never
+            // fabricate coverage that `setNumWorkers` would treat as governance-set
+            if (!_workerConfigSet[workerId]) revert MissingWorkerConfig(workerId);
+            WorkerConfig storage c = _workerConfigs[workerId];
+            c.value = values[i];
+            emit WorkerConfigUpdated(workerId, c.strategy, values[i], c.data);
+        }
+    }
+
+    /// @inheritdoc IWorkerConfigs
+    function setMaxStrategy(uint8 newMaxStrategy) external onlyOwner {
+        // strategies are append-only on the protocol side, so the ceiling only ever rises;
+        // lowering it would strand stored configs above the new bound
+        if (newMaxStrategy <= maxStrategy) revert InvalidStrategy(newMaxStrategy);
+        uint8 oldValue = maxStrategy;
+        maxStrategy = newMaxStrategy;
+        emit MaxStrategyUpdated(oldValue, newMaxStrategy);
+    }
+
+    /// @inheritdoc IWorkerConfigs
+    function MAX_STRATEGY() external view returns (uint8) {
+        return maxStrategy;
     }
 
     /// @inheritdoc IWorkerConfigs
@@ -88,8 +134,8 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     }
 
     /// @inheritdoc IWorkerConfigs
-    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint128 data) external onlyOwner {
-        if (strategy > MAX_STRATEGY) revert InvalidStrategy(strategy);
+    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint184 data) external onlyOwner {
+        if (strategy > maxStrategy) revert InvalidStrategy(strategy);
         _workerConfigs[workerId] = WorkerConfig({ strategy: strategy, value: value, data: data });
         _workerConfigSet[workerId] = true;
         emit WorkerConfigUpdated(workerId, strategy, value, data);
@@ -100,7 +146,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
         uint16[] calldata workerIds,
         uint8[] calldata strategies,
         uint64[] calldata values,
-        uint128[] calldata datas
+        uint184[] calldata datas
     )
         external
         onlyOwner
@@ -112,7 +158,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
             revert LengthMismatch();
         }
         for (uint256 i; i < workerIds.length; i++) {
-            if (strategies[i] > MAX_STRATEGY) revert InvalidStrategy(strategies[i]);
+            if (strategies[i] > maxStrategy) revert InvalidStrategy(strategies[i]);
             _workerConfigs[workerIds[i]] = WorkerConfig({ strategy: strategies[i], value: values[i], data: datas[i] });
             _workerConfigSet[workerIds[i]] = true;
             emit WorkerConfigUpdated(workerIds[i], strategies[i], values[i], datas[i]);
@@ -120,7 +166,7 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     }
 
     /// @inheritdoc IWorkerConfigs
-    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint128 data) {
+    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint184 data) {
         WorkerConfig storage c = _workerConfigs[workerId];
         return (c.strategy, c.value, c.data);
     }
@@ -129,12 +175,12 @@ contract WorkerConfigs is Ownable2Step, IWorkerConfigs {
     function getAllWorkerConfigs()
         external
         view
-        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint128[] memory datas_)
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint184[] memory datas_)
     {
         count = numWorkers;
         strategies_ = new uint8[](count);
         values_ = new uint64[](count);
-        datas_ = new uint128[](count);
+        datas_ = new uint184[](count);
         for (uint256 i; i < count; i++) {
             WorkerConfig storage c = _workerConfigs[i];
             strategies_[i] = c.strategy;

@@ -16,7 +16,7 @@ interface IWorkerConfigs {
     /// @dev Mirrors the `WorkerFeeConfig` enum in `tn-types::gas_accumulator`:
     ///      0 = EIP-1559, 1 = Static. New strategies bump this constant in lockstep
     ///      with the Rust side and the contract upgrade.
-    function MAX_STRATEGY() external pure returns (uint8);
+    function MAX_STRATEGY() external view returns (uint8);
 
     // ── Errors
     // ──────────────────────────────────────────────────────────
@@ -46,12 +46,17 @@ interface IWorkerConfigs {
     /// @param strategy The raw strategy id.
     /// @param value The config value.
     /// @param data Strategy-specific packed data forwarded to the protocol layer.
-    event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value, uint128 data);
+    event WorkerConfigUpdated(uint256 indexed workerId, uint8 strategy, uint64 value, uint184 data);
 
     /// @notice Emitted when the number of workers changes.
     /// @param oldValue Previous worker count.
     /// @param newValue New worker count.
     event NumWorkersUpdated(uint16 oldValue, uint16 newValue);
+
+    /// @notice Emitted when the maximum strategy is updated.
+    /// @param oldValue Previous maximum strategy.
+    /// @param newValue New maximum strategy.
+    event MaxStrategyUpdated(uint8 oldValue, uint8 newValue);
 
     // ── Mutators
     // ────────────────────────────────────────────────────────
@@ -70,7 +75,7 @@ interface IWorkerConfigs {
     /// @param strategy The raw strategy id (stored without interpretation).
     /// @param value The config value.
     /// @param data Strategy-specific packed data forwarded to the protocol layer.
-    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint128 data) external;
+    function setWorkerConfig(uint16 workerId, uint8 strategy, uint64 value, uint184 data) external;
 
     /// @notice Set or update fee configs for multiple workers in a single call.
     /// @dev Reverts `LengthMismatch()` if array lengths differ.
@@ -83,9 +88,33 @@ interface IWorkerConfigs {
         uint16[] calldata workerIds,
         uint8[] calldata strategies,
         uint64[] calldata values,
-        uint128[] calldata datas
+        uint184[] calldata datas
     )
         external;
+
+    /// @notice Update the strategy-specific packed data for multiple workers in a single call.
+    /// @dev May only be invoked by protocol system call; each worker's strategy and value are
+    ///      preserved. Reverts `LengthMismatch()` if array lengths differ and
+    ///      `MissingWorkerConfig(workerId)` for any worker never configured by governance.
+    /// @param workerIds Array of worker identifiers.
+    /// @param datas Array of strategy-specific packed data, one per worker.
+    function setWorkerConfigsData(uint16[] calldata workerIds, uint184[] calldata datas) external;
+
+    /// @notice Update the config values for multiple workers in a single call.
+    /// @dev May only be invoked by protocol system call; each worker's strategy and data are
+    ///      preserved. Reverts `LengthMismatch()` if array lengths differ and
+    ///      `MissingWorkerConfig(workerId)` for any worker never configured by governance.
+    /// @param workerIds Array of worker identifiers.
+    /// @param values Array of config values, one per worker.
+    function setWorkerConfigsValue(uint16[] calldata workerIds, uint64[] calldata values) external;
+
+    /// @notice Raise the highest strategy id this contract accepts.
+    /// @dev Only callable by the owner, in lockstep with a protocol release that ships the new
+    ///      strategy. Strictly increasing: reverts `InvalidStrategy(newMaxStrategy)` when the
+    ///      value does not exceed the current ceiling, since lowering it would strand stored
+    ///      configs above the new bound.
+    /// @param newMaxStrategy The new maximum strategy id.
+    function setMaxStrategy(uint8 newMaxStrategy) external;
 
     // ── Views
     // ───────────────────────────────────────────────────────────
@@ -96,7 +125,7 @@ interface IWorkerConfigs {
     /// @return strategy The raw strategy id.
     /// @return value The config value.
     /// @return data The strategy-specific packed data.
-    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint128 data);
+    function getWorkerConfig(uint16 workerId) external view returns (uint8 strategy, uint64 value, uint184 data);
 
     /// @notice Return every worker's config in one call.
     /// @dev Lets the protocol layer fetch the full per-epoch fee policy with a single EVM
@@ -108,7 +137,7 @@ interface IWorkerConfigs {
     function getAllWorkerConfigs()
         external
         view
-        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint128[] memory datas_);
+        returns (uint16 count, uint8[] memory strategies_, uint64[] memory values_, uint184[] memory datas_);
 
     /// @notice Return the current number of workers.
     /// @dev The protocol reads this value at epoch boundaries to determine how many
