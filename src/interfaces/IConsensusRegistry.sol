@@ -220,26 +220,37 @@ interface IConsensusRegistry {
         Any
     }
 
-    /// @notice The single epoch-boundary system call: distributes the closing epoch's rewards,
-    /// applies its slashes, settles queued stake version changes, and rotates the epoch
-    /// @dev The internal stage order is a security invariant. Incentives are weighted by the version
-    /// active during the closing epoch, slashes land on the full old-version collateral, and only
-    /// then does the version queue settle, computing refunds from post-slash balances - so no value
-    /// can leave the registry at a boundary ahead of that boundary's slashes. Validator activation/
-    /// exit processing and the epoch rotation follow. Settlement refunds accrue as `claimRefund`
+    /// @notice The final epoch-boundary system call: settles queued stake version changes and
+    /// rotates the epoch, seating the provided future committee
+    /// @dev The protocol sequences the closing block as `applyIncentives`, then `applySlashes`,
+    /// then this call. That ordering is a security invariant: it lets the protocol assemble
+    /// `newCommittee` and read `nextCommitteeSize` after slash-to-zero ejections have landed (so
+    /// this call's committee checks cannot revert against a stale pre-slash view, and an ejected
+    /// validator is never seated in a future committee), and it makes the version-queue
+    /// settlement here read post-slash balances. Settlement refunds accrue as `claimRefund`
     /// credits rather than transfers, so this call performs no external calls beyond the trusted
     /// Issuance consolidation and its cost is storage-bounded regardless of recipient behavior.
     /// @param newCommittee The future validator committee for `$.currentEpoch + 3`
-    /// @param rewardInfos The closing epoch's per-validator consensus header counts; issuance
-    /// distribution is not yet enabled during the pilot, so the protocol passes an empty array
-    /// @param slashes The closing epoch's penalties; slashing is not yet enabled during the pilot,
-    /// so the protocol passes an empty array
-    function concludeEpoch(
-        address[] calldata newCommittee,
-        RewardInfo[] calldata rewardInfos,
-        Slash[] calldata slashes
-    )
-        external;
+    function concludeEpoch(address[] calldata newCommittee) external;
+
+    /// @notice Distributes the closing epoch's issuance to stake originators, weighted by initial
+    /// stake and consensus header count
+    /// @dev First boundary system call in the closing block: runs before `applySlashes` so
+    /// weights reflect pre-slash collateral, and before `concludeEpoch` so weights reflect the
+    /// versions active during the closing epoch. Entries with sentinel addresses (token ids 0 and
+    /// type(uint160).max) or retired validators are skipped rather than reverting, so a malformed
+    /// entry cannot stall the boundary. Issuance distribution is not yet enabled during the
+    /// pilot; the protocol passes an empty array
+    function applyIncentives(RewardInfo[] calldata rewardInfos) external;
+
+    /// @notice Applies the closing epoch's penalties to outstanding balances, ejecting validators
+    /// slashed to zero
+    /// @dev Second boundary system call in the closing block: MUST run before `concludeEpoch` so
+    /// slashes land on the full old-version collateral ahead of the version-queue settlement, and
+    /// so the protocol's post-slash committee reads see any ejections. Entries with sentinel
+    /// addresses or retired validators are skipped rather than reverting. Slashing is not yet
+    /// enabled during the pilot; the protocol passes an empty array
+    function applySlashes(Slash[] calldata slashes) external;
 
     /// @dev Self-activation function for validators, gaining `PendingActivation` status and setting
     /// next epoch as activation epoch to ensure rewards eligibility only after completing a full epoch

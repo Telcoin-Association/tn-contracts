@@ -92,30 +92,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
      */
 
     /// @inheritdoc IConsensusRegistry
-    function concludeEpoch(
-        address[] calldata newCommittee,
-        RewardInfo[] calldata rewardInfos,
-        Slash[] calldata slashes
-    )
-        external
-        override
-        onlySystemCall
-    {
+    function concludeEpoch(address[] calldata newCommittee) external override onlySystemCall {
         // ensure future committee is sorted
         _enforceSorting(newCommittee);
 
-        // stage order is a security invariant: rewards are weighted by the versions active during
-        // the closing epoch, slashes land on full old-version collateral, and only then does the
-        // version queue settle, computing refunds from post-slash balances. Refunds accrue as
-        // `claimRefund` credits rather than transfers, so no value leaves the registry within this
-        // call and its cost is storage-bounded regardless of recipient behavior
-        _applyIncentives(rewardInfos);
-        _applySlashes(slashes);
+        // settle queued stake version changes before the epoch rotates. The protocol sequences
+        // the closing block as `applyIncentives`, then `applySlashes`, then this call, so
+        // settlement reads post-slash balances. Refunds accrue as `claimRefund` credits rather
+        // than transfers, so no value leaves the registry within this call and its cost is
+        // storage-bounded regardless of recipient behavior
         _processStakeVersionQueue();
 
-        // ensure future committee is the correct length; checked after slashes so that a
-        // slash-to-zero ejection, which shrinks the next committee size, validates the incoming
-        // committee against the post-ejection state
+        // ensure future committee is the correct length; the protocol assembles the committee
+        // after applying slashes, so a slash-to-zero ejection is already reflected in both the
+        // committee contents and the `nextCommitteeSize` this check reads
         if (newCommittee.length != nextCommitteeSize) {
             revert InvalidCommitteeSize(nextCommitteeSize, newCommittee.length);
         }
@@ -133,16 +123,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         );
     }
 
-    /// @dev Distributes the closing epoch's issuance to stake originators, weighted by initial
-    /// stake and consensus header count. First stage of `concludeEpoch`: runs before slashes land
-    /// and before any version flip, so weights reflect the versions active during the closing epoch
-    function _applyIncentives(RewardInfo[] calldata rewardInfos) internal {
+    /// @inheritdoc IConsensusRegistry
+    function applyIncentives(RewardInfo[] calldata rewardInfos) external override onlySystemCall {
         // identify total & individual weight factoring in stake & consensus headers
         uint256 totalWeight;
         uint256[] memory weights = new uint256[](rewardInfos.length);
         for (uint256 i; i < rewardInfos.length; ++i) {
             RewardInfo calldata reward = rewardInfos[i];
             if (reward.consensusHeaderCount == 0) continue;
+
+            // sentinel token ids (0 and type(uint160).max) are reserved by the NFT ledger and
+            // would revert the `isRetired` probe; skip them so a malformed entry cannot stall
+            // the epoch boundary
+            uint160 rewardee = uint160(reward.validatorAddress);
+            if (rewardee == 0 || rewardee == type(uint160).max) continue;
 
             // signed consensus header means validator is whitelisted, staked, & active
             // unless validator was forcibly retired & ejected via burn: skip
@@ -183,12 +177,17 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         undistributedIssuance = totalAvailableToDistribute - amountDistributed;
     }
 
-    /// @dev Applies the closing epoch's penalties to outstanding balances, ejecting validators
-    /// slashed to zero. Second stage of `concludeEpoch`: lands on the full old-version collateral
-    /// of any validator with a queued stake decrease, before the version queue settles
-    function _applySlashes(Slash[] calldata slashes) internal {
+    /// @inheritdoc IConsensusRegistry
+    function applySlashes(Slash[] calldata slashes) external override onlySystemCall {
         for (uint256 i; i < slashes.length; ++i) {
             Slash calldata slash = slashes[i];
+
+            // sentinel token ids (0 and type(uint160).max) are reserved by the NFT ledger and
+            // would revert the `isRetired` probe; skip them so a malformed entry cannot stall
+            // the epoch boundary
+            uint160 slashee = uint160(slash.validatorAddress);
+            if (slashee == 0 || slashee == type(uint160).max) continue;
+
             // signed consensus header means validator is whitelisted, staked, & active
             // unless validator was forcibly retired & ejected via burn: skip
             if (isRetired(slash.validatorAddress)) continue;
@@ -207,13 +206,14 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
-    /// @dev Third stage of `concludeEpoch`: settles queued stake version changes against post-slash
-    /// balances. Never reverts and makes no external calls beyond the trusted Issuance
-    /// consolidation: stale entries are skipped and cleared, unaged decreases stay queued, and
-    /// refunds accrue to `claimableRefunds` for pull-based claiming, so per-entry cost is
-    /// storage-bounded and independent of recipient behavior. Iteration is bounded by the validator
-    /// count (one ConsensusNFT-gated entry per validator), the same bound `_updateValidatorQueue`
-    /// iterates
+    /// @dev Settles queued stake version changes inside `concludeEpoch`, before the epoch
+    /// rotates. The protocol calls `applySlashes` earlier in the closing block, so settlement
+    /// reads post-slash balances. Never reverts and makes no external calls beyond the trusted
+    /// Issuance consolidation: stale entries are skipped and cleared, unaged decreases stay
+    /// queued, and refunds accrue to `claimableRefunds` for pull-based claiming, so per-entry
+    /// cost is storage-bounded and independent of recipient behavior. Iteration is bounded by the
+    /// validator count (one ConsensusNFT-gated entry per validator), the same bound
+    /// `_updateValidatorQueue` iterates
     function _processStakeVersionQueue() internal {
         // snapshot to memory first: processing mutates the live set as we iterate
         address[] memory queued = pendingVersionChanges.values();
@@ -1510,8 +1510,13 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             bytes32 blsPubkeyHash =
                 _verifyProofOfPossession(proofsOfPossession[i], currentValidator.validatorAddress, blsPubkeys_[i]);
 
-            // assert `validatorIndex` struct members match expected value
-            if (currentValidator.validatorAddress == address(0x0)) {
+            // assert `validatorIndex` struct members match expected value; both sentinel token
+            // ids are rejected since `_exists` reverts on them and would brick every boundary
+            // path probing this validator's retirement
+            if (
+                currentValidator.validatorAddress == address(0x0)
+                    || uint160(currentValidator.validatorAddress) == type(uint160).max
+            ) {
                 revert InvalidValidatorAddress();
             }
             if (currentValidator.activationEpoch != uint32(0)) {

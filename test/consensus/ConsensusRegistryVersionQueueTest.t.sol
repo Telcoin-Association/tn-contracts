@@ -554,8 +554,7 @@ contract ConsensusRegistryVersionQueueTest is ConsensusRegistryTestUtils {
         // refund 200k to the recipient, 200k of slashed surplus consolidates on Issuance
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator2, 200_000e18);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // registry native balance backs the stake ledger plus the outstanding refund credit:
         // only the confiscated slash remainder has left for Issuance

@@ -909,8 +909,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         survivors[2] = validator4;
         _sortAddresses(survivors);
 
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(survivors, slashes);
+                _concludeEpochWithSlashes(survivors, slashes);
 
         // verify validator was ejected and committee size adjusted
         ValidatorInfo[] memory activeValidators = consensusRegistry.getValidatorsInfo(ValidatorStatus.Active);
@@ -1146,8 +1145,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewards);
+                _concludeEpochWithRewards(committee, rewards);
 
         // Record validator1's rewards before the version change
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
@@ -1196,8 +1194,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // entry settles in the same call, so the refund is computed from the post-slash balance
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 200_000e18);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // Partial refund: balance(800k) - newStakeAmt(600k) = 200k credit (not the full 400k surplus)
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1278,8 +1275,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Slash validator1 partially (200k of 1M stake) at the first boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 200_000e18);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // validator1 balance is now 800k
         (uint256 balBefore,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1333,8 +1329,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewards);
+                _concludeEpochWithRewards(committee, rewards);
 
         // Record rewards earned
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
@@ -1343,8 +1338,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Slash validator1 partially (200k) at the next boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 200_000e18);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(committee, slashes);
+                _concludeEpochWithSlashes(committee, slashes);
 
         // Balance after slash = stakeAmount + rewards - 200k
         (uint256 balAfterSlash,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1393,8 +1387,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewards);
+                _concludeEpochWithRewards(committee, rewards);
 
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
         assertTrue(rewardsBefore > 0);
@@ -1459,8 +1452,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         rewards[1] = RewardInfo(validator2, 10);
         rewards[2] = RewardInfo(validator3, 10);
         rewards[3] = RewardInfo(validator4, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewards);
+                _concludeEpochWithRewards(committee, rewards);
 
         // Verify rewards earned > 0
         uint256 rewardsEarned = consensusRegistry.getRewards(validator1);
@@ -1498,8 +1490,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // Slash 500k at the next boundary
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, 500_000e18);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         // Verify balance = 2M - 500k = 1.5M
         (uint256 balAfter,,) = consensusRegistry.getBalanceBreakdown(validator1);
@@ -1775,8 +1766,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
     function _slashValidator1(uint256 amount) internal {
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, amount);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
     }
 
     /// @dev Slashes genesis `validator1` to zero at a boundary, passing the post-ejection
@@ -1789,8 +1779,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         survivors[1] = validator3;
         survivors[2] = validator4;
         _sortAddresses(survivors);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(survivors, slashes);
+                _concludeEpochWithSlashes(survivors, slashes);
     }
 
     /// @dev Exits genesis `validator1` through the pending-exit queue and elapses one further
@@ -1831,8 +1820,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         RewardInfo[] memory rewardInfos = new RewardInfo[](2);
         rewardInfos[0] = RewardInfo(validator1, 10);
         rewardInfos[1] = RewardInfo(validator2, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
 
         // validator1's weight derives from its reduced balance, validator2's from its full stake
         uint256 slashedWeight = (stakeAmount_ - slashAmt) * 10;
@@ -1852,8 +1840,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator1 accrues rewards, pushing its balance above the stake amount
         RewardInfo[] memory firstRound = new RewardInfo[](1);
         firstRound[0] = RewardInfo(validator1, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), firstRound);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), firstRound);
         uint256 firstRoundRewards = consensusRegistry.getRewards(validator1);
         assertEq(firstRoundRewards, epochIssuance_);
 
@@ -1862,8 +1849,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         RewardInfo[] memory secondRound = new RewardInfo[](2);
         secondRound[0] = RewardInfo(validator1, 10);
         secondRound[1] = RewardInfo(validator2, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), secondRound);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), secondRound);
 
         assertEq(consensusRegistry.getRewards(validator1), firstRoundRewards + epochIssuance_ / 2);
         assertEq(consensusRegistry.getRewards(validator2), epochIssuance_ / 2);
@@ -1930,8 +1916,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         uint256 slashAmt = 100_000e18;
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator5, slashAmt);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+                _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
 
         vm.deal(delegator, slashAmt);
         vm.prank(delegator);
@@ -2181,8 +2166,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
         uint256 accrued = consensusRegistry.getRewards(validator1);
         assertGt(accrued, 0);
 
@@ -2206,8 +2190,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
         uint256 accrued = consensusRegistry.getRewards(validator1);
         assertGt(accrued, 0);
 
@@ -2236,8 +2219,7 @@ contract ConsensusRegistryTest is ConsensusRegistryTestUtils {
         // validator1 accrues rewards
         RewardInfo[] memory rewardInfos = new RewardInfo[](1);
         rewardInfos[0] = RewardInfo(validator1, 10);
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
+                _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
         uint256 accrued = consensusRegistry.getRewards(validator1);
         assertGt(accrued, 1);
 

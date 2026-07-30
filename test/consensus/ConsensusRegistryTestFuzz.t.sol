@@ -209,11 +209,9 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         _fuzz_mint(numValidators);
         _fuzz_stake(numValidators, stakeAmount_);
 
-        vm.startPrank(sysAddress);
         // distribute incentives at the epoch boundary
         (RewardInfo[] memory rewardInfos, uint256[] memory expectedRewards) = _fuzz_createRewardInfos(numRewardees);
         _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
-        vm.stopPrank();
 
         // assert rewards were incremented for each specified validator
         for (uint256 i; i < expectedRewards.length; ++i) {
@@ -227,8 +225,6 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         uint24 numValidators = 7;
         _fuzz_mint(numValidators);
         _fuzz_stake(numValidators, stakeAmount_);
-
-        vm.startPrank(sysAddress);
 
         (RewardInfo[] memory rewardInfos,) = _fuzz_createRewardInfos(numValidators);
 
@@ -256,8 +252,6 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
 
             knownDust = storedDust;
         }
-
-        vm.stopPrank();
     }
 
     function testFuzz_setValidatorRegion(uint8 region) public {
@@ -275,11 +269,9 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         _fuzz_mint(numValidators);
         _fuzz_stake(numValidators, stakeAmount_);
 
-        vm.startPrank(sysAddress);
         // distribute incentives at the epoch boundary
         (RewardInfo[] memory rewardInfos, uint256[] memory expectedRewards) = _fuzz_createRewardInfos(numRewardees);
         _concludeEpochWithRewards(_sortedGenesisCommittee(), rewardInfos);
-        vm.stopPrank();
 
         // claim rewards and assert
         for (uint256 i; i < expectedRewards.length; ++i) {
@@ -361,8 +353,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
                 address v = _addressFromPrivateKey(i + 5);
                 slashes[i] = Slash(v, slashAmount);
             }
-            vm.prank(sysAddress);
-            _concludeEpochWithSlashes(committee, slashes);
+                        _concludeEpochWithSlashes(committee, slashes);
         }
 
         // create lower version
@@ -503,8 +494,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
             rewardInfos[i] = RewardInfo(_addressFromPrivateKey(i + 5), 1);
         }
 
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewardInfos);
+                _concludeEpochWithRewards(committee, rewardInfos);
 
         // record pre-upgrade rewards
         uint256[] memory rewardsBefore = new uint256[](numRewardees);
@@ -542,8 +532,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         consensusRegistry.allocateIssuance{value: epochIssuance_}();
 
         // apply incentives again - now mixed versions should use different weights
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewardInfos);
+                _concludeEpochWithRewards(committee, rewardInfos);
 
         // verify mixed-version weighting: upgraded validators should earn more
         if (halfValidators > 0 && numRewardees > halfValidators) {
@@ -729,8 +718,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         address[] memory committee = _sortedGenesisCommittee();
         Slash[] memory slashes = new Slash[](1);
         slashes[0] = Slash(validator1, slashAmount);
-        vm.prank(sysAddress);
-        _concludeEpochWithSlashes(committee, slashes);
+                _concludeEpochWithSlashes(committee, slashes);
 
         uint256 balanceAfterSlash = stakeAmount_ - slashAmount;
 
@@ -779,8 +767,7 @@ contract ConsensusRegistryTestFuzz is ConsensusRegistryTestUtils {
         rewardInfos[3] = RewardInfo(validator4, 1);
 
         address[] memory committee = _sortedGenesisCommittee();
-        vm.prank(sysAddress);
-        _concludeEpochWithRewards(committee, rewardInfos);
+                _concludeEpochWithRewards(committee, rewardInfos);
 
         // record rewards before the version change
         uint256 rewardsBefore = consensusRegistry.getRewards(validator1);
