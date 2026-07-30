@@ -474,17 +474,27 @@ contract ConsensusRegistryTestUtils is ConsensusRegistry, GenesisPrecompiler, Bl
     /// @dev Concludes an epoch with no rewards and no slashes. Caller manages the system-address
     /// prank; pranks apply to the external registry call this helper makes.
     function _concludeEpoch(address[] memory committee) internal {
-        consensusRegistry.concludeEpoch(committee, _noRewards(), _noSlashes());
+        consensusRegistry.concludeEpoch(committee);
     }
 
-    /// @dev Concludes an epoch distributing `rewardInfos`, with no slashes
+    /// @dev Runs the boundary sequence with rewards - `applyIncentives` then `concludeEpoch` -
+    /// matching the protocol's closing-block ordering. Self-pranks the system address across both
+    /// calls; callers must not hold an active prank.
     function _concludeEpochWithRewards(address[] memory committee, RewardInfo[] memory rewardInfos) internal {
-        consensusRegistry.concludeEpoch(committee, rewardInfos, _noSlashes());
+        vm.startPrank(sysAddress);
+        consensusRegistry.applyIncentives(rewardInfos);
+        consensusRegistry.concludeEpoch(committee);
+        vm.stopPrank();
     }
 
-    /// @dev Concludes an epoch applying `slashes`, with no rewards
+    /// @dev Runs the boundary sequence with slashes - `applySlashes` then `concludeEpoch` -
+    /// matching the protocol's closing-block ordering. Self-pranks the system address across both
+    /// calls; callers must not hold an active prank.
     function _concludeEpochWithSlashes(address[] memory committee, Slash[] memory slashes) internal {
-        consensusRegistry.concludeEpoch(committee, _noRewards(), slashes);
+        vm.startPrank(sysAddress);
+        consensusRegistry.applySlashes(slashes);
+        consensusRegistry.concludeEpoch(committee);
+        vm.stopPrank();
     }
 
     /// @dev The four genesis validators in ascending address order, as `concludeEpoch` requires

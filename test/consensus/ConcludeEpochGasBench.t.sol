@@ -6,11 +6,27 @@ import { ConsensusRegistry } from "src/consensus/ConsensusRegistry.sol";
 import { RewardInfo, Slash, IStakeManager } from "src/interfaces/IStakeManager.sol";
 import { ConsensusRegistryTestUtils } from "./ConsensusRegistryTestUtils.sol";
 
-/// @dev Measures worst-case gas for the unified concludeEpoch system call against the client's
-/// 30M per-call budget: N-validator committee rotation, N reward entries, partial slashes, and a
-/// full settlement wave of N queued stake decreases with per-entry refund pushes
+/// @dev Measures worst-case gas for the epoch-boundary system calls - applyIncentives, then
+/// applySlashes, then concludeEpoch, sequenced as the protocol does within the closing block -
+/// against the client's per-call gas budget. Boundary cost grows linearly at roughly 76k gas per
+/// in-service validator all-in, dominated by reward entries, committee rotation, and queue
+/// settlement at about 30k per settling stake decrease. Recorded history: under the pre-split
+/// unified three-argument call and the client's earlier 30M budget, the measured worst case was
+/// 7.66M at N=100 (9.48M before refunds became pull credits), a 1000-entry settlement wave
+/// measured 34.26M, and the single-call settlement ceiling sat near 860 entries; a 700-entry
+/// wave measured about 25.4M against that 30M budget.
 contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
-    uint256 internal constant SYSTEM_CALL_GAS_BUDGET = 30_000_000;
+    /// @dev Mirrors `SYSTEM_CALL_GAS_LIMIT` in telcoin-network's `crates/tn-reth/src/evm/mod.rs`.
+    /// Each boundary system call receives this budget individually; update in lockstep with the
+    /// client constant.
+    uint256 internal constant SYSTEM_CALL_GAS_BUDGET = 100_000_000;
+
+    /// @dev Per-call gas figures for one full boundary sequence
+    struct BoundaryGas {
+        uint256 incentives;
+        uint256 slashes;
+        uint256 conclude;
+    }
 
     function setUp() public {
         consensusRegistry = ConsensusRegistry(0x07E17e17E17e17E17e17E17E17E17e17e17E17e1);
@@ -48,7 +64,52 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
         }
     }
 
-    function _measure(uint256 n, bool withQueue, uint256 numSlashes) internal returns (uint256 gasUsed) {
+    /// @dev Queues a stake decrease for validators 1..n so the wave settles two boundaries later
+    function _queueDecreases(uint256 n) internal {
+        vm.prank(crOwner);
+        uint8 lowVersion = consensusRegistry.upgradeStakeVersion(
+            StakeConfig(600_000e18, minWithdrawAmount_, epochIssuance_, epochDuration_)
+        );
+        for (uint256 secret = 1; secret <= n; ++secret) {
+            address v = _addressFromPrivateKey(secret);
+            vm.prank(v);
+            consensusRegistry.requestStakeVersionChange(v, lowVersion);
+        }
+    }
+
+    /// @dev Runs the protocol's closing-block sequence, measuring each system call separately
+    function _measureSequence(
+        address[] memory committee,
+        RewardInfo[] memory rewardInfos,
+        Slash[] memory slashes
+    )
+        internal
+        returns (BoundaryGas memory gasUsed)
+    {
+        vm.startPrank(sysAddress);
+        uint256 g = gasleft();
+        consensusRegistry.applyIncentives(rewardInfos);
+        gasUsed.incentives = g - gasleft();
+        g = gasleft();
+        consensusRegistry.applySlashes(slashes);
+        gasUsed.slashes = g - gasleft();
+        g = gasleft();
+        consensusRegistry.concludeEpoch(committee);
+        gasUsed.conclude = g - gasleft();
+        vm.stopPrank();
+    }
+
+    /// @dev Asserts every call in the sequence fits the per-call budget and logs the figures
+    function _assertAndLog(string memory label, BoundaryGas memory gasUsed) internal {
+        emit log_named_uint(string.concat(label, " applyIncentives gas"), gasUsed.incentives);
+        emit log_named_uint(string.concat(label, " applySlashes gas"), gasUsed.slashes);
+        emit log_named_uint(string.concat(label, " concludeEpoch gas"), gasUsed.conclude);
+        assertLt(gasUsed.incentives, SYSTEM_CALL_GAS_BUDGET);
+        assertLt(gasUsed.slashes, SYSTEM_CALL_GAS_BUDGET);
+        assertLt(gasUsed.conclude, SYSTEM_CALL_GAS_BUDGET);
+    }
+
+    function _measure(uint256 n, bool withQueue, uint256 numSlashes) internal returns (BoundaryGas memory) {
         _scaleValidators(n);
         vm.prank(crOwner);
         consensusRegistry.setNextCommitteeSize(uint16(n));
@@ -60,19 +121,10 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
         vm.stopPrank();
 
         if (withQueue) {
-            // author a lower-stake version and queue a decrease for every in-service validator
-            vm.prank(crOwner);
-            uint8 lowVersion = consensusRegistry.upgradeStakeVersion(
-                StakeConfig(600_000e18, minWithdrawAmount_, epochIssuance_, epochDuration_)
-            );
-            for (uint256 secret = 1; secret <= n; ++secret) {
-                address v = _addressFromPrivateKey(secret);
-                vm.prank(v);
-                consensusRegistry.requestStakeVersionChange(v, lowVersion);
-            }
+            _queueDecreases(n);
         }
 
-        // one aging boundary so every queued decrease settles at the measured call
+        // one aging boundary so every queued decrease settles at the measured sequence
         vm.startPrank(sysAddress);
         _concludeEpoch(committee);
         vm.stopPrank();
@@ -87,39 +139,32 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
             slashes[i] = Slash(_addressFromPrivateKey(i + 1), 1000e18);
         }
 
-        vm.prank(sysAddress);
-        uint256 g = gasleft();
-        consensusRegistry.concludeEpoch(committee, rewardInfos, slashes);
-        gasUsed = g - gasleft();
+        return _measureSequence(committee, rewardInfos, slashes);
     }
 
-    function test_gas_concludeEpoch_rewardsOnly_100() public {
-        uint256 gasUsed = _measure(100, false, 0);
-        emit log_named_uint("concludeEpoch gas: N=100 committee + 100 rewards, no queue", gasUsed);
-        assertLt(gasUsed, SYSTEM_CALL_GAS_BUDGET);
+    function test_gas_boundary_rewardsOnly_100() public {
+        BoundaryGas memory gasUsed = _measure(100, false, 0);
+        _assertAndLog("N=100 committee + 100 rewards, no queue:", gasUsed);
     }
 
-    function test_gas_concludeEpoch_worstCase_100() public {
-        uint256 gasUsed = _measure(100, true, 10);
-        emit log_named_uint("concludeEpoch gas: N=100 committee + 100 rewards + 10 slashes + 100 settling decreases", gasUsed);
-        assertLt(gasUsed, SYSTEM_CALL_GAS_BUDGET);
+    function test_gas_boundary_worstCase_50() public {
+        BoundaryGas memory gasUsed = _measure(50, true, 5);
+        _assertAndLog("N=50 committee + 50 rewards + 5 slashes + 50 settling decreases:", gasUsed);
     }
 
-    function test_gas_concludeEpoch_worstCase_50() public {
-        uint256 gasUsed = _measure(50, true, 5);
-        emit log_named_uint("concludeEpoch gas: N=50 committee + 50 rewards + 5 slashes + 50 settling decreases", gasUsed);
-        assertLt(gasUsed, SYSTEM_CALL_GAS_BUDGET);
+    function test_gas_boundary_worstCase_100() public {
+        BoundaryGas memory gasUsed = _measure(100, true, 10);
+        _assertAndLog("N=100 committee + 100 rewards + 10 slashes + 100 settling decreases:", gasUsed);
     }
 
-    function test_gas_concludeEpoch_worstCase_150() public {
-        uint256 gasUsed = _measure(150, true, 15);
-        emit log_named_uint("concludeEpoch gas: N=150 committee + 150 rewards + 15 slashes + 150 settling decreases", gasUsed);
-        emit log_named_uint("budget", SYSTEM_CALL_GAS_BUDGET);
+    function test_gas_boundary_worstCase_150() public {
+        BoundaryGas memory gasUsed = _measure(150, true, 15);
+        _assertAndLog("N=150 committee + 150 rewards + 15 slashes + 150 settling decreases:", gasUsed);
     }
 
     /// @dev The committee stays protocol-capped while the settlement wave scales with the full
     /// in-service set: every validator queues a decrease and all entries age out at one boundary
-    function test_gas_concludeEpoch_settlementWave_1000() public {
+    function test_gas_boundary_settlementWave_1000() public {
         uint256 n = 1000;
         _scaleValidators(n);
         vm.prank(crOwner);
@@ -130,17 +175,9 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
         _concludeEpoch(committee);
         vm.stopPrank();
 
-        vm.prank(crOwner);
-        uint8 lowVersion = consensusRegistry.upgradeStakeVersion(
-            StakeConfig(600_000e18, minWithdrawAmount_, epochIssuance_, epochDuration_)
-        );
-        for (uint256 secret = 1; secret <= n; ++secret) {
-            address v = _addressFromPrivateKey(secret);
-            vm.prank(v);
-            consensusRegistry.requestStakeVersionChange(v, lowVersion);
-        }
+        _queueDecreases(n);
 
-        // one aging boundary so every queued decrease settles at the measured call
+        // one aging boundary so every queued decrease settles at the measured sequence
         vm.startPrank(sysAddress);
         _concludeEpoch(committee);
         vm.stopPrank();
@@ -150,11 +187,7 @@ contract ConcludeEpochGasBench is ConsensusRegistryTestUtils {
             rewardInfos[i] = RewardInfo(_addressFromPrivateKey(i + 1), 10);
         }
 
-        vm.prank(sysAddress);
-        uint256 g = gasleft();
-        consensusRegistry.concludeEpoch(committee, rewardInfos, _noSlashes());
-        uint256 gasUsed = g - gasleft();
-        emit log_named_uint("concludeEpoch gas: 100 committee + 100 rewards + 1000 settling decreases", gasUsed);
-        emit log_named_uint("budget", SYSTEM_CALL_GAS_BUDGET);
+        BoundaryGas memory gasUsed = _measureSequence(committee, rewardInfos, new Slash[](0));
+        _assertAndLog("100 committee + 100 rewards + 1000 settling decreases:", gasUsed);
     }
 }
