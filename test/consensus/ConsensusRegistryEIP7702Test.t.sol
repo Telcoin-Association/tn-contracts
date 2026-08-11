@@ -230,6 +230,106 @@ contract ConsensusRegistryEIP7702Test is ConsensusRegistryTestUtils {
         );
     }
 
+    /// A 65-byte signature carrying a `v` outside {27, 28} must be rejected outright rather than
+    /// recovering to some unrelated address.
+    function testRevert_delegateStake_delegatedEOA_bogusRecoveryId() public {
+        address validatorAddress = vm.addr(DELEGATED_VALIDATOR_PK);
+        address delegator = _prepareDelegation(validatorAddress);
+        bytes memory blsPubkey = _blsDummyPubkeyFromSecret(DELEGATED_VALIDATOR_PK);
+        bytes memory blsSig = _blsDummySigFromSecret(DELEGATED_VALIDATOR_PK);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 digest = consensusRegistry.delegationDigest(blsPubkey, validatorAddress, delegator, deadline);
+        (, bytes32 r, bytes32 s) = vm.sign(DELEGATED_VALIDATOR_PK, digest);
+
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATED_VALIDATOR_PK);
+
+        vm.prank(delegator);
+        vm.expectRevert(abi.encodeWithSelector(IConsensusRegistry.NotValidator.selector, validatorAddress));
+        consensusRegistry.delegateStake{ value: stakeAmount_ }(
+            blsPubkey,
+            IStakeManager.ProofOfPossession(blsSig),
+            validatorAddress,
+            abi.encodePacked(r, s, uint8(99)),
+            deadline
+        );
+    }
+
+    /// An empty signature recovers to the zero address, which must not satisfy the check.
+    function testRevert_delegateStake_delegatedEOA_emptySignature() public {
+        address validatorAddress = vm.addr(DELEGATED_VALIDATOR_PK);
+        address delegator = _prepareDelegation(validatorAddress);
+        bytes memory blsPubkey = _blsDummyPubkeyFromSecret(DELEGATED_VALIDATOR_PK);
+        bytes memory blsSig = _blsDummySigFromSecret(DELEGATED_VALIDATOR_PK);
+        uint256 deadline = block.timestamp + 1 days;
+
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATED_VALIDATOR_PK);
+
+        vm.prank(delegator);
+        vm.expectRevert(abi.encodeWithSelector(IConsensusRegistry.NotValidator.selector, validatorAddress));
+        consensusRegistry.delegateStake{ value: stakeAmount_ }(
+            blsPubkey, IStakeManager.ProofOfPossession(blsSig), validatorAddress, "", deadline
+        );
+    }
+
+    /// The delegated and undelegated routes must accept exactly the same signature set, or the
+    /// designator branch would be its own authorization surface. Probed at the known divergence
+    /// candidate: neither route screens high-s, so `(r, n-s, v^1)` must be accepted by both or
+    /// neither. It is inert here regardless - the digest binds the delegator and a nonce, and a
+    /// successful call leaves `Undefined` status behind - but the two routes must not disagree.
+    function test_delegateStake_delegatedAndPlainRoutesAcceptSameSignatures() public {
+        address validatorAddress = vm.addr(DELEGATED_VALIDATOR_PK);
+        address delegator = _prepareDelegation(validatorAddress);
+        vm.deal(delegator, stakeAmount_ * 2);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory malleated = _malleatedSignature(DELEGATED_VALIDATOR_PK, delegator, deadline);
+
+        uint256 snapshot = vm.snapshotState();
+        bool acceptedPlain = _tryDelegateStake(DELEGATED_VALIDATOR_PK, delegator, malleated, deadline);
+        vm.revertToState(snapshot);
+
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATED_VALIDATOR_PK);
+        assertEq(validatorAddress.code.length, 23);
+        bool acceptedDelegated = _tryDelegateStake(DELEGATED_VALIDATOR_PK, delegator, malleated, deadline);
+
+        assertEq(acceptedPlain, acceptedDelegated, "designator branch diverged from the plain EOA branch");
+    }
+
+    /// @dev The high-s counterpart of a valid signature: recovers the same signer, different bytes
+    function _malleatedSignature(uint256 pk, address delegator, uint256 deadline) internal view returns (bytes memory) {
+        uint256 secp256k1n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+        bytes32 digest =
+            consensusRegistry.delegationDigest(_blsDummyPubkeyFromSecret(pk), vm.addr(pk), delegator, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+
+        return abi.encodePacked(r, bytes32(secp256k1n - uint256(s)), uint8(v == 27 ? 28 : 27));
+    }
+
+    /// @dev Attempts a delegation and reports acceptance without reverting the test
+    function _tryDelegateStake(
+        uint256 pk,
+        address delegator,
+        bytes memory signature,
+        uint256 deadline
+    )
+        internal
+        returns (bool accepted)
+    {
+        vm.prank(delegator);
+        (accepted,) = address(consensusRegistry).call{ value: stakeAmount_ }(
+            abi.encodeCall(
+                IStakeManager.delegateStake,
+                (
+                    _blsDummyPubkeyFromSecret(pk),
+                    IStakeManager.ProofOfPossession(_blsDummySigFromSecret(pk)),
+                    vm.addr(pk),
+                    signature,
+                    deadline
+                )
+            )
+        );
+    }
+
     /*
      *   delegateStake: genuine contract accounts still authorize through ERC-1271
      */

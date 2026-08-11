@@ -48,12 +48,14 @@
 - consensus burns slash all the validator's remaining stake
 - slashes are applied until the validator outstanding balance reaches 0,
 - consensus burns and slashes-to-zero immediately retire the validator and eject it from all upcoming committees
+- neither ejection path makes a recipient-facing external call: `burn` and the slash-to-zero branch consolidate the validator's entire stake-backed balance on Issuance and then close the ConsensusNFT out through `_burnConsensusNFT`, which moves no value. Governance screening at mint time is not durable (a whitelisted holder can attach account code afterwards, including an EIP-7702 delegation that reverts on every call), so ejection must never depend on the validator or its delegator being callable. Queued version-change escrow, the one balance an ejection owes back, accrues as a `claimRefund` credit
 - ConsensusRegistry only ever holds staked funds, including on behalf of the initial validator set at network genesis
 - Issuance only ever holds epoch reward funds, less claims
 - when unstaking, stake is sourced from the registry
 - when claiming or unstaking, rewards are sourced from Issuance
 - claims can revert if Issuance contract runs dry (eg TAO governance problem) but the rewards ledger must continue being updated by applyIncentives and applySlashes
 - all capital flows to the stake originator, ie the recipient for both stake and rewards is either a validator's delegator if one exists, or the validator itself if not; queue escrow returns are the one exception and flow to the recorded funder
+- `delegateStake` accepts a delegation only from the authority that owns the validator address: an EOA is held to its secp256k1 key whether or not it carries an EIP-7702 delegation designator, and only a genuine contract account authorizes through ERC-1271. Code size does not decide this - a delegated EOA has 23 bytes of code - so the designator is matched by its `0xef0100` prefix, which EIP-3541 makes unambiguous. A validator's delegated wallet program is never accepted as a stand-in for its key, since that program is revocable and the digest is public
 - the boundary is three system calls the protocol sequences within the closing block - applyIncentives, then applySlashes, then concludeEpoch - and that ordering is a security invariant: slashes land on full old-version collateral before the version-queue settlement inside concludeEpoch reads post-slash balances, and the protocol assembles the committee after slashes so ejections are reflected in both the committee contents and the size check
 - applyIncentives and applySlashes skip sentinel-address and retired entries rather than reverting, so no malformed system-call input can stall the boundary
 - in-service validator stake versions change only inside concludeEpoch, so reward weights are stable within an epoch: applyIncentives always reads the version that was active for the entire closing epoch
