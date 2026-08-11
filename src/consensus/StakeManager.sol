@@ -206,6 +206,19 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         return rewards;
     }
 
+    /// @dev Retires the validator's ConsensusNFT and delegation record without moving any value.
+    /// Split out from `_unstake` so the confiscating burn path, which settles its own ledgers and
+    /// owes the validator nothing, can close out the token without touching a payout: no value is
+    /// pushed to a validator-controlled address, so account code the validator attaches after being
+    /// whitelisted - an EIP-7702 delegation with a reverting handler, say - cannot block a
+    /// governance burn or a slash-to-zero ejection inside the epoch-boundary system call.
+    function _burnConsensusNFT(address validatorAddress) internal {
+        _burn(_getTokenId(validatorAddress));
+        if (totalSupply() == 0) revert InvalidSupply();
+
+        delete delegations[validatorAddress];
+    }
+
     function _unstake(
         address validatorAddress,
         address recipient,
@@ -215,13 +228,10 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         virtual
         returns (uint256)
     {
-        _burn(_getTokenId(validatorAddress));
-        if (totalSupply() == 0) revert InvalidSupply();
-
-        delete delegations[validatorAddress];
+        _burnConsensusNFT(validatorAddress);
 
         (uint256 bal, uint256 stakeAmt, uint256 rewards) = getBalanceBreakdown(validatorAddress);
-        // zero outstanding balance implies burn context, no further action needed- ledgers are already settled
+        // a fully settled ledger leaves nothing to return
         if (bal == 0) return bal;
 
         // otherwise wipe existing balance & identify the amount of stake due to recipient
