@@ -7,6 +7,7 @@ import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableS
 import { SlotDerivation } from "@openzeppelin/contracts/utils/SlotDerivation.sol";
 import { TransientSlot } from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
+import { ECDSA } from "solady/utils/ECDSA.sol";
 import { ReentrancyGuard } from "solady/utils/ReentrancyGuard.sol";
 import { RewardInfo, Slash, IStakeManager } from "../interfaces/IStakeManager.sol";
 import { StakeManager } from "./StakeManager.sol";
@@ -620,7 +621,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
                 )
             );
             bytes32 digest = _hashTypedData(structHash);
-            if (!SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, validatorEIP712Signature)) {
+            if (!_isValidValidatorSignature(validatorAddress, digest, validatorEIP712Signature)) {
                 revert NotValidator(validatorAddress);
             }
         }
@@ -1052,6 +1053,50 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         }
     }
 
+    /// @notice Authorizes a delegated stake by proving control of `validatorAddress` over `digest`
+    /// @dev Which authority is competent to answer depends on what kind of account the validator is:
+    /// an externally owned account answers with its secp256k1 key, a contract account answers through
+    /// ERC-1271. Code size no longer separates the two. An EIP-7702 delegated EOA carries a 23-byte
+    /// designator, so a bare code-size probe reads it as a contract and defers to whatever the EOA
+    /// currently points at - a revocable wallet program, not the identity governance whitelisted. That
+    /// substitution is wrong in both directions: it locks out delegated validators whose wallet has no
+    /// ERC-1271 handler despite a perfectly valid key signature, and it lets a permissive handler
+    /// authorize a delegation the key holder never signed. Delegated EOAs are therefore held to their
+    /// key, exactly as undelegated EOAs are, and only genuine contract accounts reach ERC-1271.
+    function _isValidValidatorSignature(
+        address validatorAddress,
+        bytes32 digest,
+        bytes calldata signature
+    )
+        internal
+        view
+        returns (bool)
+    {
+        if (_isDelegationDesignator(validatorAddress)) {
+            // `tryRecoverCalldata` yields the zero address for a malformed or non-matching signature,
+            // which never equals a validator address (the zero token id is rejected at mint)
+            return ECDSA.tryRecoverCalldata(digest, signature) == validatorAddress;
+        }
+
+        return SignatureCheckerLib.isValidSignatureNowCalldata(validatorAddress, digest, signature);
+    }
+
+    /// @dev Byte length of an EIP-7702 delegation designator: the 3-byte prefix plus an address
+    uint256 private constant EIP7702_DESIGNATOR_LENGTH = 23;
+
+    /// @notice Returns whether `account`'s code is an EIP-7702 delegation designator, ie whether the
+    /// account is an EOA that has delegated execution to another address
+    /// @dev A designator is exactly `0xef0100 || implementation`. The prefix is unambiguous: EIP-3541
+    /// forbids deployed contract code from beginning with `0xEF`, so nothing else can wear it.
+    /// `address.code.length` compiles to a bare `EXTCODESIZE`, so the copy below only ever runs
+    /// against the 23 bytes it has already matched.
+    function _isDelegationDesignator(address account) internal view returns (bool) {
+        if (account.code.length != EIP7702_DESIGNATOR_LENGTH) return false;
+
+        bytes memory code = account.code;
+        return code[0] == bytes1(0xef) && code[1] == bytes1(0x01) && code[2] == bytes1(0x00);
+    }
+
     /// @notice Enters a validator into the activation queue upon receiving stake
     /// @dev Stores the new validator in the `validators` vector
     function _recordStaked(
@@ -1286,11 +1331,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // this is believed to be impossible
         if (!r) revert IssuanceTransferFailed();
 
-        // exit, retire, and unstake + burn validator immediately
+        // exit, retire, and burn the validator's token immediately. The ledgers above already
+        // routed every last wei to Issuance, so nothing is owed and nothing is pushed: this path
+        // makes no call to a validator-controlled address and cannot be blocked by one
         _exit(validator, currentEpoch);
         _retire(validator);
-        address recipient = _getRecipient(validatorAddress);
-        _unstake(validatorAddress, recipient, true);
+        _burnConsensusNFT(validatorAddress);
     }
 
     /// @dev Stores the number of blocks finalized in previous epoch and the voter committee for the new epoch

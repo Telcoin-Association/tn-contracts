@@ -142,6 +142,10 @@ interface IStakeManager {
     /// @notice Ensuring `uncompressedPubkey` corresponds to `ValidatorInfo::blsPubkey` is better
     /// performed externally in Rust by the protocol due to EIP2537 precompile & EVM limitations
     /// so this contract does not perform any (un)compression checks
+    /// @notice `validatorSig` must come from the authority that owns the validator address itself. For an
+    /// externally owned account that is its secp256k1 key, whether or not the account has attached an
+    /// EIP-7702 delegation; a delegated wallet program is not accepted as a stand-in for the key. Only a
+    /// genuine contract account authorizes through ERC-1271.
     /// @param deadline Unix timestamp past which `validatorSig` is rejected (ignored for governance calls)
     function delegateStake(
         bytes calldata blsPubkey,
