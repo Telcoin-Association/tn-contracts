@@ -171,6 +171,9 @@ interface IStakeManager {
     /// @param acceptRewardShortfall When true, caps the rewards payout at the Issuance contract's available
     /// balance and permanently forfeits only the shortfall, so an underfunded reward pool can never
     /// block a stake withdrawal; identical to a normal unstake whenever Issuance can cover the rewards
+    /// @notice The payout is pushed with a bounded gas stipend and falls back to a `claimRefund` credit
+    /// for the full amount if the recipient rejects it, so a recipient that becomes uncallable cannot
+    /// strand the stake. The withdrawal settles and the validator retires either way
     function unstake(address validatorAddress, bool acceptRewardShortfall) external;
 
     /// @notice Returns the delegation digest that a validator should sign to accept a delegation
@@ -256,8 +259,11 @@ interface IStakeManager {
 
     /// @dev Transfers the caller's accumulated refund credit
     /// @notice Credits accrue from boundary settlement refunds, escrow returns on retirement, and
-    /// user-initiated escrow returns whose push failed; they are detached from the validator
-    /// lifecycle and survive burns and retirement
+    /// user-initiated escrow returns and withdrawal payouts whose push failed; they are detached
+    /// from the validator lifecycle and survive burns and retirement
+    /// @notice A withdrawal payout credit carries a reward leg paid from Issuance. That leg is capped
+    /// at Issuance's balance and any remainder stays credited, so a reward pool that has run dry
+    /// defers part of a claim rather than blocking it
     function claimRefund() external;
 
     /// @dev Permissioned function to withdraw TEL from the Issuance contract to the caller
