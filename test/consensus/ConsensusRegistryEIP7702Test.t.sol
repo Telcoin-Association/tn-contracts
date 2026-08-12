@@ -292,6 +292,7 @@ contract ConsensusRegistryEIP7702Test is ConsensusRegistryTestUtils {
         assertEq(validatorAddress.code.length, 23);
         bool acceptedDelegated = _tryDelegateStake(DELEGATED_VALIDATOR_PK, delegator, malleated, deadline);
 
+        assertTrue(acceptedPlain);
         assertEq(acceptedPlain, acceptedDelegated, "designator branch diverged from the plain EOA branch");
     }
 
