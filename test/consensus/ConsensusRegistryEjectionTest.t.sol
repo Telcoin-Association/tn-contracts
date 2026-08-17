@@ -478,6 +478,94 @@ contract ConsensusRegistryEjectionTest is ConsensusRegistryTestUtils {
         assertEq(rewardsAfter, 0, "reward claim wiped with the ledger");
     }
 
+    /// C5: an address that never held a ConsensusNFT is skipped rather than ejected. Nothing else on
+    /// the path catches it: `isRetired` is false for an address that never existed, and a zero
+    /// balance fails the `>` test for every amount including zero, so the entry would otherwise
+    /// reach `_consensusBurn` and burn a nonexistent token, reverting the whole closing block. The
+    /// system caller does no membership filtering, so the batch has to absorb the entry here.
+    function test_applySlashes_skipsUnregisteredAddress() public {
+        uint256 issuanceBalBefore = issuance.balance;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 supplyBefore = consensusRegistry.totalSupply();
+
+        Slash[] memory slashes = new Slash[](3);
+        slashes[0] = Slash(address(0xdead), stakeAmount_);
+        slashes[1] = Slash(address(0xbeef), 0); // a zero amount fails `balance > amount` just the same
+        slashes[2] = Slash(validator1, 100); // the registered entry in the batch still lands
+
+        vm.recordLogs();
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(_countSlashedLogs(logs), 1, "only the registered entry may be slashed");
+        assertEq(_firstSlashedLog(logs).validatorAddress, validator1);
+
+        (uint256 outstanding,,) = consensusRegistry.getBalanceBreakdown(validator1);
+        assertEq(outstanding, stakeAmount_ - 100);
+        assertEq(issuance.balance, issuanceBalBefore, "an unregistered entry must move no value");
+        assertEq(address(consensusRegistry).balance, registryBalBefore);
+        assertEq(consensusRegistry.totalSupply(), supplyBefore);
+        assertEq(consensusRegistry.getEligibleValidatorCount(), 4, "no ejection");
+        assertEq(consensusRegistry.getCurrentEpoch(), 1, "the boundary must still close");
+        _assertSetInvariant();
+    }
+
+    /// C6: the same skip covers a governance-whitelisted address that never staked. Its ConsensusNFT
+    /// exists, so the burn would succeed silently and settle a full genesis stake amount to Issuance
+    /// for an address that deposited nothing, drawing on the collateral backing every other
+    /// validator. The registry's native balance is the assertion that matters here.
+    function test_applySlashes_skipsWhitelistedButNeverStaked() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        uint256 issuanceBalBefore = issuance.balance;
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+
+        Slash[] memory slashes = new Slash[](1);
+        slashes[0] = Slash(validator5, stakeAmount_);
+
+        vm.recordLogs();
+        _concludeEpochWithSlashes(_sortedGenesisCommittee(), slashes);
+        assertEq(_countSlashedLogs(vm.getRecordedLogs()), 0, "a never-staked entry must fire no event");
+
+        assertEq(
+            address(consensusRegistry).balance, registryBalBefore, "collateral backing other validators must not move"
+        );
+        assertEq(issuance.balance, issuanceBalBefore);
+        assertFalse(consensusRegistry.isRetired(validator5));
+        assertEq(consensusRegistry.ownerOf(uint160(validator5)), validator5, "the whitelist entry must survive intact");
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Undefined));
+        _assertSetInvariant();
+
+        // the untouched whitelist entry still onboards normally
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig)
+        );
+        assertEq(uint8(consensusRegistry.getValidator(validator5).currentStatus), uint8(ValidatorStatus.Staked));
+    }
+
+    /// C7: burning a whitelisted validator before it ever stakes retires the address governance
+    /// named. `mint` stamps the address onto the record, so the lifecycle event carries it rather
+    /// than the zero address, which no log-based monitor could attribute.
+    function test_burn_whitelistedButNeverStaked_eventNamesValidator() public {
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+
+        ValidatorInfo memory retired = consensusRegistry.getValidator(validator5);
+        assertEq(retired.validatorAddress, validator5, "mint must record the address it whitelisted");
+        retired.currentStatus = ValidatorStatus.Any;
+        retired.isRetired = true;
+
+        vm.expectEmit(true, true, true, true);
+        emit ValidatorRetired(retired);
+        _burn(validator5);
+
+        assertTrue(consensusRegistry.isRetired(validator5));
+        assertEq(consensusRegistry.balanceOf(validator5), 0);
+        _assertSetInvariant();
+    }
+
     /*
      *   D. boundary incentives with retired validators
      */

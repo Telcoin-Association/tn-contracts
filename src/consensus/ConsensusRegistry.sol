@@ -65,6 +65,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     /// @notice When true, `topUpSlashedStake` is restricted to governance; when false, validators
     /// and their delegators may also restore their own slashed stake
     bool public topUpAuthorityRequired;
+    /// @dev The Issuance-backed half of the credit ledger, keyed by recipient: the reward leg of a
+    /// withdrawal whose push failed. Held separately from `claimableRefunds` because the two are
+    /// backed by different contracts - stake by this one, rewards by Issuance - and `claimRefund`
+    /// pays each from its own source. Appended at the storage tail to preserve every existing slot
+    mapping(address => uint256) public claimableRewards;
 
     /// @dev Signals a validator's pending status until activation/exit to correctly apply incentives
     uint32 internal constant PENDING_EPOCH = type(uint32).max;
@@ -149,6 +154,9 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             // (restorable via `topUpSlashedStake`). Rewards above the stake amount never add weight
             uint256 versionStakeAmount = versions[rewardeeVersion].stakeAmount;
             uint256 balance = balances[reward.validatorAddress];
+            // this cap is also what makes an entry naming a never-staked address inert: its balance
+            // is zero, so it carries no weight and receives nothing. `applySlashes` cannot rely on
+            // the same property and screens those entries explicitly
             uint256 stakeAmount = balance < versionStakeAmount ? balance : versionStakeAmount;
             uint256 weight = stakeAmount * reward.consensusHeaderCount;
 
@@ -192,6 +200,15 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             // signed consensus header means validator is whitelisted, staked, & active
             // unless validator was forcibly retired & ejected via burn: skip
             if (isRetired(slash.validatorAddress)) continue;
+
+            // an `Undefined` entry never staked, so it backs no balance and there is nothing to
+            // decrement: it either holds no ConsensusNFT at all or was whitelisted by governance
+            // and never staked. `isRetired` is false in both cases, so without this skip the zero
+            // balance falls through to the ejection branch, which would burn a nonexistent token
+            // and stall the boundary, or ship a full stake amount drawn from other validators'
+            // collateral to Issuance. The system caller does no membership filtering, so entries
+            // are screened here, the same short-circuit `burn` applies before ejecting
+            if (validators[slash.validatorAddress].currentStatus == ValidatorStatus.Undefined) continue;
 
             if (balances[slash.validatorAddress] > slash.amount) {
                 // ledger-only decrement: the confiscated native TEL remains held by this contract
@@ -639,7 +656,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
-    function topUpSlashedStake(address validatorAddress) external payable override whenNotPaused {
+    function topUpSlashedStake(address validatorAddress) external payable override whenNotPaused nonReentrant {
         // require `validatorAddress` is known & whitelisted, having been issued a ConsensusNFT by governance
         _checkConsensusNFTOwner(validatorAddress);
 
@@ -684,7 +701,7 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
     }
 
     /// @inheritdoc IConsensusRegistry
-    function activate() external override whenNotPaused {
+    function activate() external override whenNotPaused nonReentrant {
         // require caller is whitelisted, having been issued a ConsensusNFT by governance
         _checkConsensusNFTOwner(msg.sender);
 
@@ -753,15 +770,20 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         // 5. `Staked` validators settle immediately: they are not in service, never members of a
         // committee, and can already reclaim their full stake at any time via `unstake`
         if (status == ValidatorStatus.Staked) {
+            // record the new version before settling. The decrease branch debits the balance and
+            // then pushes the surplus to the recipient, and every function the recipient reenters
+            // during that push resolves the stake amount through the recorded version: were the
+            // version still the old one, the debited balance would read as a slash of exactly the
+            // surplus, and `topUpSlashedStake` would restore stake the validator never lost
+            validator.stakeVersion = targetVersion;
+            if (_isDelegated(validatorAddress)) {
+                delegations[validatorAddress].validatorVersion = targetVersion;
+            }
+
             if (deficit > 0) {
                 balances[validatorAddress] += deficit;
             } else if (newStakeAmount < oldStakeAmount) {
                 _settleStakeDecrease(validatorAddress, recipient, oldStakeAmount, newStakeAmount);
-            }
-
-            validator.stakeVersion = targetVersion;
-            if (_isDelegated(validatorAddress)) {
-                delegations[validatorAddress].validatorVersion = targetVersion;
             }
 
             emit ValidatorStakeVersionUpgraded(
@@ -799,15 +821,27 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
     /// @inheritdoc IStakeManager
     function claimRefund() external override whenNotPaused nonReentrant {
-        uint256 amount = claimableRefunds[msg.sender];
-        if (amount == 0) revert NoClaimableRefund();
+        uint256 stakeLeg = claimableRefunds[msg.sender];
+        uint256 rewardLeg = claimableRewards[msg.sender];
+        if (stakeLeg + rewardLeg == 0) revert NoClaimableRefund();
+
+        // the stake leg is this contract's own native TEL and is always payable; the reward leg is
+        // paid out of Issuance, so cap it at what Issuance holds and leave the remainder credited
+        // rather than reverting the whole claim over a reward pool that ran dry
+        uint256 payableRewards = rewardLeg > issuance.balance ? issuance.balance : rewardLeg;
+        uint256 payout = stakeLeg + payableRewards;
+        // a reward-only credit against a pool that has run dry has nothing to deliver yet; say so
+        // rather than completing as a transfer of zero and reporting it as a claim
+        if (payout == 0) revert NoClaimableRefund();
+
         claimableRefunds[msg.sender] = 0;
+        claimableRewards[msg.sender] = rewardLeg - payableRewards;
 
         // full-gas push through Issuance; a revert here affects only the caller, whose credit is
         // preserved by the transaction reverting as a whole
-        Issuance(issuance).distributeStakeReward{ value: amount }(msg.sender, 0);
+        Issuance(issuance).distributeStakeReward{ value: stakeLeg }(msg.sender, payableRewards);
 
-        emit RefundClaimed(msg.sender, amount);
+        emit RefundClaimed(msg.sender, payout);
     }
 
     /// @notice Returns the validators with a queued stake version change, in set order
@@ -840,8 +874,12 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
 
         if (refundAmount > 0) {
             balances[validatorAddress] -= refundAmount;
-            // Route through Issuance (same pattern as _unstake)
-            Issuance(issuance).distributeStakeReward{ value: refundAmount }(recipient, 0);
+            // push with a gas cap and fall back to a `claimRefund` credit, matching what the
+            // boundary lane does for this same settlement. The recipient of a delegated validator's
+            // refund is its delegator, an address the validator can neither change nor remove, so
+            // the two lanes must agree that a recipient which stops accepting value defers its own
+            // payout rather than blocking the operation
+            _settleValue(recipient, refundAmount);
         }
 
         // consolidate confiscated slash remainder on Issuance (same as _unstake pattern)
@@ -905,6 +943,11 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
         if (balanceOf(validatorAddress) != 0 || isRetired(validatorAddress)) {
             revert AlreadyDefined(validatorAddress);
         }
+
+        // stamp the address onto the still-`Undefined` record so a governance burn before the
+        // validator ever stakes emits lifecycle events naming it; every other field is left at its
+        // default and `_recordStaked` overwrites the record wholesale at stake time
+        validators[validatorAddress].validatorAddress = validatorAddress;
 
         // issue the ConsensusNFT
         _mint(validatorAddress, _getTokenId(validatorAddress));
@@ -1202,6 +1245,19 @@ contract ConsensusRegistry is StakeManager, Pausable, Ownable, ReentrancyGuard, 
             // the value stays on this contract, backing the credit
             claimableRefunds[recipient] += amount;
             emit RefundQueued(recipient, amount);
+        }
+    }
+
+    /// @inheritdoc StakeManager
+    function _settleStakePayout(address recipient, uint256 unstakeAmt, uint256 rewards) internal override {
+        try Issuance(issuance).distributeStakeReward{ value: unstakeAmt, gas: REFUND_GAS_LIMIT }(recipient, rewards) { }
+        catch {
+            // the recipient rejected the push, so each leg stays where it already sits and backs its
+            // half of the credit: the stake on this contract, the rewards on Issuance. `claimRefund`
+            // then delivers both in the single transfer this push would have made
+            if (unstakeAmt > 0) claimableRefunds[recipient] += unstakeAmt;
+            if (rewards > 0) claimableRewards[recipient] += rewards;
+            emit RefundQueued(recipient, unstakeAmt + rewards);
         }
     }
 

@@ -253,11 +253,26 @@ abstract contract StakeManager is ERC721Enumerable, EIP712, IStakeManager {
         // shortfall, so an underfunded reward pool can never block a stake withdrawal
         if (acceptRewardShortfall && rewards > issuance.balance) rewards = issuance.balance;
 
+        // a reward pool that cannot cover the rewards leg is the caller's decision to make, so raise it
+        // here rather than let the payout's credit fallback absorb it: settling for less than the full
+        // amount stays reachable only by accepting the shortfall
+        uint256 issuanceBal = issuance.balance;
+        if (rewards > issuanceBal) {
+            revert Issuance.InsufficientBalance(issuanceBal + unstakeAmt, unstakeAmt + rewards);
+        }
+
         // debit `unstakeAmt` due to recipient from this contract balance, debit rewards from Issuance balance
-        Issuance(issuance).distributeStakeReward{ value: unstakeAmt }(recipient, rewards);
+        _settleStakePayout(recipient, unstakeAmt, rewards);
 
         return unstakeAmt + rewards;
     }
+
+    /// @dev Delivers a settled withdrawal of `unstakeAmt` from this contract's balance plus `rewards`
+    /// from Issuance's to `recipient`. Left to the inheriting registry so the push can degrade to a
+    /// pull-based credit: the recipient of a delegated validator's stake is its delegator, an address
+    /// the validator cannot change or remove, so a delegator that becomes uncallable after the
+    /// delegation is formed must not be able to hold the validator's stake hostage.
+    function _settleStakePayout(address recipient, uint256 unstakeAmt, uint256 rewards) internal virtual;
 
     function _checkRewards(address validatorAddress, uint8 validatorVersion) internal virtual returns (uint256) {
         uint256 initialStake = versions[validatorVersion].stakeAmount;

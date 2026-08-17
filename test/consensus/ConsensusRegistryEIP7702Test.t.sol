@@ -25,6 +25,46 @@ contract PermissiveWallet {
     receive() external payable { }
 }
 
+/// @dev A wallet program that snapshots the registry's view of its own account the moment it is
+/// paid. Under EIP-7702 this runs in the delegating EOA's context, so `address(this)` is the
+/// validator and the recorded values land in the EOA's storage.
+contract ObservingWallet {
+    address public immutable registry;
+
+    uint256 public observedBalance;
+    uint256 public observedStakeAmount;
+
+    constructor(address registry_) {
+        registry = registry_;
+    }
+
+    receive() external payable {
+        (observedBalance, observedStakeAmount,) = IStakeManager(registry).getBalanceBreakdown(address(this));
+    }
+}
+
+/// @dev A wallet program that reenters `topUpSlashedStake` for its own account the instant it is
+/// paid, forwarding exactly the value it just received. The reentrant call's failure is swallowed
+/// so the outer settlement proceeds either way and its end state can be asserted.
+contract ReenteringTopUpWallet {
+    address public immutable registry;
+
+    bool public reentryAttempted;
+    bool public reentrySucceeded;
+
+    constructor(address registry_) {
+        registry = registry_;
+    }
+
+    receive() external payable {
+        reentryAttempted = true;
+        (bool ok,) = registry.call{ value: msg.value }(
+            abi.encodeWithSelector(IConsensusRegistry.topUpSlashedStake.selector, address(this))
+        );
+        reentrySucceeded = ok;
+    }
+}
+
 /// @dev A genuine contract account that answers ERC-1271 against a fixed secp256k1 signer
 contract ERC1271Wallet {
     address public immutable signer;
@@ -60,6 +100,7 @@ contract ConsensusRegistryEIP7702Test is ConsensusRegistryTestUtils {
     /// @dev A validator key distinct from the genesis set and from `validator5`
     uint256 internal constant DELEGATED_VALIDATOR_PK = 77;
     uint256 internal constant STRANGER_PK = 1337;
+    uint256 internal constant DELEGATOR_PK = 42;
 
     function setUp() public {
         consensusRegistry = ConsensusRegistry(0x07E17e17E17e17E17e17E17E17E17e17e17E17e1);
@@ -94,8 +135,52 @@ contract ConsensusRegistryEIP7702Test is ConsensusRegistryTestUtils {
         vm.prank(crOwner);
         consensusRegistry.mint(validatorAddress);
 
-        delegator = _addressFromPrivateKey(42);
+        delegator = _addressFromPrivateKey(DELEGATOR_PK);
         vm.deal(delegator, stakeAmount_);
+    }
+
+    /// @dev Mints and stakes `validator5`, leaving it `Staked` - the lane where a version change
+    /// settles immediately - then authors a lower stake version. Returns that version and the
+    /// surplus its settlement refunds.
+    function _prepareStakeDecrease(uint256 newStakeAmount) internal returns (uint8 newVersion, uint256 surplus) {
+        vm.deal(validator5, stakeAmount_);
+        vm.prank(crOwner);
+        consensusRegistry.mint(validator5);
+        vm.prank(validator5);
+        consensusRegistry.stake{ value: stakeAmount_ }(
+            validator5BlsPubkey, IStakeManager.ProofOfPossession(validator5BlsSig)
+        );
+
+        newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+        surplus = stakeAmount_ - newStakeAmount;
+    }
+
+    /// @dev Onboards a delegated validator whose stake came from `delegator`, leaving it `Staked`:
+    /// eligible to unstake, and the lane where a version change settles immediately.
+    function _delegatedValidator() internal returns (address validatorAddress, address delegator) {
+        validatorAddress = vm.addr(DELEGATED_VALIDATOR_PK);
+        delegator = _prepareDelegation(validatorAddress);
+        bytes memory blsPubkey = _blsDummyPubkeyFromSecret(DELEGATED_VALIDATOR_PK);
+        bytes memory blsSig = _blsDummySigFromSecret(DELEGATED_VALIDATOR_PK);
+
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory validatorSig = _sign(
+            DELEGATED_VALIDATOR_PK, consensusRegistry.delegationDigest(blsPubkey, validatorAddress, delegator, deadline)
+        );
+
+        vm.prank(delegator);
+        consensusRegistry.delegateStake{ value: stakeAmount_ }(
+            blsPubkey, IStakeManager.ProofOfPossession(blsSig), validatorAddress, validatorSig, deadline
+        );
+    }
+
+    /// @dev The same, with an epoch of rewards accrued to the validator.
+    function _delegatedValidatorWithRewards() internal returns (address validatorAddress, address delegator) {
+        (validatorAddress, delegator) = _delegatedValidator();
+
+        RewardInfo[] memory rewards = new RewardInfo[](1);
+        rewards[0] = RewardInfo(validatorAddress, 100);
+        _concludeEpochWithRewards(_sortedGenesisCommittee(), rewards);
     }
 
     function _sign(uint256 pk, bytes32 digest) internal pure returns (bytes memory) {
@@ -487,5 +572,168 @@ contract ConsensusRegistryEIP7702Test is ConsensusRegistryTestUtils {
         assertEq(consensusRegistry.getPendingVersionChanges().length, 0);
         assertEq(consensusRegistry.claimableRefunds(validator5), deficit, "escrow credited, not pushed");
         _assertSetInvariant();
+    }
+
+    /*
+     *   the stake-decrease settlement window
+     */
+
+    /// Settlement debits the balance and then pushes the surplus, and every function reachable from
+    /// that push resolves the stake amount through the recorded version. The version is therefore
+    /// written first: were the old one still recorded, the debited balance would read as a slash of
+    /// exactly the surplus for the duration of the push.
+    function test_requestStakeVersionChange_settlementPushSeesNewVersion() public {
+        uint256 newStakeAmount = stakeAmount_ / 2;
+        (uint8 newVersion, uint256 surplus) = _prepareStakeDecrease(newStakeAmount);
+
+        ObservingWallet observer = new ObservingWallet(address(consensusRegistry));
+        vm.signAndAttachDelegation(address(observer), validator5Secret);
+
+        vm.prank(validator5);
+        consensusRegistry.requestStakeVersionChange(validator5, newVersion);
+
+        assertEq(validator5.balance, surplus, "the surplus must reach the recipient");
+        assertEq(
+            ObservingWallet(payable(validator5)).observedStakeAmount(),
+            newStakeAmount,
+            "the recorded version must already resolve to the new stake amount mid-push"
+        );
+        assertEq(
+            ObservingWallet(payable(validator5)).observedBalance(),
+            newStakeAmount,
+            "balance and recorded version must agree, or the debit reads as a slash"
+        );
+        assertEq(consensusRegistry.getRewards(validator5), 0, "settlement must manufacture no rewards");
+    }
+
+    /// The concrete exploit that window enabled: a validator whose 7702 handler reenters
+    /// `topUpSlashedStake` while being paid its surplus, restoring stake it never lost and booking
+    /// the difference as rewards `applyIncentives` never issued.
+    function testRevert_topUpSlashedStake_reentrantDuringStakeDecreaseSettlement() public {
+        uint256 newStakeAmount = stakeAmount_ / 2;
+        (uint8 newVersion, uint256 surplus) = _prepareStakeDecrease(newStakeAmount);
+
+        ReenteringTopUpWallet attacker = new ReenteringTopUpWallet(address(consensusRegistry));
+        vm.signAndAttachDelegation(address(attacker), validator5Secret);
+
+        vm.prank(validator5);
+        consensusRegistry.requestStakeVersionChange(validator5, newVersion);
+
+        assertTrue(ReenteringTopUpWallet(payable(validator5)).reentryAttempted(), "the handler must have run");
+        assertFalse(ReenteringTopUpWallet(payable(validator5)).reentrySucceeded(), "the reentrant top-up must fail");
+        assertEq(validator5.balance, surplus, "the surplus stays with the recipient, not restored as stake");
+
+        (uint256 outstanding, uint256 initialStake, uint256 rewards) =
+            consensusRegistry.getBalanceBreakdown(validator5);
+        assertEq(outstanding, newStakeAmount);
+        assertEq(initialStake, newStakeAmount);
+        assertEq(rewards, 0, "no rewards may be manufactured against a validator that was never slashed");
+    }
+
+    /*
+     *   a withdrawal payout survives a recipient that stops accepting value
+     */
+
+    /// A delegated validator's stake is paid to its delegator, an address the validator can neither
+    /// change nor remove: `delegations` clears only on burn. A delegator that was a plain EOA when
+    /// the delegation was formed can attach a reverting 7702 handler afterwards, which would strand
+    /// the stake permanently - governance's only remedy being `burn`, which confiscates rather than
+    /// returns it. The payout degrades to a pull-based credit instead.
+    function test_unstake_revertingDelegatorCreditsRatherThanBricks() public {
+        (address validatorAddress, address delegator) = _delegatedValidatorWithRewards();
+        uint256 rewards = consensusRegistry.getRewards(validatorAddress);
+        assertGt(rewards, 0);
+
+        uint256 registryBalBefore = address(consensusRegistry).balance;
+        uint256 issuanceBalBefore = issuance.balance;
+
+        // only now does the delegator become uncallable
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATOR_PK);
+        (bool reachable,) = delegator.call{ value: 0 }("");
+        assertFalse(reachable, "the delegator must reject plain calls for this test to mean anything");
+
+        vm.expectEmit(true, true, true, true);
+        emit RefundQueued(delegator, stakeAmount_ + rewards);
+        vm.prank(validatorAddress);
+        consensusRegistry.unstake(validatorAddress, false);
+
+        assertTrue(consensusRegistry.isRetired(validatorAddress), "the withdrawal must still settle");
+        assertEq(consensusRegistry.claimableRefunds(delegator), stakeAmount_, "the stake leg is credited");
+        assertEq(consensusRegistry.claimableRewards(delegator), rewards, "the reward leg is credited");
+        assertEq(delegator.balance, 0);
+        assertEq(address(consensusRegistry).balance, registryBalBefore, "the stake leg stays here, backing its credit");
+        assertEq(issuance.balance, issuanceBalBefore, "the reward leg stays on Issuance, backing its credit");
+
+        // the delegator moves to a wallet program that accepts value and pulls the full amount
+        vm.signAndAttachDelegation(address(permissiveWallet), DELEGATOR_PK);
+        vm.prank(delegator);
+        consensusRegistry.claimRefund();
+
+        assertEq(delegator.balance, stakeAmount_ + rewards, "both legs deliver in one transfer");
+        assertEq(consensusRegistry.claimableRefunds(delegator), 0);
+        assertEq(consensusRegistry.claimableRewards(delegator), 0);
+    }
+
+    /// The immediate `Staked` lane pushes a stake-decrease surplus to the recipient where the
+    /// boundary lane credits it. A hostile delegator must not be able to block the operation
+    /// through that difference, so both lanes settle the same way.
+    function test_requestStakeVersionChange_revertingDelegatorCreditsSurplus() public {
+        (address validatorAddress, address delegator) = _delegatedValidator();
+
+        uint256 newStakeAmount = stakeAmount_ / 2;
+        uint8 newVersion = _fuzz_upgradeGlobalStakeVersion(newStakeAmount);
+        uint256 surplus = stakeAmount_ - newStakeAmount;
+
+        // only now does the delegator become uncallable
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATOR_PK);
+
+        vm.expectEmit(true, true, true, true);
+        emit RefundQueued(delegator, surplus);
+        vm.prank(validatorAddress);
+        consensusRegistry.requestStakeVersionChange(validatorAddress, newVersion);
+
+        assertEq(consensusRegistry.claimableRefunds(delegator), surplus, "the surplus is credited, not pushed");
+        assertEq(delegator.balance, 0);
+        (uint256 outstanding, uint256 initialStake, uint256 rewards) =
+            consensusRegistry.getBalanceBreakdown(validatorAddress);
+        assertEq(outstanding, newStakeAmount, "the decrease must still settle");
+        assertEq(initialStake, newStakeAmount);
+        assertEq(rewards, 0);
+    }
+
+    /// The credit's reward leg is paid from Issuance, so a reward pool that has run dry defers that
+    /// leg rather than blocking the stake leg with it. Nothing is forfeited: the remainder stays
+    /// credited until Issuance is funded again.
+    function test_claimRefund_dryIssuanceDefersRewardLegOnly() public {
+        (address validatorAddress, address delegator) = _delegatedValidatorWithRewards();
+        uint256 rewards = consensusRegistry.getRewards(validatorAddress);
+
+        vm.signAndAttachDelegation(address(revertingWallet), DELEGATOR_PK);
+        vm.prank(validatorAddress);
+        consensusRegistry.unstake(validatorAddress, false);
+
+        // the pool can cover only half the credited rewards by the time the delegator claims
+        uint256 payable_ = rewards / 2;
+        vm.deal(issuance, payable_);
+        vm.signAndAttachDelegation(address(permissiveWallet), DELEGATOR_PK);
+        vm.prank(delegator);
+        consensusRegistry.claimRefund();
+
+        assertEq(delegator.balance, stakeAmount_ + payable_, "the stake leg must not be held up by the reward leg");
+        assertEq(consensusRegistry.claimableRefunds(delegator), 0);
+        assertEq(consensusRegistry.claimableRewards(delegator), rewards - payable_, "the remainder stays credited");
+
+        // with only an unpayable reward leg left, a claim reports that rather than transferring zero
+        vm.deal(issuance, 0);
+        vm.prank(delegator);
+        vm.expectRevert(NoClaimableRefund.selector);
+        consensusRegistry.claimRefund();
+
+        // funding the pool makes the remainder claimable
+        vm.deal(issuance, rewards - payable_);
+        vm.prank(delegator);
+        consensusRegistry.claimRefund();
+        assertEq(delegator.balance, stakeAmount_ + rewards);
+        assertEq(consensusRegistry.claimableRewards(delegator), 0);
     }
 }
