@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: MIT or Apache-2.0
+pragma solidity 0.8.35;
+
+import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { PausableUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import { IStablecoin } from "../testnet/IStablecoin.sol";
+import { ShieldPrecompileSelectors } from "./ShieldPrecompileSelectors.sol";
+
+/// @title ShieldVault
+/// @author Telcoin Association
+/// @notice Public-side vault for ONE shielded stablecoin (eXYZ). `shield` burns public tokens from
+///         the caller and credits a shielded note inside the TN-SHIELD precompile's Merkle tree;
+///         `unshield` submits a zk proof to the precompile and mints the proven public amount back
+///         out. One vault is deployed per token and registered with the precompile as
+///         `vaultOf[token]` via governance `setTokenConfig`, making this contract the only address
+///         the precompile accepts for its token's `shield`/`unshield` selectors.
+/// @dev OPERATIONAL PREREQUISITE: the token's admin must grant this vault
+///      `Stablecoin::MINTER_ROLE` AND `Stablecoin::BURNER_ROLE` out-of-band (roles live on the
+///      token contract, not here). Without them `shield`/`unshield` revert on the token leg.
+/// @dev Precompile calls use the protocol's low-level `.call` convention (cf. `StablecoinManager`,
+///      `IBlsG1`): the precompile account carries a single `0xfe` code byte at genesis and is
+///      dispatched by revm at runtime, so low-level calls sidestep Solidity's typed-interface
+///      EXTCODESIZE guard (which reverts outright in pre-genesis/test contexts where the account
+///      has no code at all).
+/// @dev ERROR IDIOM: precompile failures are `PrecompileError`-style frame halts with EMPTY
+///      returndata (the tel/bls precompile idiom); distinct failure reasons exist only in node
+///      traces/logs, never on-chain. `LowLevelCallFailure.returnData` is therefore empty for
+///      precompile-side failures - callers must not expect decodable revert reasons.
+/// @dev The precompile's `sol!` block in the node is the v1 interface source of truth; calldata is
+///      encoded against `ShieldPrecompileSelectors` (a public `IShieldedStablecoin.sol` interface
+///      is an explicit follow-up).
+/// @dev UUPS-upgradeable and pausable; the owner (intended: the governance safe) gates
+///      `pause`/`unpause` and upgrades.
+contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable {
+    /// @notice Canonical address of the TN-SHIELD shielded-stablecoin precompile; must match
+    ///         `SHIELDED_PRECOMPILE_ADDRESS` in the Telcoin-Network node. Genesis gives the
+    ///         address one `0xfe` (INVALID) byte of code so the account is never state-pruned and
+    ///         any call bypassing precompile dispatch reverts instead of hitting an empty account.
+    address public constant PRECOMPILE = 0x0000000000000000000000000000000123456789;
+
+    /// @notice A low-level precompile call failed. `returnData` is EMPTY for precompile-side
+    ///         failures (frame halts carry no returndata; see the contract-level error-idiom note).
+    error LowLevelCallFailure(bytes returnData);
+    /// @notice `shield` requires a nonzero amount (mirrors the precompile's own `amount > 0` gate).
+    error ZeroAmount();
+    /// @notice The initializer rejects the zero address for the token.
+    error ZeroAddress();
+
+    /// @custom:storage-location erc7201:telcoin.storage.ShieldVault
+    struct ShieldVaultStorage {
+        /// @notice The single eXYZ stablecoin this vault shields. Immutable-style: set once by the
+        ///         initializer, no setter exists - deploy a new vault for a new token.
+        IStablecoin _token;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("erc7201.telcoin.storage.ShieldVault")) - 1))
+    //   & ~bytes32(uint256(0xff))
+    bytes32 internal constant ShieldVaultStorageSlot =
+        0x16de1eecb503ef3416fad799fdf9d78f215b6274e619e7f529e39af019b95700;
+
+    /// @notice Initializes the vault for exactly one token; called once via proxy deployment.
+    /// @param token_ The eXYZ stablecoin this vault shields (must expose `mintTo`/`burnFrom`).
+    /// @param owner_ The owner (intended: the governance safe); gates pause/unpause and upgrades.
+    function initialize(address token_, address owner_) external initializer {
+        if (token_ == address(0)) revert ZeroAddress();
+        __Ownable_init(owner_);
+        __Pausable_init();
+
+        _shieldVaultStorage()._token = IStablecoin(token_);
+    }
+
+    /// @notice The eXYZ stablecoin this vault shields.
+    function token() public view returns (IStablecoin) {
+        return _shieldVaultStorage()._token;
+    }
+
+    /// @notice Shields `amount` of the vault's token: burns it from the caller's public balance,
+    ///         then has the precompile append a note commitment owned by `ownerAddr`.
+    /// @dev ALLOWANCE PREREQUISITE: `Stablecoin.burnFrom` spends the caller's ERC-20 allowance
+    ///      even for BURNER_ROLE holders, so the user MUST `token.approve(address(this), amount)`
+    ///      before calling.
+    /// @dev The shield opening is public calldata (no memo): the precompile itself recomputes
+    ///      `cm = keccak256(DOM_NOTE || token || ownerAddr || amount_be16 || salt)`, so a hidden
+    ///      amount larger than the burned amount cannot be smuggled in.
+    /// @dev Burn-then-credit order: if the precompile leg fails, the whole transaction - burn
+    ///      included - reverts atomically (the precompile halt carries empty returndata; the
+    ///      revert surfaces as `LowLevelCallFailure` with empty `returnData`).
+    /// @dev A blacklisted caller cannot shield: the token's `_update` hook reverts the burn.
+    /// @param amount Token amount to shield; must be nonzero (u128 per TN-SHIELD v1).
+    /// @param ownerAddr Shielded address `a = keccak256(DOM_ADDR || pk_spend || pk_view)` that
+    ///                  owns the new note.
+    /// @param salt Fresh 32-byte note salt chosen by the caller.
+    function shield(uint128 amount, bytes32 ownerAddr, bytes32 salt) external whenNotPaused {
+        if (amount == 0) revert ZeroAmount();
+
+        IStablecoin token_ = _shieldVaultStorage()._token;
+        token_.burnFrom(msg.sender, amount);
+
+        (bool ok, bytes memory ret) = PRECOMPILE.call(
+            abi.encodeWithSelector(ShieldPrecompileSelectors.SHIELD, address(token_), ownerAddr, salt, amount)
+        );
+        if (!ok) revert LowLevelCallFailure(ret);
+    }
+
+    /// @notice Unshields tokens: submits `(proof, publicValues)` to the precompile, which verifies
+    ///         the proof, marks the input nullifiers spent, and returns the proven
+    ///         `(recipient, amount)`; the vault then mints `amount` of its token to `recipient`.
+    /// @dev COMPLIANCE: a blacklisted `recipient` makes the token's `_update` hook revert
+    ///      (`Blacklisted(to)`), rolling back the WHOLE transaction - including the precompile's
+    ///      nullifier marks and tree insertion - so the shielded note stays unspent and remains
+    ///      spendable toward a compliant recipient.
+    /// @dev Callable by anyone (relayable): recipient and amount are fixed by the proof's public
+    ///      values, not by the caller. The precompile independently enforces that this vault is
+    ///      `vaultOf[token]` for the proof's token.
+    /// @dev On success the precompile returns exactly `abi.encode(address recipient, uint128
+    ///      amount)`; malformed returndata makes `abi.decode` revert.
+    /// @param proof TN-SHIELD v1 Plonk proof envelope bytes (opaque to the vault).
+    /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
+    function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {
+        (bool ok, bytes memory ret) =
+            PRECOMPILE.call(abi.encodeWithSelector(ShieldPrecompileSelectors.UNSHIELD, proof, publicValues));
+        if (!ok) revert LowLevelCallFailure(ret);
+
+        (address recipient, uint128 amount) = abi.decode(ret, (address, uint128));
+        _shieldVaultStorage()._token.mintTo(recipient, amount);
+    }
+
+    /// @notice Pauses `shield` and `unshield`. Only the owner (governance safe) may pause.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpauses `shield` and `unshield`. Only the owner (governance safe) may unpause.
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /// @notice Only the owner (governance safe) may perform an upgrade
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner { }
+
+    function _shieldVaultStorage() internal pure returns (ShieldVaultStorage storage $) {
+        assembly {
+            $.slot := ShieldVaultStorageSlot
+        }
+    }
+}
