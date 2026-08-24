@@ -25,6 +25,9 @@ contract GenesisSafeCanonicalParityTest is Test {
     address constant SAFE_MULTI_SEND_CALL_ONLY = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
     address constant SAFE_SIGN_MESSAGE_LIB = 0xd53cd0aB83D845Ac265BE939c57F53AD838012c9;
     address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
+    address constant SAFE_SIMULATE_TX_ACCESSOR = 0x3d4BA2E0884aa488718476ca2FB8Efc291A46199;
+    address constant SAFE_MIGRATION = 0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6;
+    address constant SAFE_TO_L2_MIGRATION = 0xfF83F6335d8930cBad1c0D439A841f01888D9f69;
     address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
 
     /// @dev Real-world cross-chain test vector: the Telcoin governance/deployer Safe
@@ -58,6 +61,9 @@ contract GenesisSafeCanonicalParityTest is Test {
         genesis.instantiateMultiSendCallOnly();
         genesis.instantiateSignMessageLib();
         genesis.instantiateCreateCall();
+        genesis.instantiateSimulateTxAccessor();
+        genesis.instantiateSafeMigration();
+        genesis.instantiateSafeToL2Migration();
         genesis.instantiateSafeSingletonFactory();
     }
 
@@ -76,6 +82,11 @@ contract GenesisSafeCanonicalParityTest is Test {
         );
         assertEq(SAFE_SIGN_MESSAGE_LIB.codehash, 0x525c754a46b79e05543a59bb61e8de3c9eee0d955a59352409cbe67ea1077528);
         assertEq(SAFE_CREATE_CALL.codehash, 0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889);
+        assertEq(
+            SAFE_SIMULATE_TX_ACCESSOR.codehash, 0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d
+        );
+        assertEq(SAFE_MIGRATION.codehash, 0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99);
+        assertEq(SAFE_TO_L2_MIGRATION.codehash, 0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0);
         assertEq(
             SAFE_SINGLETON_FACTORY.codehash, 0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989
         );

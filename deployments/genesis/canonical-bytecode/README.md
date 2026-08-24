@@ -38,17 +38,27 @@ the genesis state reproduces its Ethereum address exactly.
 | `MultiSendCallOnly.hex` | `0x9641d764fc13c8B624c04430C7356C1C7C8102e2` | `0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939` |
 | `SignMessageLib.hex` | `0xd53cd0aB83D845Ac265BE939c57F53AD838012c9` | `0x525c754a46b79e05543a59bb61e8de3c9eee0d955a59352409cbe67ea1077528` |
 | `CreateCall.hex` | `0x9b35Af71d77eaf8d7e40252370304687390A1A52` | `0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889` |
+| `SimulateTxAccessor.hex` | `0x3d4BA2E0884aa488718476ca2FB8Efc291A46199` | `0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d` |
+| `SafeMigration.hex` | `0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6` | `0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99` |
+| `SafeToL2Migration.hex` | `0xfF83F6335d8930cBad1c0D439A841f01888D9f69` | `0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0` |
 | `SafeSingletonFactory.hex` | `0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7` | `0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989` |
+
+This covers the complete official
+[safe-deployments](https://github.com/safe-global/safe-deployments/tree/main/src/assets/v1.4.1)
+v1.4.1 registry (all 12 assets), plus the Safe Singleton Factory that deployed
+them on live chains. Addresses match the registry's `canonical` deployment type.
 
 The generator asserts these hashes before etching, so a corrupted or tampered
 file fails loudly.
 
 ## Notes
 
-- `SafeToL2Setup`, `MultiSend`, and `SignMessageLib` carry `address(this)`
-  immutables baked into their runtime bytes. Capturing deployed runtime code
-  and placing it at the **same** address preserves them correctly; placing
-  these bytes at any other address would be invalid.
+- `SafeToL2Setup`, `MultiSend`, `SignMessageLib`, `SimulateTxAccessor`, and
+  the migration contracts carry `address(this)` immutables baked into their
+  runtime bytes (`SafeMigration` additionally bakes the Safe/SafeL2/handler
+  addresses — all predeployed here). Capturing deployed runtime code and
+  placing it at the **same** address preserves them correctly; placing these
+  bytes at any other address would be invalid.
 - `Safe.hex`/`SafeL2.hex` require the singleton's own `threshold` storage
   slot (slot 4) set to 1, mirroring their constructors — the generator does
   this; it prevents anyone from calling `setup` on the singleton itself.

@@ -45,6 +45,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     address constant SAFE_MULTI_SEND_CALL_ONLY = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
     address constant SAFE_SIGN_MESSAGE_LIB = 0xd53cd0aB83D845Ac265BE939c57F53AD838012c9;
     address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
+    address constant SAFE_SIMULATE_TX_ACCESSOR = 0x3d4BA2E0884aa488718476ca2FB8Efc291A46199;
+    address constant SAFE_MIGRATION = 0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6;
+    address constant SAFE_TO_L2_MIGRATION = 0xfF83F6335d8930cBad1c0D439A841f01888D9f69;
     address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
 
     /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
@@ -64,6 +67,12 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         0x525c754a46b79e05543a59bb61e8de3c9eee0d955a59352409cbe67ea1077528;
     bytes32 constant SAFE_CREATE_CALL_CODEHASH =
         0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889;
+    bytes32 constant SAFE_SIMULATE_TX_ACCESSOR_CODEHASH =
+        0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d;
+    bytes32 constant SAFE_MIGRATION_CODEHASH =
+        0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99;
+    bytes32 constant SAFE_TO_L2_MIGRATION_CODEHASH =
+        0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0;
     bytes32 constant SAFE_SINGLETON_FACTORY_CODEHASH =
         0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989;
 
@@ -199,6 +208,40 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             yamlAppendGenesisAccount(dest, simulatedCreateCall, SAFE_CREATE_CALL, sharedNonce, sharedBalance, "create call")
         );
 
+        // simulate tx accessor (no storage) — used by Safe SDK/UI transaction simulation
+        // via CompatibilityFallbackHandler.simulate
+        address simulatedSimulateTxAccessor = instantiateSimulateTxAccessor();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedSimulateTxAccessor,
+                SAFE_SIMULATE_TX_ACCESSOR,
+                sharedNonce,
+                sharedBalance,
+                "simulate tx accessor"
+            )
+        );
+
+        // safe migration + safe to l2 migration (no storage) — version/singleton
+        // migration helpers, completing the official safe-deployments v1.4.1 registry
+        address simulatedSafeMigration = instantiateSafeMigration();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeMigration, SAFE_MIGRATION, sharedNonce, sharedBalance, "safe migration"
+            )
+        );
+        address simulatedSafeToL2Migration = instantiateSafeToL2Migration();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedSafeToL2Migration,
+                SAFE_TO_L2_MIGRATION,
+                sharedNonce,
+                sharedBalance,
+                "safe to l2 migration"
+            )
+        );
+
         // safe singleton factory (no storage) — Safe's deterministic CREATE2 factory;
         // lets future canonical Safe contracts be deployed permissionlessly at
         // byte-exact parity addresses without another genesis change
@@ -315,6 +358,23 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateCreateCall() public returns (address) {
         _etchCanonical("CreateCall", SAFE_CREATE_CALL, SAFE_CREATE_CALL_CODEHASH);
         return SAFE_CREATE_CALL;
+    }
+
+    function instantiateSimulateTxAccessor() public returns (address) {
+        _etchCanonical("SimulateTxAccessor", SAFE_SIMULATE_TX_ACCESSOR, SAFE_SIMULATE_TX_ACCESSOR_CODEHASH);
+        return SAFE_SIMULATE_TX_ACCESSOR;
+    }
+
+    /// @dev SafeMigration's immutables reference the Safe/SafeL2/fallback-handler
+    /// canonical addresses — all also predeployed here, so the baked bytes stay valid
+    function instantiateSafeMigration() public returns (address) {
+        _etchCanonical("SafeMigration", SAFE_MIGRATION, SAFE_MIGRATION_CODEHASH);
+        return SAFE_MIGRATION;
+    }
+
+    function instantiateSafeToL2Migration() public returns (address) {
+        _etchCanonical("SafeToL2Migration", SAFE_TO_L2_MIGRATION, SAFE_TO_L2_MIGRATION_CODEHASH);
+        return SAFE_TO_L2_MIGRATION;
     }
 
     function instantiateSafeSingletonFactory() public returns (address) {
