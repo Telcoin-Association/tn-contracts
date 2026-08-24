@@ -14,12 +14,63 @@ import {WTEL} from "../src/WTEL.sol";
 /// @notice Generates a yaml file comprising the storage slots and their values
 /// Used by Telcoin-Network protocol to instantiate the contracts with required configuration at genesis
 
+/// @dev The Safe suite is NOT compiled from `lib/safe-contracts`: canonical Safe v1.4.1
+/// was built with solc 0.7.6, and recompiling the same source with this repo's toolchain
+/// yields byte-different contracts. `SafeProxyFactory` derives proxy addresses via CREATE2
+/// over its embedded proxy creation code, so non-canonical factory bytes break cross-chain
+/// counterfactual Safe addresses on TN. Instead, byte-exact runtime bytecode captured from
+/// the live Ethereum mainnet deployments is vendored under
+/// `deployments/genesis/canonical-bytecode/` (provenance + hashes in its README) and etched
+/// at the canonical addresses, mirroring how Multicall3 and the Arachnid factory are
+/// already handled below.
+
 /// @dev Usage: `forge script script/GenerateGenesisPrecompileConfig.s.sol -vvvv`
 contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     Deployments deployments;
     string root;
     string dest;
     string fileName = "/deployments/genesis/precompile-config.yaml";
+    string bytecodeDir = "/deployments/genesis/canonical-bytecode/";
+
+    // ---------------------------------------------------------------------
+    // Canonical Safe v1.4.1 suite — addresses identical on all EVM chains
+    // ---------------------------------------------------------------------
+
+    address constant SAFE_SINGLETON = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    address constant SAFE_L2_SINGLETON = 0x29fcB43b46531BcA003ddC8FCB67FFE91900C762;
+    address constant SAFE_PROXY_FACTORY = 0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67;
+    address constant SAFE_FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
+    address constant SAFE_TO_L2_SETUP = 0xBD89A1CE4DDe368FFAB0eC35506eEcE0b1fFdc54;
+    address constant SAFE_MULTI_SEND = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
+    address constant SAFE_MULTI_SEND_CALL_ONLY = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
+    address constant SAFE_SIGN_MESSAGE_LIB = 0xd53cd0aB83D845Ac265BE939c57F53AD838012c9;
+    address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
+    address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
+
+    /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
+    bytes32 constant SAFE_CODEHASH = 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4;
+    bytes32 constant SAFE_L2_CODEHASH = 0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff;
+    bytes32 constant SAFE_PROXY_FACTORY_CODEHASH =
+        0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317;
+    bytes32 constant SAFE_FALLBACK_HANDLER_CODEHASH =
+        0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9;
+    bytes32 constant SAFE_TO_L2_SETUP_CODEHASH =
+        0x2f25df28caf984366ee584e13241707e85dcd5a6ea0c14267928dafc1fd6274b;
+    bytes32 constant SAFE_MULTI_SEND_CODEHASH =
+        0x0e4f7fc66550a322d1e7688e181b75e217e662a4f3f4d6a29b22bc61217c4b77;
+    bytes32 constant SAFE_MULTI_SEND_CALL_ONLY_CODEHASH =
+        0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939;
+    bytes32 constant SAFE_SIGN_MESSAGE_LIB_CODEHASH =
+        0x525c754a46b79e05543a59bb61e8de3c9eee0d955a59352409cbe67ea1077528;
+    bytes32 constant SAFE_CREATE_CALL_CODEHASH =
+        0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889;
+    bytes32 constant SAFE_SINGLETON_FACTORY_CODEHASH =
+        0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989;
+
+    /// @dev Safe/SafeL2 `threshold` storage slot; constructors set it to 1 so the
+    /// singleton itself can never be `setup()`-hijacked — replicated here since
+    /// etched code never runs a constructor
+    bytes32 constant SAFE_THRESHOLD_SLOT = bytes32(uint256(4));
 
     uint64 sharedNonce = 0;
     uint256 sharedBalance = 0;
@@ -56,6 +107,11 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         compatibilityFallbackHandler = CompatibilityFallbackHandler(deployments.CompatibilityFallbackHandler);
         governanceSafe = Safe(payable(deployments.Safe));
         wTEL = WTEL(payable(deployments.WTEL));
+
+        // guard against deployments-mainnet.json drifting from the canonical addresses
+        assertEq(address(safeImpl), SAFE_SINGLETON);
+        assertEq(address(safeProxyFactory), SAFE_PROXY_FACTORY);
+        assertEq(address(compatibilityFallbackHandler), SAFE_FALLBACK_HANDLER);
 
         _setGovernanceSafeConfig();
     }
@@ -94,6 +150,67 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
                 sharedNonce,
                 sharedBalance,
                 "compatibility fallback handler"
+            )
+        );
+
+        // safe l2 impl (has storage) — event-emitting singleton flavor; SafeToL2Setup
+        // switches counterfactual Safes to it during setup on non-mainnet chains
+        address simulatedSafeL2 = instantiateSafeL2();
+        assertTrue(
+            yamlAppendGenesisAccount(dest, simulatedSafeL2, SAFE_L2_SINGLETON, sharedNonce, sharedBalance, "safe l2 impl")
+        );
+
+        // safe to l2 setup (no storage) — required by counterfactual (multichain)
+        // Safe creations: Safe v1.4.1 `setupModules` reverts GS002 unless the
+        // initializer's delegatecall target has code
+        address simulatedToL2Setup = instantiateSafeToL2Setup();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedToL2Setup, SAFE_TO_L2_SETUP, sharedNonce, sharedBalance, "safe to l2 setup"
+            )
+        );
+
+        // multisend + multisend call only (no storage) — Safe batched transactions
+        address simulatedMultiSend = instantiateMultiSend();
+        assertFalse(
+            yamlAppendGenesisAccount(dest, simulatedMultiSend, SAFE_MULTI_SEND, sharedNonce, sharedBalance, "multisend")
+        );
+        address simulatedMultiSendCallOnly = instantiateMultiSendCallOnly();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedMultiSendCallOnly,
+                SAFE_MULTI_SEND_CALL_ONLY,
+                sharedNonce,
+                sharedBalance,
+                "multisend call only"
+            )
+        );
+
+        // sign message lib + create call (no storage) — remaining canonical Safe libs
+        address simulatedSignMessageLib = instantiateSignMessageLib();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedSignMessageLib, SAFE_SIGN_MESSAGE_LIB, sharedNonce, sharedBalance, "sign message lib"
+            )
+        );
+        address simulatedCreateCall = instantiateCreateCall();
+        assertFalse(
+            yamlAppendGenesisAccount(dest, simulatedCreateCall, SAFE_CREATE_CALL, sharedNonce, sharedBalance, "create call")
+        );
+
+        // safe singleton factory (no storage) — Safe's deterministic CREATE2 factory;
+        // lets future canonical Safe contracts be deployed permissionlessly at
+        // byte-exact parity addresses without another genesis change
+        address simulatedSingletonFactory = instantiateSafeSingletonFactory();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedSingletonFactory,
+                SAFE_SINGLETON_FACTORY,
+                sharedNonce,
+                sharedBalance,
+                "safe singleton factory (create2)"
             )
         );
 
@@ -137,26 +254,72 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         safeThreshold = 3;
     }
 
-    function instantiateSafeImpl() public returns (Safe simulatedDeployment) {
-        vm.startStateDiffRecording();
-        simulatedDeployment = new Safe();
-        Vm.AccountAccess[] memory safeImplRecords = vm.stopAndReturnStateDiff();
-
-        bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeImplRecords);
-        copyContractState(address(simulatedDeployment), address(safeImpl), slots);
+    /// @dev Reads the vendored canonical runtime bytecode, asserts its hash, and etches
+    /// it at `target`. Self-referential immutables (SafeToL2Setup, MultiSend,
+    /// SignMessageLib bake `address(this)` into their runtime bytes) stay valid because
+    /// the bytes were captured from — and are placed at — the same canonical address.
+    function _etchCanonical(string memory name, address target, bytes32 expectedCodehash) internal {
+        bytes memory runtimeCode = vm.parseBytes(vm.readFile(string.concat(root, bytecodeDir, name, ".hex")));
+        assertEq(keccak256(runtimeCode), expectedCodehash, string.concat(name, ": vendored bytecode hash mismatch"));
+        vm.etch(target, runtimeCode);
     }
 
-    function instantiateSafeProxyFactory() public returns (SafeProxyFactory simulatedDeployment) {
-        simulatedDeployment = new SafeProxyFactory();
-        copyContractState(address(simulatedDeployment), address(safeProxyFactory), new bytes32[](0));
+    /// @dev Etches a canonical Safe singleton and replicates its constructor's only
+    /// storage effect (`threshold = 1`), registering the slot for yaml emission
+    function _etchCanonicalSingleton(string memory name, address target, bytes32 expectedCodehash) internal {
+        _etchCanonical(name, target, expectedCodehash);
+        vm.store(target, SAFE_THRESHOLD_SLOT, bytes32(uint256(1)));
+        writtenStorageSlots[target].push(SAFE_THRESHOLD_SLOT);
     }
 
-    function instantiateCompatibilityFallbackHandler()
-        public
-        returns (CompatibilityFallbackHandler simulatedDeployment)
-    {
-        simulatedDeployment = new CompatibilityFallbackHandler();
-        copyContractState(address(simulatedDeployment), address(compatibilityFallbackHandler), new bytes32[](0));
+    function instantiateSafeImpl() public returns (Safe) {
+        _etchCanonicalSingleton("Safe", SAFE_SINGLETON, SAFE_CODEHASH);
+        return Safe(payable(SAFE_SINGLETON));
+    }
+
+    function instantiateSafeL2() public returns (address) {
+        _etchCanonicalSingleton("SafeL2", SAFE_L2_SINGLETON, SAFE_L2_CODEHASH);
+        return SAFE_L2_SINGLETON;
+    }
+
+    function instantiateSafeProxyFactory() public returns (SafeProxyFactory) {
+        _etchCanonical("SafeProxyFactory", SAFE_PROXY_FACTORY, SAFE_PROXY_FACTORY_CODEHASH);
+        return SafeProxyFactory(SAFE_PROXY_FACTORY);
+    }
+
+    function instantiateCompatibilityFallbackHandler() public returns (CompatibilityFallbackHandler) {
+        _etchCanonical("CompatibilityFallbackHandler", SAFE_FALLBACK_HANDLER, SAFE_FALLBACK_HANDLER_CODEHASH);
+        return CompatibilityFallbackHandler(SAFE_FALLBACK_HANDLER);
+    }
+
+    function instantiateSafeToL2Setup() public returns (address) {
+        _etchCanonical("SafeToL2Setup", SAFE_TO_L2_SETUP, SAFE_TO_L2_SETUP_CODEHASH);
+        return SAFE_TO_L2_SETUP;
+    }
+
+    function instantiateMultiSend() public returns (address) {
+        _etchCanonical("MultiSend", SAFE_MULTI_SEND, SAFE_MULTI_SEND_CODEHASH);
+        return SAFE_MULTI_SEND;
+    }
+
+    function instantiateMultiSendCallOnly() public returns (address) {
+        _etchCanonical("MultiSendCallOnly", SAFE_MULTI_SEND_CALL_ONLY, SAFE_MULTI_SEND_CALL_ONLY_CODEHASH);
+        return SAFE_MULTI_SEND_CALL_ONLY;
+    }
+
+    function instantiateSignMessageLib() public returns (address) {
+        _etchCanonical("SignMessageLib", SAFE_SIGN_MESSAGE_LIB, SAFE_SIGN_MESSAGE_LIB_CODEHASH);
+        return SAFE_SIGN_MESSAGE_LIB;
+    }
+
+    function instantiateCreateCall() public returns (address) {
+        _etchCanonical("CreateCall", SAFE_CREATE_CALL, SAFE_CREATE_CALL_CODEHASH);
+        return SAFE_CREATE_CALL;
+    }
+
+    function instantiateSafeSingletonFactory() public returns (address) {
+        _etchCanonical("SafeSingletonFactory", SAFE_SINGLETON_FACTORY, SAFE_SINGLETON_FACTORY_CODEHASH);
+        return SAFE_SINGLETON_FACTORY;
     }
 
     function instantiateWTEL() public returns (WTEL simulatedDeployment) {
