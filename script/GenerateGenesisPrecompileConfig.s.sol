@@ -134,11 +134,12 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
-        // safe proxy factory (no storage)
+        // safe proxy factory (no storage); nonce 1 per EIP-161 — it is a live CREATE2
+        // deployer post-genesis and deployed contracts never carry nonce 0
         address simulatedSafeFactory = address(instantiateSafeProxyFactory());
         assertFalse(
             yamlAppendGenesisAccount(
-                dest, simulatedSafeFactory, address(safeProxyFactory), sharedNonce, sharedBalance, "safe proxy factory"
+                dest, simulatedSafeFactory, address(safeProxyFactory), 1, sharedBalance, "safe proxy factory"
             )
         );
 
@@ -218,18 +219,29 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         // safe singleton factory (no storage) — Safe's deterministic CREATE2 factory;
         // lets future canonical Safe contracts be deployed permissionlessly at
-        // byte-exact parity addresses without another genesis change
+        // byte-exact parity addresses without another genesis change.
+        // nonce 11 = EIP-161 initial contract nonce (1) + the 10 suite CREATE2
+        // deployments represented in this genesis
         address simulatedSingletonFactory = instantiateSafeSingletonFactory();
         assertFalse(
             yamlAppendGenesisAccount(
                 dest,
                 simulatedSingletonFactory,
                 SAFE_SINGLETON_FACTORY,
-                sharedNonce,
+                11,
                 sharedBalance,
                 "safe singleton factory (create2)"
             )
         );
+
+        // singleton factory's keyless deployer EOA: mark its nonce-0 presigned
+        // deployment tx as spent, mirroring the multicall/arachnid entries below
+        vm.writeLine(
+            dest,
+            '"0xE1CB04A0fA36DdD16a06ea828007E35e1a3cBC37": # use nonce 0 for creating 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7'
+        );
+        vm.writeLine(dest, "  nonce: 1");
+        vm.writeLine(dest, "  balance: 0");
 
         // governance safe (has storage)
         address simulatedSafe = address(instantiateGovernanceSafe());

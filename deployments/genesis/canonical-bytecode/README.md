@@ -67,6 +67,12 @@ file fails loudly.
   deployer of all the above on live chains). Including it as a predeploy
   lets future canonical Safe contracts be added permissionlessly with
   byte-exact address parity, no fork needed.
+- Deployer nonces are set as if the deployments happened, mirroring the
+  genesis convention used for Multicall3/Arachnid: the singleton factory's
+  keyless deployer EOA (`0xE1CB04A0…3cBC37`) gets nonce 1 (its nonce-0
+  presigned tx is spent), the singleton factory gets nonce 11 (EIP-161
+  initial 1 + 10 CREATE2 deployments), and the proxy factory gets nonce 1
+  (EIP-161 initial; it is a live CREATE2 deployer post-genesis).
 
 ## Re-verifying
 
