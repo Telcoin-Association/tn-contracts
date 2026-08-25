@@ -56,10 +56,13 @@ file fails loudly.
 
 ## Notes
 
-- `SafeToL2Setup`, `MultiSend`, `SignMessageLib`, and `SimulateTxAccessor`
-  carry `address(this)` immutables baked into their runtime bytes. Capturing
-  deployed runtime code and placing it at the **same** address preserves them
-  correctly; placing these bytes at any other address would be invalid.
+- `SafeToL2Setup` (`SELF`), `MultiSend` (`multisendSingleton`), and
+  `SimulateTxAccessor` (`accessorSingleton`) are the three contracts whose
+  constructor bakes `address(this)` into their runtime bytes as an immutable —
+  each guards on it to force delegatecall-only use. Capturing deployed runtime
+  code and placing it at the **same** address preserves that correctly; placing
+  these bytes at any other address would be invalid. `SignMessageLib` has no
+  such immutable in v1.4.1 despite the same delegatecall-only usage.
 - `Safe.hex`/`SafeL2.hex` require the singleton's own `threshold` storage
   slot (slot 4) set to 1, mirroring their constructors — the generator does
   this; it prevents anyone from calling `setup` on the singleton itself.
@@ -67,17 +70,26 @@ file fails loudly.
   deployer of all the above on live chains). Including it as a predeploy
   lets future canonical Safe contracts be added permissionlessly with
   byte-exact address parity, no fork needed.
-- Deployer nonces are set as if the deployments happened, mirroring the
-  genesis convention used for Multicall3/Arachnid: the singleton factory's
-  keyless deployer EOA (`0xE1CB04A0…3cBC37`) gets nonce 1 (its nonce-0
-  presigned tx is spent), the singleton factory gets nonce 11 (EIP-161
-  initial 1 + 10 CREATE2 deployments), and the proxy factory gets nonce 1
-  (EIP-161 initial; it is a live CREATE2 deployer post-genesis).
+- Nonces are set as if the deployments happened. Every contract in the suite
+  gets nonce 1, the EIP-161 initial nonce for a contract account, which is what
+  each carries on Ethereum/Sepolia/Base. It is load-bearing for `CreateCall`,
+  whose `performCreate` does a CREATE from its own account, and for any Safe
+  that delegatecalls it; the CREATE2 deployers ignore the nonce but carry the
+  same value. Separately, the singleton factory's deployer EOA
+  (`0xE1CB04A0…3cBC37`) gets nonce 1 to mark its nonce-0 presigned deployment
+  tx as spent — the same treatment Multicall3's and Arachnid's deployers get,
+  though note this one is not a Nick's-method keyless address: Safe holds the
+  key and signs one deployment tx per chain.
 
 ## Re-verifying
 
 ```bash
 # any file: compare against Ethereum mainnet (or Sepolia/Base — identical)
-cast code 0x41675C099F32341bf84BFc5382aF534df5C7461a --rpc-url $ETHEREUM_RPC_URL \
-  | diff - Safe.hex && echo "byte-exact"
+ADDR=0x41675C099F32341bf84BFc5382aF534df5C7461a
+[ "$(cast code $ADDR --rpc-url $ETHEREUM_RPC_URL)" = "$(cat Safe.hex)" ] \
+  && echo "byte-exact"
 ```
+
+Compare with `$(...)` rather than piping into `diff`: `cast code` terminates its
+output with a newline and these files do not, so `cast code … | diff - Safe.hex`
+reports a difference even when the bytes are identical.

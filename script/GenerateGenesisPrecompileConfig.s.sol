@@ -311,9 +311,10 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     }
 
     /// @dev Reads the vendored canonical runtime bytecode, asserts its hash, and etches
-    /// it at `target`. Self-referential immutables (SafeToL2Setup, MultiSend,
-    /// SignMessageLib bake `address(this)` into their runtime bytes) stay valid because
-    /// the bytes were captured from — and are placed at — the same canonical address.
+    /// it at `target`. Self-referential immutables (SafeToL2Setup, MultiSend and
+    /// SimulateTxAccessor each bake `address(this)` into their runtime bytes) stay valid
+    /// because the bytes were captured from — and are placed at — the same canonical
+    /// address. SignMessageLib carries no such immutable.
     function _etchCanonical(string memory name, address target, bytes32 expectedCodehash) internal {
         bytes memory runtimeCode = vm.parseBytes(vm.readFile(string.concat(root, bytecodeDir, name, ".hex")));
         assertEq(keccak256(runtimeCode), expectedCodehash, string.concat(name, ": vendored bytecode hash mismatch"));
