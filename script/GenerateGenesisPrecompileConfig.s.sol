@@ -75,7 +75,17 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     /// etched code never runs a constructor
     bytes32 constant SAFE_THRESHOLD_SLOT = bytes32(uint256(4));
 
-    uint64 sharedNonce = 0;
+    /// @dev EIP-161 initial nonce for a contract account. Every predeploy below exists as a real
+    /// deployment on Ethereum/Sepolia/Base carrying nonce >= 1, and genesis mirrors that so TN
+    /// behaves identically. This is not cosmetic for all of them: `CreateCall.performCreate`
+    /// invoked directly does a CREATE from `CreateCall`'s own account, and a Safe that
+    /// delegatecalls it — the governance Safe included — does a CREATE from the Safe's account.
+    /// Both derive the new address from `keccak256(rlp([account, nonce]))`, so leaving these at 0
+    /// would shift every such deployment one nonce off the address the identical call produces on
+    /// any other chain. CREATE2 deployers (`SafeProxyFactory`, `SafeSingletonFactory`) do not read
+    /// the nonce, but carry the same value for consistency.
+    uint64 constant PREDEPLOY_NONCE = 1;
+
     uint256 sharedBalance = 0;
 
     uint256 public constant telTotalSupply = 100_000_000_000e18;
@@ -130,16 +140,20 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         address simulatedSafeImpl = address(instantiateSafeImpl());
         assertTrue(
             yamlAppendGenesisAccount(
-                dest, simulatedSafeImpl, address(safeImpl), sharedNonce, sharedBalance, "safe impl"
+                dest, simulatedSafeImpl, address(safeImpl), PREDEPLOY_NONCE, sharedBalance, "safe impl"
             )
         );
 
-        // safe proxy factory (no storage); nonce 1 per EIP-161 — it is a live CREATE2
-        // deployer post-genesis and deployed contracts never carry nonce 0
+        // safe proxy factory (no storage)
         address simulatedSafeFactory = address(instantiateSafeProxyFactory());
         assertFalse(
             yamlAppendGenesisAccount(
-                dest, simulatedSafeFactory, address(safeProxyFactory), 1, sharedBalance, "safe proxy factory"
+                dest,
+                simulatedSafeFactory,
+                address(safeProxyFactory),
+                PREDEPLOY_NONCE,
+                sharedBalance,
+                "safe proxy factory"
             )
         );
 
@@ -151,7 +165,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
                 dest,
                 simulatedFallbackHandler,
                 address(compatibilityFallbackHandler),
-                sharedNonce,
+                PREDEPLOY_NONCE,
                 sharedBalance,
                 "compatibility fallback handler"
             )
@@ -161,7 +175,9 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         // switches counterfactual Safes to it during setup on non-mainnet chains
         address simulatedSafeL2 = instantiateSafeL2();
         assertTrue(
-            yamlAppendGenesisAccount(dest, simulatedSafeL2, SAFE_L2_SINGLETON, sharedNonce, sharedBalance, "safe l2 impl")
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeL2, SAFE_L2_SINGLETON, PREDEPLOY_NONCE, sharedBalance, "safe l2 impl"
+            )
         );
 
         // safe to l2 setup (no storage) — required by counterfactual (multichain)
@@ -170,14 +186,16 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         address simulatedToL2Setup = instantiateSafeToL2Setup();
         assertFalse(
             yamlAppendGenesisAccount(
-                dest, simulatedToL2Setup, SAFE_TO_L2_SETUP, sharedNonce, sharedBalance, "safe to l2 setup"
+                dest, simulatedToL2Setup, SAFE_TO_L2_SETUP, PREDEPLOY_NONCE, sharedBalance, "safe to l2 setup"
             )
         );
 
         // multisend + multisend call only (no storage) — Safe batched transactions
         address simulatedMultiSend = instantiateMultiSend();
         assertFalse(
-            yamlAppendGenesisAccount(dest, simulatedMultiSend, SAFE_MULTI_SEND, sharedNonce, sharedBalance, "multisend")
+            yamlAppendGenesisAccount(
+                dest, simulatedMultiSend, SAFE_MULTI_SEND, PREDEPLOY_NONCE, sharedBalance, "multisend"
+            )
         );
         address simulatedMultiSendCallOnly = instantiateMultiSendCallOnly();
         assertFalse(
@@ -185,7 +203,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
                 dest,
                 simulatedMultiSendCallOnly,
                 SAFE_MULTI_SEND_CALL_ONLY,
-                sharedNonce,
+                PREDEPLOY_NONCE,
                 sharedBalance,
                 "multisend call only"
             )
@@ -195,12 +213,14 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         address simulatedSignMessageLib = instantiateSignMessageLib();
         assertFalse(
             yamlAppendGenesisAccount(
-                dest, simulatedSignMessageLib, SAFE_SIGN_MESSAGE_LIB, sharedNonce, sharedBalance, "sign message lib"
+                dest, simulatedSignMessageLib, SAFE_SIGN_MESSAGE_LIB, PREDEPLOY_NONCE, sharedBalance, "sign message lib"
             )
         );
         address simulatedCreateCall = instantiateCreateCall();
         assertFalse(
-            yamlAppendGenesisAccount(dest, simulatedCreateCall, SAFE_CREATE_CALL, sharedNonce, sharedBalance, "create call")
+            yamlAppendGenesisAccount(
+                dest, simulatedCreateCall, SAFE_CREATE_CALL, PREDEPLOY_NONCE, sharedBalance, "create call"
+            )
         );
 
         // simulate tx accessor (no storage) — used by Safe SDK/UI transaction simulation
@@ -211,7 +231,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
                 dest,
                 simulatedSimulateTxAccessor,
                 SAFE_SIMULATE_TX_ACCESSOR,
-                sharedNonce,
+                PREDEPLOY_NONCE,
                 sharedBalance,
                 "simulate tx accessor"
             )
@@ -219,23 +239,25 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
         // safe singleton factory (no storage) — Safe's deterministic CREATE2 factory;
         // lets future canonical Safe contracts be deployed permissionlessly at
-        // byte-exact parity addresses without another genesis change.
-        // nonce 11 = EIP-161 initial contract nonce (1) + the 10 suite CREATE2
-        // deployments represented in this genesis
+        // byte-exact parity addresses without another genesis change. It only ever
+        // CREATE2s, so its nonce is never read for address derivation
         address simulatedSingletonFactory = instantiateSafeSingletonFactory();
         assertFalse(
             yamlAppendGenesisAccount(
                 dest,
                 simulatedSingletonFactory,
                 SAFE_SINGLETON_FACTORY,
-                11,
+                PREDEPLOY_NONCE,
                 sharedBalance,
                 "safe singleton factory (create2)"
             )
         );
 
-        // singleton factory's keyless deployer EOA: mark its nonce-0 presigned
-        // deployment tx as spent, mirroring the multicall/arachnid entries below
+        // singleton factory's deployer EOA: mark its nonce-0 presigned deployment tx as
+        // spent, mirroring the multicall/arachnid entries below. Unlike those two this is
+        // not a Nick's-method keyless address — Safe holds the key and signs one
+        // deployment tx per chain (safe-global/safe-singleton-factory) — so the burn
+        // guards against a chain-id-matching replay rather than an unowned presigned tx
         vm.writeLine(
             dest,
             '"0xE1CB04A0fA36DdD16a06ea828007E35e1a3cBC37": # use nonce 0 for creating 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7'
@@ -247,14 +269,19 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         address simulatedSafe = address(instantiateGovernanceSafe());
         assertTrue(
             yamlAppendGenesisAccount(
-                dest, simulatedSafe, address(governanceSafe), sharedNonce, governanceInitialBalance, "governance safe"
+                dest,
+                simulatedSafe,
+                address(governanceSafe),
+                PREDEPLOY_NONCE,
+                governanceInitialBalance,
+                "governance safe"
             )
         );
 
         // wrapped TEL (no constructor, no storage; name/symbol/decimals are constants)
         address simulatedWTEL = address(instantiateWTEL());
         assertFalse(
-            yamlAppendGenesisAccount(dest, simulatedWTEL, address(wTEL), sharedNonce, sharedBalance, "wrapped TEL")
+            yamlAppendGenesisAccount(dest, simulatedWTEL, address(wTEL), PREDEPLOY_NONCE, sharedBalance, "wrapped TEL")
         );
 
         // EIP-2935 and EIP-4788 system contracts
