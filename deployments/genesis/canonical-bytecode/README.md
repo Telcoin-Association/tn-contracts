@@ -66,6 +66,11 @@ file fails loudly.
 - `Safe.hex`/`SafeL2.hex` require the singleton's own `threshold` storage
   slot (slot 4) set to 1, mirroring their constructors — the generator does
   this; it prevents anyone from calling `setup` on the singleton itself.
+- The genesis governance Safe is built on the **SafeL2** singleton: every
+  counterfactual Safe on TN lands on SafeL2 via `SafeToL2Setup`
+  (`block.chainid != 1`), and SafeL2's transaction events are what Safe
+  Transaction Service indexes. The L1 `Safe` singleton remains a predeploy
+  and the factory-default implementation.
 - `SafeSingletonFactory` is Safe's deterministic CREATE2 factory (the
   deployer of all the above on live chains). Including it as a predeploy
   lets future canonical Safe contracts be added permissionlessly with

@@ -265,7 +265,8 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         vm.writeLine(dest, "  nonce: 1");
         vm.writeLine(dest, "  balance: 0");
 
-        // governance safe (has storage)
+        // governance safe (has storage); SafeL2 must already be etched above — its
+        // `setup` delegatecalls the singleton, which must have code at this point
         address simulatedSafe = address(instantiateGovernanceSafe());
         assertTrue(
             yamlAppendGenesisAccount(
@@ -389,6 +390,13 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         copyContractState(address(simulatedDeployment), address(wTEL), new bytes32[](0));
     }
 
+    /// @dev The governance Safe is built on the `SafeL2` singleton, not the L1 `Safe`.
+    /// Every counterfactual Safe created on TN lands on SafeL2 anyway (`SafeToL2Setup`
+    /// switches the singleton whenever `block.chainid != 1`), and SafeL2's
+    /// `SafeMultiSigTransaction`/`SafeModuleTransaction` events are what the Safe
+    /// Transaction Service indexes — governance must not be the one Safe on the
+    /// network that tooling cannot index. `deployments.SafeImpl` stays the L1
+    /// singleton: it is still a predeploy and still the factory-default implementation.
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
 
@@ -410,7 +418,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             paymentReceiver
         );
         simulatedDeployment =
-            Safe(payable(address(safeProxyFactory.createProxyWithNonce(address(safeImpl), setupData, 0x0))));
+            Safe(payable(address(safeProxyFactory.createProxyWithNonce(SAFE_L2_SINGLETON, setupData, 0x0))));
 
         Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
