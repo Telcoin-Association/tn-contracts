@@ -58,7 +58,10 @@ contract GenesisSafeConfigTest is Test {
     /// via SafeToL2Setup. Pins the full owner configuration so a generator change
     /// cannot silently alter mainnet governance at genesis.
     function test_governanceSafeUsesSafeL2Singleton() public view {
-        // proxy storage slot 0 holds the singleton address
+        // proxy storage slot 0 holds the singleton address; the canonical Safe v1.4.1
+        // SafeL2 address is spelled out rather than read from the generator's
+        // SAFE_L2_SINGLETON so an edit to that constant cannot make this assertion
+        // self-satisfying
         bytes32 rawSingleton = vm.load(address(governanceSafe), bytes32(0));
         assertEq(address(uint160(uint256(rawSingleton))), 0x29fcB43b46531BcA003ddC8FCB67FFE91900C762);
         assertEq(governanceSafe.VERSION(), "1.4.1");
