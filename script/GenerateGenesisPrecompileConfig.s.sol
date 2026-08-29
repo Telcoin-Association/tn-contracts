@@ -94,11 +94,8 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
     uint256 sharedBalance = 0;
 
-    uint256 public constant telTotalSupply = 100_000_000_000e18;
     /// @dev TEL genesis allocation to the governance safe for gas
     uint256 public constant governanceInitialBalance = 10e18;
-    // will be further decremented at genesis by protocol, based on initial validators stake
-    uint256 telSupplyBalance = telTotalSupply - governanceInitialBalance;
 
     // Safe infrastructure
     Safe safeImpl;
