@@ -41,6 +41,11 @@ After running, review the diff to verify the changes are correct:
 git diff deployments/genesis/precompile-config.yaml
 ```
 
+CI regenerates the yaml and fails on any diff against the committed file
+(`Check genesis precompile-config.yaml drift` in `.github/workflows/test.yml`),
+so a generator change merged without re-running the script — or a hand-edit to
+the yaml — cannot land silently.
+
 ---
 
 ## Testnet Scripts
