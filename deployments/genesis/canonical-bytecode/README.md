@@ -40,32 +40,41 @@ the genesis state reproduces its Ethereum address exactly.
 | `CreateCall.hex` | `0x9b35Af71d77eaf8d7e40252370304687390A1A52` | `0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889` |
 | `SimulateTxAccessor.hex` | `0x3d4BA2E0884aa488718476ca2FB8Efc291A46199` | `0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d` |
 | `SafeSingletonFactory.hex` | `0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7` | `0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989` |
+| `SafeMigration.hex` | `0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6` | `0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99` |
+| `SafeToL2Migration.hex` | `0xfF83F6335d8930cBad1c0D439A841f01888D9f69` | `0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0` |
 
-This covers the official
+This covers the full official
 [safe-deployments](https://github.com/safe-global/safe-deployments/tree/main/src/assets/v1.4.1)
-v1.4.1 registry (addresses match the registry's `canonical` deployment type),
-plus the Safe Singleton Factory that deployed the suite on live chains, with
-two deliberate omissions: `SafeMigration` and `SafeToL2Migration` (version /
-singleton migration helpers with no current use on TN). Because the Safe
-Singleton Factory is predeployed, either can be added later permissionlessly
-at its canonical address by replaying the official release creation code
-through it — no genesis change or fork required.
+v1.4.1 registry — all 12 contracts, addresses matching the registry's
+`canonical` deployment type — plus the Safe Singleton Factory that deployed
+the suite on live chains. The two migration files were captured 2026-08-28
+and verified byte-identical against Sepolia and the registry's `codeHash`
+values.
 
 The generator asserts these hashes before etching, so a corrupted or tampered
 file fails loudly.
 
 ## Notes
 
-- `SafeToL2Setup` (`SELF`), `MultiSend` (`multisendSingleton`), and
-  `SimulateTxAccessor` (`accessorSingleton`) are the three contracts whose
-  constructor bakes `address(this)` into their runtime bytes as an immutable —
-  each guards on it to force delegatecall-only use. Capturing deployed runtime
-  code and placing it at the **same** address preserves that correctly; placing
-  these bytes at any other address would be invalid. `SignMessageLib` has no
-  such immutable in v1.4.1 despite the same delegatecall-only usage.
+- `SafeToL2Setup` (`SELF`), `MultiSend` (`multisendSingleton`),
+  `SimulateTxAccessor` (`accessorSingleton`), `SafeMigration`
+  (`MIGRATION_SINGLETON`) and `SafeToL2Migration` (`MIGRATION_SINGLETON`) bake
+  `address(this)` into their runtime bytes as an immutable — each guards on it
+  to force delegatecall-only use. Capturing deployed runtime code and placing
+  it at the **same** address preserves that correctly; placing these bytes at
+  any other address would be invalid. `SafeMigration` additionally bakes the
+  `Safe`, `SafeL2` and `CompatibilityFallbackHandler` addresses as immutables;
+  all three are predeploys at those canonical addresses, so its migration
+  targets resolve on TN. `SignMessageLib` has no such immutable in v1.4.1
+  despite the same delegatecall-only usage.
 - `Safe.hex`/`SafeL2.hex` require the singleton's own `threshold` storage
   slot (slot 4) set to 1, mirroring their constructors — the generator does
   this; it prevents anyone from calling `setup` on the singleton itself.
+- The genesis governance Safe is built on the **SafeL2** singleton: every
+  counterfactual Safe on TN lands on SafeL2 via `SafeToL2Setup`
+  (`block.chainid != 1`), and SafeL2's transaction events are what Safe
+  Transaction Service indexes. The L1 `Safe` singleton remains a predeploy
+  and the factory-default implementation.
 - `SafeSingletonFactory` is Safe's deterministic CREATE2 factory (the
   deployer of all the above on live chains). Including it as a predeploy
   lets future canonical Safe contracts be added permissionlessly with

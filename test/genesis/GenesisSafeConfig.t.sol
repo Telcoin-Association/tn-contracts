@@ -12,7 +12,8 @@ import { TokenCallbackHandler } from "safe-contracts/contracts/handler/TokenCall
 /// @title Genesis Safe Config Test
 /// @notice Replays the genesis precompile simulation and verifies the resulting Safe
 /// infrastructure state: the CompatibilityFallbackHandler is deployed at its canonical
-/// address, the governance safe references it, and fallback dispatch through the
+/// address, the governance safe is built on the SafeL2 singleton with the pinned
+/// owner set, it references the handler, and fallback dispatch through the
 /// proxy -> singleton -> handler chain works end to end
 contract GenesisSafeConfigTest is Test {
     /// @dev Mirrors `FallbackManager.FALLBACK_HANDLER_STORAGE_SLOT`
@@ -34,6 +35,7 @@ contract GenesisSafeConfigTest is Test {
         GenerateGenesisPrecompileConfig genesis = new GenerateGenesisPrecompileConfig();
         genesis.setUp();
         genesis.instantiateSafeImpl();
+        genesis.instantiateSafeL2();
         genesis.instantiateSafeProxyFactory();
         genesis.instantiateCompatibilityFallbackHandler();
         genesis.instantiateGovernanceSafe();
@@ -48,6 +50,33 @@ contract GenesisSafeConfigTest is Test {
         // canonical Safe v1.4.1 CompatibilityFallbackHandler address, identical across EVM chains
         assertEq(fallbackHandler, 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
         assertTrue(fallbackHandler.code.length > 0);
+    }
+
+    /// @notice The governance Safe is a proxy over the SafeL2 singleton, whose
+    /// `SafeMultiSigTransaction`/`SafeModuleTransaction` events Safe Transaction
+    /// Service indexes — the exact singleton every counterfactual Safe on TN gets
+    /// via SafeToL2Setup. Pins the full owner configuration so a generator change
+    /// cannot silently alter mainnet governance at genesis.
+    function test_governanceSafeUsesSafeL2Singleton() public view {
+        // proxy storage slot 0 holds the singleton address; the canonical Safe v1.4.1
+        // SafeL2 address is spelled out rather than read from the generator's
+        // SAFE_L2_SINGLETON so an edit to that constant cannot make this assertion
+        // self-satisfying
+        bytes32 rawSingleton = vm.load(address(governanceSafe), bytes32(0));
+        assertEq(address(uint160(uint256(rawSingleton))), 0x29fcB43b46531BcA003ddC8FCB67FFE91900C762);
+        assertEq(governanceSafe.VERSION(), "1.4.1");
+
+        // pinned governance configuration: 3-of-7, owners in creation order
+        assertEq(governanceSafe.getThreshold(), 3);
+        address[] memory owners = governanceSafe.getOwners();
+        assertEq(owners.length, 7);
+        assertEq(owners[0], 0x2358CF87e62618663E781CE52EE7a7F777aC4e65);
+        assertEq(owners[1], 0x389C4bd707FAb237578A9603F55A02554CAa034b);
+        assertEq(owners[2], 0xDE5346d15Dc5e0D7b3bE7feFF5d96f548c321e88);
+        assertEq(owners[3], 0xf5b3944629F9303fa94670B2a6611eE1b11Cd538);
+        assertEq(owners[4], 0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA);
+        assertEq(owners[5], 0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248);
+        assertEq(owners[6], 0x5b9e70501a845FA8105B2f8228a0d243A98d97Fc);
     }
 
     function test_governanceSafeReferencesFallbackHandler() public view {
