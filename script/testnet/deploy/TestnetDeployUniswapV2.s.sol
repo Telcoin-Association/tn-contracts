@@ -48,8 +48,8 @@ contract TestnetDeployUniswapV2 is Script, UniswapV2FactoryBytecode, UniswapV2Ro
         // address. Redeploying on a chain that already holds these contracts
         // therefore requires bumping the salts (the legacy Adiri stack used
         // _v2/_v3 suffixes for exactly that reason).
-        factorySalt = bytes32(bytes("UniswapV2Factory"));
-        routerSalt = bytes32(bytes("UniswapV2Router02"));
+        factorySalt = bytes32(bytes("UniswapV2Factory_devnet1"));
+        routerSalt = bytes32(bytes("UniswapV2Router02_devnet1"));
 
         require(
             wTEL != address(0) && wTEL.code.length > 0,

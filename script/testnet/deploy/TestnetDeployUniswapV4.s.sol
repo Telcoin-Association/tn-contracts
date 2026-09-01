@@ -96,12 +96,12 @@ contract TestnetDeployUniswapV4 is
     // runs; CREATE2 reverts on an already-occupied address. Redeploying on a
     // chain that already holds these contracts therefore requires bumping the
     // salts (the legacy Adiri stack used _v2 suffixes for exactly that reason).
-    bytes32 poolManagerSalt = bytes32(bytes("PoolManager"));
-    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor"));
-    bytes32 positionManagerSalt = bytes32(bytes("PositionManager"));
-    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter"));
-    bytes32 stateViewSalt = bytes32(bytes("StateView"));
-    bytes32 v4SwapHelperSalt = bytes32(bytes("V4SwapHelper"));
+    bytes32 poolManagerSalt = bytes32(bytes("PoolManager_devnet1"));
+    bytes32 positionDescriptorSalt = bytes32(bytes("PositionDescriptor_devnet1"));
+    bytes32 positionManagerSalt = bytes32(bytes("PositionManager_devnet1"));
+    bytes32 v4QuoterSalt = bytes32(bytes("V4Quoter_devnet1"));
+    bytes32 stateViewSalt = bytes32(bytes("StateView_devnet1"));
+    bytes32 v4SwapHelperSalt = bytes32(bytes("V4SwapHelper_devnet1"));
 
     function setUp() public {
         string memory root = vm.projectRoot();
