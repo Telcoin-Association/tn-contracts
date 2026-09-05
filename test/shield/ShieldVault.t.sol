@@ -17,7 +17,10 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 /// @title ShieldVaultTest
 /// @notice Wave-3 unit suite for `ShieldVault` against the real `Stablecoin` (no token mock)
 ///         behind an `ERC1967Proxy`; only the precompile leg is mocked (`vm.mockCall` /
-///         `vm.mockCallRevert`, StablecoinManager.t.sol pattern).
+///         `vm.mockCallRevert`, StablecoinManager.t.sol pattern) on top of the real genesis
+///         state of the precompile account, a single `0xfe` (INVALID) byte, so an un-mocked call
+///         halts exactly as a precompile refusal does instead of being absorbed by a codeless
+///         account.
 /// @notice Coverage areas:
 ///         - **Selector parity:** every hardcoded `ShieldPrecompileSelectors` constant equals
 ///           `bytes4(keccak256(signature))` recomputed here from the exact TN-SHIELD v1 signatures,
@@ -41,6 +44,8 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///         - **Precompile-failure propagation:** per the frozen error idiom, precompile failures
 ///           are frame halts with EMPTY returndata - the vault surfaces `LowLevelCallFailure`
 ///           carrying empty bytes and the revert restores all token pre-state.
+///         - **Precompile liveness:** while the precompile account has no code, `shield` and
+///           `unshield` revert with `PrecompileNotLive` instead of burning into a codeless CALL.
 ///         - **Token binding:** `unshield` requires a `PV_LEN`-byte blob whose token field is the
 ///           vault's own token, so a T-bound proof through a T2 vault (the registry re-point case)
 ///           reverts before the precompile leg instead of minting T2.
@@ -75,6 +80,9 @@ contract ShieldVaultTest is Test {
         bytes memory initCall = abi.encodeWithSelector(ShieldVault.initialize.selector, address(token), governance);
         vault = ShieldVault(address(new ERC1967Proxy(address(vaultImpl), initCall)));
         precompile = vault.PRECOMPILE();
+        // the real chain state: genesis gives the precompile account one 0xfe (INVALID) byte, so
+        // any call that no mock intercepts halts with empty returndata like a precompile refusal
+        vm.etch(precompile, hex"fe");
 
         // the vault operationally holds both supply roles on its token (granted by the token
         // admin out-of-band on the real chain)
@@ -474,6 +482,32 @@ contract ShieldVaultTest is Test {
     }
 
     // -------------
+    // precompile liveness (a CALL to a codeless account succeeds, so the vault checks for code)
+    // -------------
+
+    /// @dev Without the guard a `shield` against a codeless precompile would "succeed" and burn
+    ///      with no note ever created; both entrypoints refuse instead, leaving all token state
+    ///      untouched.
+    function testShieldAndUnshieldRefuseCodelessPrecompile() public {
+        vm.etch(precompile, "");
+        assertEq(precompile.code.length, 0, "precompile account emptied");
+        uint128 amount = 1_000_000;
+        _mintAndApprove(amount);
+
+        vm.prank(user);
+        vm.expectRevert(ShieldVault.PrecompileNotLive.selector);
+        vault.shield(amount, OWNER_ADDR, SALT);
+        assertEq(token.balanceOf(user), amount, "no burn into a codeless precompile");
+        assertEq(token.totalSupply(), amount, "supply untouched");
+        assertEq(token.allowance(user, address(vault)), amount, "allowance untouched");
+
+        vm.prank(user);
+        vm.expectRevert(ShieldVault.PrecompileNotLive.selector);
+        vault.unshield(hex"1234", _publicValues(address(token)));
+        assertEq(token.totalSupply(), amount, "no mint either");
+    }
+
+    // -------------
     // precompile-failure propagation (frozen error idiom: frame halts carry EMPTY returndata)
     // -------------
 
@@ -651,8 +685,9 @@ contract ShieldVaultTest is Test {
 
     /// @dev For every amount in (0, type(uint128).max] with allowance == amount, the burn leg and
     ///      the precompile calldata encoding are byte-exact. If the vault's encoding ever drifted,
-    ///      the un-mocked (codeless) precompile would absorb the call and the exact-calldata
-    ///      `vm.expectCall` would fail the run.
+    ///      the mock would not match, the call would hit the account's 0xfe byte and halt, and the
+    ///      shield would revert with `LowLevelCallFailure` (and the exact-calldata `vm.expectCall`
+    ///      would fail the run).
     function testFuzzShieldBurnAndPrecompileEncoding(uint128 amountSeed, bytes32 ownerAddr, bytes32 salt) public {
         uint128 amount = uint128(bound(uint256(amountSeed), 1, type(uint128).max));
 

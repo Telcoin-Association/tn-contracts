@@ -47,6 +47,10 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     error ZeroAmount();
     /// @notice The initializer rejects the zero address for the token.
     error ZeroAddress();
+    /// @notice `shield`/`unshield` refuse to run while the precompile account has no code: a CALL
+    ///         to a codeless account succeeds with empty returndata, which would let `shield`
+    ///         burn with no note ever created.
+    error PrecompileNotLive();
     /// @notice `unshield` rejects a public-values blob that is not exactly `PV_LEN` bytes.
     error PublicValuesLength(uint256 length);
     /// @notice `unshield` rejects a proof whose public values name a token other than this vault's.
@@ -110,11 +114,16 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     ///      included - reverts atomically (the precompile halt carries empty returndata; the
     ///      revert surfaces as `LowLevelCallFailure` with empty `returnData`).
     /// @dev A blacklisted caller cannot shield: the token's `_update` hook reverts the burn.
+    /// @dev PRECOMPILE LIVENESS: reverts with `PrecompileNotLive` while the precompile account has
+    ///      no code (a chain whose genesis lacks the account, before the fork injects it, or any
+    ///      foreign chain), because a CALL to a codeless account "succeeds" and the burn would
+    ///      stand with no note created.
     /// @param amount Token amount to shield; must be nonzero (u128 per TN-SHIELD v1).
     /// @param ownerAddr Shielded address `a = keccak256(DOM_ADDR || pk_spend || pk_view)` that
     ///                  owns the new note.
     /// @param salt Fresh 32-byte note salt chosen by the caller.
     function shield(uint128 amount, bytes32 ownerAddr, bytes32 salt) external whenNotPaused {
+        if (PRECOMPILE.code.length == 0) revert PrecompileNotLive();
         if (amount == 0) revert ZeroAmount();
 
         IStablecoin token_ = _shieldVaultStorage()._token;
@@ -141,12 +150,16 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     /// @dev Callable by anyone (relayable): recipient and amount are fixed by the proof's public
     ///      values, not by the caller. The precompile independently enforces that this vault is
     ///      `vaultOf[token]` for the proof's token.
+    /// @dev PRECOMPILE LIVENESS: reverts with `PrecompileNotLive` while the precompile account has
+    ///      no code, for symmetry with `shield` (the 64-byte returndata guard would already stop
+    ///      the mint leg on its own).
     /// @dev On success the precompile returns exactly `abi.encode(address recipient, uint128
     ///      amount)`; the vault mints only when the returndata is exactly 64 bytes (TNEP §4.11)
     ///      and `abi.decode` rejects dirty high-order bits in either word.
     /// @param proof TN-SHIELD v1 Plonk proof envelope bytes (opaque to the vault).
     /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
     function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {
+        if (PRECOMPILE.code.length == 0) revert PrecompileNotLive();
         if (publicValues.length != PV_LEN) revert PublicValuesLength(publicValues.length);
         IStablecoin token_ = _shieldVaultStorage()._token;
         address proven = address(bytes20(publicValues[PV_TOKEN_OFFSET:PV_TOKEN_OFFSET + 20]));

@@ -17,7 +17,10 @@ import { ShieldVault } from "../src/shield/ShieldVault.sol";
 ///
 /// @dev The vault stays inert until the governance safe registers it on the precompile with
 ///      `setTokenConfig(token, vault, auditorKey)`; the script prints that call as the final
-///      checklist item and never attempts it.
+///      checklist item and never attempts it. It also warns when the precompile account has no
+///      code on the target chain (a genesis without the account, before the fork injects it):
+///      the vault refuses `shield`/`unshield` with `PrecompileNotLive` until then, so the role
+///      grants are safe to make early but nothing can be shielded yet.
 ///
 /// @dev A zero token or owner is rejected by the proxy's `initialize` call (`ShieldVault.ZeroAddress`
 ///      and OpenZeppelin's `OwnableInvalidOwner`), so forge's pre-broadcast simulation fails before
@@ -39,6 +42,8 @@ contract DeployShieldVault is Script {
     ShieldVault public vault;
     /// @notice Whether run() granted the token roles itself (the broadcaster administers them).
     bool public rolesGranted;
+    /// @notice Whether the precompile account had code on the target chain when run() executed.
+    bool public precompileLive;
 
     function setUp() public {
         token = Stablecoin(vm.envAddress("SHIELD_TOKEN"));
@@ -68,6 +73,9 @@ contract DeployShieldVault is Script {
 
         vm.stopBroadcast();
 
+        address precompile = vault.PRECOMPILE();
+        precompileLive = precompile.code.length > 0;
+
         // asserts
         assert(address(vault.token()) == address(token));
         assert(vault.owner() == owner);
@@ -87,7 +95,13 @@ contract DeployShieldVault is Script {
             console2.log(_grantCommand(minterRole));
             console2.log(_grantCommand(burnerRole));
         }
-        console2.log("The governance safe must then register the vault on the precompile at", vault.PRECOMPILE());
+        if (!precompileLive) {
+            console2.log(
+                "WARNING: the precompile account has no code on this chain; the vault refuses shield/unshield with"
+            );
+            console2.log("         PrecompileNotLive until the TN-SHIELD fork injects it at", precompile);
+        }
+        console2.log("The governance safe must then register the vault on the precompile at", precompile);
         console2.log(
             string.concat(
                 "  setTokenConfig(", vm.toString(address(token)), ", ", vm.toString(address(vault)), ", <auditorKey>)"

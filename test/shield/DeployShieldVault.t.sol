@@ -18,6 +18,9 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 /// @dev The env is set once in `setUp` and never changed by a test: `vm.setEnv` is process-wide
 ///      and foundry runs the tests of a contract in parallel, so per-test env edits would race.
 contract DeployShieldVaultTest is Test {
+    /// @dev Mirrors `ShieldVault.PRECOMPILE` (asserted against it after a run).
+    address constant PRECOMPILE = 0x0000000000000000000000000000000123456789;
+
     Stablecoin token;
     address governance = address(0x7A0);
 
@@ -57,6 +60,7 @@ contract DeployShieldVaultTest is Test {
         assertEq(address(vault.token()), address(token), "vault token must come from SHIELD_TOKEN");
         assertEq(vault.owner(), governance, "vault owner must come from SHIELD_VAULT_OWNER");
         assertFalse(vault.paused(), "fresh vault must not be paused");
+        assertEq(vault.PRECOMPILE(), PRECOMPILE, "test mirrors the vault's precompile address");
     }
 
     function test_DeploysAndGrantsRolesWhenBroadcasterAdministersToken() public {
@@ -69,6 +73,18 @@ contract DeployShieldVaultTest is Test {
         assertTrue(script.rolesGranted(), "script should report the inline grant");
         assertTrue(token.hasRole(token.MINTER_ROLE(), address(vault)), "vault must hold MINTER_ROLE");
         assertTrue(token.hasRole(token.BURNER_ROLE(), address(vault)), "vault must hold BURNER_ROLE");
+        assertFalse(script.precompileLive(), "test chain has no precompile code: the script must warn");
+    }
+
+    /// @dev On a chain where the precompile account carries its genesis 0xfe byte the script
+    ///      reports it live and skips the warning.
+    function test_ReportsPrecompileLiveWhenAccountHasCode() public {
+        vm.etch(PRECOMPILE, hex"fe");
+
+        DeployShieldVault script = _runScript();
+        _assertDeployed(script);
+
+        assertTrue(script.precompileLive(), "script should see the precompile account's code");
     }
 
     function test_DeploysAndLeavesRolesToTokenAdminOtherwise() public {

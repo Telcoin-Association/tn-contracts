@@ -53,6 +53,7 @@ git diff deployments/genesis/precompile-config.yaml
 - Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`
 - Grants the token's `MINTER_ROLE` and `BURNER_ROLE` to the proxy when the broadcaster administers those roles on the token, and otherwise prints the two grant calls for the token admin
 - Logs the implementation and proxy addresses and the remaining checklist
+- Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so the role grants are safe to make early but nothing can be shielded yet
 
 One vault is deployed per token, so run the script once per stablecoin.
 
