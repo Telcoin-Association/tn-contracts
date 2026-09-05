@@ -179,7 +179,8 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
     ///      proof, stale root, spent nullifier, kill switch) consumes the forwarded gas and the
     ///      submitter bounds that loss with the transaction gas limit.
     /// @param proof TN-SHIELD v1 Plonk proof envelope bytes (opaque to the vault).
-    /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
+    /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; the vault checks only
+    ///        its length and the token field at offset 10, the rest is opaque to it).
     function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {
         if (PRECOMPILE.code.length == 0) revert PrecompileNotLive();
         if (publicValues.length != PV_LEN) revert PublicValuesLength(publicValues.length);
