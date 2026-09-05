@@ -38,6 +38,8 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///           carrying empty bytes and the revert restores all token pre-state.
 ///         - **Malformed unshield returndata:** too-short precompile returndata makes
 ///           `abi.decode` revert; no mint happens.
+///         - **Implementation lock:** `initialize` on the bare implementation reverts
+///           (`_disableInitializers` in the constructor), so only a proxy can ever be initialized.
 ///         - **Fuzz:** shield amount over (0, type(uint128).max] with allowance == amount - the
 ///           burn leg and the precompile calldata encoding are exact for every input
 ///           (`vm.expectCall` with computed calldata).
@@ -480,6 +482,19 @@ contract ShieldVaultTest is Test {
     function testReinitializeReverts() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(address(token), user);
+    }
+
+    /// @dev The bare implementation is locked by its constructor (`_disableInitializers`): only a
+    ///      proxy can ever run `initialize`, so nobody can claim ownership of the implementation.
+    function testImplementationInitializeReverts() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        vaultImpl.initialize(address(token), user);
+        assertEq(vaultImpl.owner(), address(0), "locked implementation must have no owner");
+
+        // a freshly deployed implementation is locked the same way
+        ShieldVault fresh = new ShieldVault();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        fresh.initialize(address(token), user);
     }
 
     // -------------

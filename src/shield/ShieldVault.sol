@@ -59,6 +59,15 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     bytes32 internal constant ShieldVaultStorageSlot =
         0x16de1eecb503ef3416fad799fdf9d78f215b6274e619e7f529e39af019b95700;
 
+    /// @dev Locks the bare implementation: `initialize` can only ever run through a proxy's
+    ///      delegatecall, so nobody can claim the implementation's owner slot. The e2e harness
+    ///      etches `deployedBytecode` directly (the constructor never runs there); that is fine
+    ///      because the etched implementation is only ever reached through its proxy.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     /// @notice Initializes the vault for exactly one token; called once via proxy deployment.
     /// @param token_ The eXYZ stablecoin this vault shields (must expose `mintTo`/`burnFrom`).
     /// @param owner_ The owner (intended: the governance safe); gates pause/unpause and upgrades.
