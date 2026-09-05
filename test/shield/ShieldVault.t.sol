@@ -37,6 +37,8 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///           allowance it succeeds and consumes it.
 ///         - **Pause:** `pause` gates both `shield` and `unshield`; `unpause` restores; both are
 ///           owner-only.
+///         - **Ownership:** `transferOwnership` only nominates and the nominee must accept;
+///           `renounceOwnership` reverts for everyone, so a paused vault can never be orphaned.
 ///         - **Upgrade auth:** non-owner `upgradeToAndCall` reverts; owner upgrade succeeds and
 ///           preserves the ERC-7201 namespaced storage (token pointer, owner, paused flag).
 ///         - **ERC-7201 slot:** the slot constant equals the formula applied to the annotated
@@ -404,6 +406,57 @@ contract ShieldVaultTest is Test {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
         vault.unpause();
         assertTrue(vault.paused(), "non-owner unpause must not take effect");
+    }
+
+    // -------------
+    // ownership: two-step transfer, no renounce
+    // -------------
+
+    /// @dev `transferOwnership` only nominates: the owner stays until the nominee accepts, and a
+    ///      non-nominee cannot accept, so a mistyped address cannot take the vault from governance.
+    function testOwnershipTransferIsTwoStep() public {
+        address newGovernance = address(0x7A1);
+
+        vm.prank(governance);
+        vault.transferOwnership(newGovernance);
+        assertEq(vault.owner(), governance, "owner unchanged until acceptance");
+        assertEq(vault.pendingOwner(), newGovernance, "nominee recorded");
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vault.acceptOwnership();
+
+        vm.prank(newGovernance);
+        vault.acceptOwnership();
+        assertEq(vault.owner(), newGovernance, "nominee owns after accepting");
+        assertEq(vault.pendingOwner(), address(0), "nomination cleared");
+
+        // the old owner lost the gate and the new one holds it
+        vm.prank(governance);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, governance));
+        vault.pause();
+        vm.prank(newGovernance);
+        vault.pause();
+        assertTrue(vault.paused(), "new owner can pause");
+    }
+
+    /// @dev Renouncing would orphan the vault (a paused vault could never be unpaused or
+    ///      upgraded); it reverts for the owner and everyone else and the vault stays operable.
+    function testRenounceOwnershipReverts() public {
+        vm.prank(governance);
+        vault.pause();
+
+        vm.prank(governance);
+        vm.expectRevert(ShieldVault.OwnershipNotRenounceable.selector);
+        vault.renounceOwnership();
+        vm.prank(user);
+        vm.expectRevert(ShieldVault.OwnershipNotRenounceable.selector);
+        vault.renounceOwnership();
+
+        assertEq(vault.owner(), governance, "vault still owned");
+        vm.prank(governance);
+        vault.unpause();
+        assertFalse(vault.paused(), "vault still operable");
     }
 
     // -------------

@@ -64,6 +64,9 @@ One vault is deployed per token, so run the script once per stablecoin.
 | `SHIELD_TOKEN`       | The eXYZ `Stablecoin` proxy the vault shields                                                                                          |
 | `SHIELD_VAULT_OWNER` | The vault owner, which gates pause/unpause and upgrades; intended to be the governance safe (`Safe` in the network's deployments file) |
 
+The owner is set directly at initialization, with no acceptance step.
+Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the new owner) and ownership can never be renounced.
+
 ### How to run
 
 ```bash

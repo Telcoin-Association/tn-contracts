@@ -2,7 +2,7 @@
 pragma solidity 0.8.35;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Ownable2StepUpgradeable } from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import { PausableUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import { IStablecoin } from "../testnet/IStablecoin.sol";
 import { IShieldedStablecoin } from "./IShieldedStablecoin.sol";
@@ -32,8 +32,10 @@ import { IShieldedStablecoin } from "./IShieldedStablecoin.sol";
 ///      `IShieldedStablecoin` mirrors it and `ShieldPrecompileSelectors` pins the selectors it
 ///      produces, with a parity test tying the two together.
 /// @dev UUPS-upgradeable and pausable; the owner (intended: the governance safe) gates
-///      `pause`/`unpause` and upgrades.
-contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable {
+///      `pause`/`unpause` and upgrades. Ownership moves only by two-step transfer
+///      (`transferOwnership` then `acceptOwnership` by the nominee) and can never be renounced, so
+///      a paused vault can always be unpaused or upgraded by someone.
+contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgradeable {
     /// @notice Canonical address of the TN-SHIELD shielded-stablecoin precompile; must match
     ///         `SHIELDED_PRECOMPILE_ADDRESS` in the Telcoin-Network node. Genesis gives the
     ///         address one `0xfe` (INVALID) byte of code so the account is never state-pruned and
@@ -47,6 +49,9 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     error ZeroAmount();
     /// @notice The initializer rejects the zero address for the token.
     error ZeroAddress();
+    /// @notice Ownership cannot be renounced: an ownerless vault could never be unpaused or
+    ///         upgraded; transfer it with `transferOwnership`/`acceptOwnership` instead.
+    error OwnershipNotRenounceable();
     /// @notice `shield`/`unshield` refuse to run while the precompile account has no code: a CALL
     ///         to a codeless account succeeds with empty returndata, which would let `shield`
     ///         burn with no note ever created.
@@ -89,9 +94,11 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     /// @notice Initializes the vault for exactly one token; called once via proxy deployment.
     /// @param token_ The eXYZ stablecoin this vault shields (must expose `mintTo`/`burnFrom`).
     /// @param owner_ The owner (intended: the governance safe); gates pause/unpause and upgrades.
+    ///               Set directly here (no acceptance step); later transfers are two-step.
     function initialize(address token_, address owner_) external initializer {
         if (token_ == address(0)) revert ZeroAddress();
         __Ownable_init(owner_);
+        __Ownable2Step_init();
         __Pausable_init();
 
         _shieldVaultStorage()._token = IStablecoin(token_);
@@ -182,6 +189,11 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     /// @notice Unpauses `shield` and `unshield`. Only the owner (governance safe) may unpause.
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /// @notice Ownership cannot be renounced (see `OwnershipNotRenounceable`); reverts for everyone.
+    function renounceOwnership() public pure override {
+        revert OwnershipNotRenounceable();
     }
 
     /// @notice Only the owner (governance safe) may perform an upgrade
