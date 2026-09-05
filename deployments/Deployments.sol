@@ -31,6 +31,9 @@ struct Deployments {
     address admin;
     EXYZs eXYZs;
     MagicAddresses magicAddresses;
+    /// @notice `ShieldVault` proxies keyed by the symbol of the eXYZ stablecoin each one shields.
+    ///         Written back by `DeployShieldVault`; zero until a vault is deployed for the token.
+    ShieldVaults shieldVaults;
     UniswapV2 uniswapV2;
     UniswapV3 uniswapV3;
     UniswapV4 uniswapV4;
@@ -55,6 +58,35 @@ struct MagicAddresses {
 
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 struct EXYZs {
+    address eAUD;
+    address eCAD;
+    address eCFA;
+    address eCHF;
+    address eCZK;
+    address eDKK;
+    address eEUR;
+    address eGBP;
+    address eHKD;
+    address eHUF;
+    address eINR;
+    address eISK;
+    address eJPY;
+    address eKES;
+    address eMXN;
+    address eNOK;
+    address eNZD;
+    address eSDR;
+    address eSEK;
+    address eSGD;
+    address eTRY;
+    address eUSD;
+    address eZAR;
+}
+
+/// @notice One `ShieldVault` proxy per eXYZ stablecoin, keyed by the token's symbol exactly like
+///         `EXYZs` so the two groups line up entry for entry.
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+struct ShieldVaults {
     address eAUD;
     address eCAD;
     address eCFA;

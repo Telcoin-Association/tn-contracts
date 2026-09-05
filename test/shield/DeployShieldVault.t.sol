@@ -5,24 +5,54 @@ import { Test } from "forge-std/Test.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import { DeployShieldVault } from "../../script/DeployShieldVault.s.sol";
+import { Deployments } from "../../deployments/Deployments.sol";
+import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 
+/// @dev The deploy script with its configuration and address-book path pinned per instance, so a
+///      test never touches the process-wide environment or the committed deployments files.
+contract DeployShieldVaultHarness is DeployShieldVault {
+    Config internal config;
+    string internal path;
+
+    constructor(Config memory config_, string memory path_) {
+        config = config_;
+        path = path_;
+    }
+
+    function _config() internal view override returns (Config memory) {
+        return config;
+    }
+
+    function _deploymentsPath() internal view override returns (string memory) {
+        return path;
+    }
+}
+
 /// @title DeployShieldVault deploy-script tests
 ///
-/// @notice Runs the deploy script end-to-end against the in-repo `Stablecoin`
-///         (TestnetDeployWTEL.t.sol pattern: instantiate the script, `setUp()`, `run()`): the
-///         implementation and an ERC1967 proxy initialized for the token and owner read from the
-///         env, the inline role grant when the broadcaster administers the token's roles, and the
-///         checklist path (no grant, vault still fully initialized) when it does not.
-/// @dev The env is set once in `setUp` and never changed by a test: `vm.setEnv` is process-wide
-///      and foundry runs the tests of a contract in parallel, so per-test env edits would race.
+/// @notice Runs the deploy script end-to-end against the testnet address book (TestnetDeployWTEL
+///         .t.sol pattern: instantiate the script, `setUp()`, `run()`) on the testnet chain id: a
+///         `Stablecoin` is etched at the book's `eUSD` address so the token the script validates,
+///         binds, and records is the one the book names. Covers the implementation and proxy
+///         deployment, the inline role grant when the broadcaster administers the token's roles
+///         and the checklist path when it does not, the address-book write-back, and every
+///         refusal: an unmapped chain id, a token outside the book or with a foreign symbol, the
+///         `StablecoinImpl` address, and an owner other than the governance safe.
+/// @dev No test touches the environment: `vm.setEnv` is process-wide and forge runs test
+///      contracts, not just the tests of one contract, in parallel, so two suites setting the
+///      same variable would race. Each test instead pins its configuration on a harness and
+///      writes to its own scratch copy of the address book under `cache/`, so parallel tests never
+///      share a file and the committed one is never written.
 contract DeployShieldVaultTest is Test {
     /// @dev Mirrors `ShieldVault.PRECOMPILE` (asserted against it after a run).
     address constant PRECOMPILE = 0x0000000000000000000000000000000123456789;
+    string constant SCRATCH_DIR = "/cache/deploy-shield-vault/";
 
+    Deployments book;
+    /// @dev A `Stablecoin` at the book's `eUSD` address; this test contract holds its admin role.
     Stablecoin token;
-    address governance = address(0x7A0);
 
     /// @dev `vm.startBroadcast()` with no sender broadcasts from the transaction origin, which in
     ///      a test is the runner's default sender; the tests grant or withhold the token admin
@@ -30,23 +60,74 @@ contract DeployShieldVaultTest is Test {
     address broadcaster;
 
     function setUp() public {
+        vm.chainId(DeploymentsResolver.TESTNET_CHAIN_ID);
         broadcaster = tx.origin;
-        // this test contract holds DEFAULT_ADMIN_ROLE (granted to `Stablecoin.initialize`'s caller)
-        token = new Stablecoin();
-        token.initialize("Telcoin eUSD", "eUSD", 6);
-
-        vm.setEnv("SHIELD_TOKEN", vm.toString(address(token)));
-        vm.setEnv("SHIELD_VAULT_OWNER", vm.toString(governance));
+        book = abi.decode(vm.parseJson(vm.readFile(_seedPath())), (Deployments));
+        token = _etchToken(book.eXYZs.eUSD, "eUSD");
+        // the genesis governance safe has code on every TN chain
+        vm.etch(book.Safe, hex"fe");
     }
 
-    function _runScript() internal returns (DeployShieldVault script) {
-        script = new DeployShieldVault();
+    // -------------
+    // helpers
+    // -------------
+
+    function _seedPath() internal view returns (string memory) {
+        return string.concat(vm.projectRoot(), "/deployments/deployments-testnet.json");
+    }
+
+    /// @dev A `Stablecoin` with `symbol_` living at `at`, initialized by this test contract (which
+    ///      therefore holds DEFAULT_ADMIN_ROLE on it).
+    function _etchToken(address at, string memory symbol_) internal returns (Stablecoin etched) {
+        vm.etch(at, address(new Stablecoin()).code);
+        etched = Stablecoin(at);
+        etched.initialize(string.concat("Telcoin ", symbol_), symbol_, 6);
+    }
+
+    /// @dev A private copy of the testnet address book for the test named `name`.
+    function _scratchBook(string memory name) internal returns (string memory path) {
+        string memory dir = string.concat(vm.projectRoot(), SCRATCH_DIR);
+        vm.createDir(dir, true);
+        path = string.concat(dir, name, ".json");
+        vm.copyFile(_seedPath(), path);
+    }
+
+    function _defaultConfig() internal view returns (DeployShieldVault.Config memory) {
+        return DeployShieldVault.Config({ token: address(token), owner: address(0), allowNonSafeOwner: false });
+    }
+
+    function _newScript(
+        string memory name,
+        DeployShieldVault.Config memory config
+    )
+        internal
+        returns (DeployShieldVaultHarness script)
+    {
+        script = new DeployShieldVaultHarness(config, _scratchBook(name));
+    }
+
+    function _runScript(
+        string memory name,
+        DeployShieldVault.Config memory config
+    )
+        internal
+        returns (DeployShieldVaultHarness script)
+    {
+        script = _newScript(name, config);
         script.setUp();
         script.run();
     }
 
+    function _runScript(string memory name) internal returns (DeployShieldVaultHarness script) {
+        return _runScript(name, _defaultConfig());
+    }
+
+    function _recordedVault(DeployShieldVault script, string memory symbol_) internal view returns (address) {
+        return vm.parseJsonAddress(vm.readFile(script.deploymentsPath()), string.concat(".shieldVaults.", symbol_));
+    }
+
     /// @dev The proxy must point at the freshly deployed implementation and be initialized for the
-    ///      env-provided token and owner.
+    ///      configured token and the governance safe.
     function _assertDeployed(DeployShieldVault script) internal view {
         ShieldVault vault = script.vault();
         ShieldVault impl = script.vaultImpl();
@@ -58,15 +139,20 @@ contract DeployShieldVaultTest is Test {
             "proxy must point at the script's implementation"
         );
         assertEq(address(vault.token()), address(token), "vault token must come from SHIELD_TOKEN");
-        assertEq(vault.owner(), governance, "vault owner must come from SHIELD_VAULT_OWNER");
+        assertEq(vault.owner(), book.Safe, "vault owner must default to the governance safe");
         assertFalse(vault.paused(), "fresh vault must not be paused");
         assertEq(vault.PRECOMPILE(), PRECOMPILE, "test mirrors the vault's precompile address");
+        assertEq(script.symbol(), "eUSD", "the script must resolve the token's address-book key");
     }
+
+    // -------------
+    // deployment
+    // -------------
 
     function test_DeploysAndGrantsRolesWhenBroadcasterAdministersToken() public {
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
-        DeployShieldVault script = _runScript();
+        DeployShieldVault script = _runScript("grants-inline");
         _assertDeployed(script);
 
         ShieldVault vault = script.vault();
@@ -81,7 +167,7 @@ contract DeployShieldVaultTest is Test {
     function test_ReportsPrecompileLiveWhenAccountHasCode() public {
         vm.etch(PRECOMPILE, hex"fe");
 
-        DeployShieldVault script = _runScript();
+        DeployShieldVault script = _runScript("precompile-live");
         _assertDeployed(script);
 
         assertTrue(script.precompileLive(), "script should see the precompile account's code");
@@ -92,7 +178,7 @@ contract DeployShieldVaultTest is Test {
             token.hasRole(token.DEFAULT_ADMIN_ROLE(), broadcaster), "precondition: broadcaster is not the token admin"
         );
 
-        DeployShieldVault script = _runScript();
+        DeployShieldVault script = _runScript("checklist");
         _assertDeployed(script);
 
         ShieldVault vault = script.vault();
@@ -110,9 +196,117 @@ contract DeployShieldVaultTest is Test {
     /// @dev The deployed implementation is locked by its constructor, so nobody can initialize it
     ///      directly and claim its owner slot.
     function test_DeployedImplementationIsLocked() public {
-        ShieldVault impl = _runScript().vaultImpl();
+        ShieldVault impl = _runScript("impl-locked").vaultImpl();
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(address(token), address(this));
+    }
+
+    // -------------
+    // address book
+    // -------------
+
+    /// @dev The proxy is recorded under the token's symbol, and nothing else in the book moves.
+    function test_RecordsTheVaultUnderTheTokenSymbol() public {
+        DeployShieldVault script = _runScript("records-vault");
+
+        assertEq(_recordedVault(script, "eUSD"), address(script.vault()), "shieldVaults.eUSD must be the proxy");
+        Deployments memory written = abi.decode(vm.parseJson(vm.readFile(script.deploymentsPath())), (Deployments));
+        assertEq(written.shieldVaults.eEUR, book.shieldVaults.eEUR, "other vault entries must not move");
+        assertEq(written.eXYZs.eUSD, book.eXYZs.eUSD, "token entries must not move");
+        assertEq(written.Safe, book.Safe, "genesis entries must not move");
+    }
+
+    function test_RefusesAnUnmappedChainId() public {
+        vm.chainId(31_337);
+        DeployShieldVaultHarness script = _newScript("unmapped-chain", _defaultConfig());
+
+        vm.expectRevert(bytes("DeployShieldVault: unsupported chain id 31337"));
+        script.setUp();
+    }
+
+    // -------------
+    // token validation
+    // -------------
+
+    function test_RefusesATokenOutsideTheAddressBook() public {
+        Stablecoin stray = new Stablecoin();
+        stray.initialize("Telcoin eUSD", "eUSD", 6);
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = address(stray);
+        DeployShieldVaultHarness script = _newScript("stray-token", config);
+
+        vm.expectRevert(
+            bytes(
+                string.concat(
+                    "DeployShieldVault: SHIELD_TOKEN ",
+                    vm.toString(address(stray)),
+                    " is not an eXYZ in ",
+                    string.concat(vm.projectRoot(), SCRATCH_DIR, "stray-token.json")
+                )
+            )
+        );
+        script.setUp();
+    }
+
+    /// @dev The implementation answers the role reads like a token but administers nothing, so a
+    ///      vault bound to it would deploy cleanly and stay inert; the script names the mistake.
+    function test_RefusesTheStablecoinImplementation() public {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = book.StablecoinImpl;
+        DeployShieldVaultHarness script = _newScript("impl-as-token", config);
+
+        vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN is the Stablecoin implementation, not an eXYZ proxy"));
+        script.setUp();
+    }
+
+    /// @dev A token whose on-chain symbol is not its address-book key would be recorded under the
+    ///      wrong symbol, so the script refuses it.
+    function test_RefusesATokenWhoseSymbolIsNotItsEntry() public {
+        _etchToken(book.eXYZs.eEUR, "eXXX");
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = book.eXYZs.eEUR;
+        DeployShieldVaultHarness script = _newScript("symbol-mismatch", config);
+
+        vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN is recorded as eEUR but reports eXXX"));
+        script.setUp();
+    }
+
+    // -------------
+    // owner validation
+    // -------------
+
+    function test_RefusesAnOwnerOtherThanTheSafe() public {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.owner = address(0xBEEF);
+        DeployShieldVaultHarness script = _newScript("foreign-owner", config);
+
+        vm.expectRevert(
+            bytes(
+                "DeployShieldVault: SHIELD_VAULT_OWNER is not the governance safe; set SHIELD_ALLOW_NON_SAFE_OWNER=true to deploy with another owner (devnet only)"
+            )
+        );
+        script.setUp();
+    }
+
+    function test_AcceptsAnotherOwnerOnlyWithTheOptOut() public {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.owner = address(0xBEEF);
+        config.allowNonSafeOwner = true;
+
+        DeployShieldVault script = _runScript("opt-out-owner", config);
+
+        assertEq(script.vault().owner(), address(0xBEEF), "the opted-in owner must be set");
+        assertEq(script.owner(), address(0xBEEF), "the script must report the opted-in owner");
+    }
+
+    /// @dev The safe is genesis-assigned on every TN chain; a chain without its code is not one
+    ///      the vault should be deployed on.
+    function test_RefusesAChainWhoseSafeHasNoCode() public {
+        vm.etch(book.Safe, "");
+        DeployShieldVaultHarness script = _newScript("codeless-safe", _defaultConfig());
+
+        vm.expectRevert(bytes("DeployShieldVault: the governance safe has no code on this chain"));
+        script.setUp();
     }
 }

@@ -49,9 +49,12 @@ git diff deployments/genesis/precompile-config.yaml
 
 ### What it does
 
+- Resolves the chain's deployments file by chain id (`deployments/DeploymentsResolver.sol`) and refuses any chain id the resolver does not map, so a stale `--rpc-url` cannot deploy against the wrong network
+- Checks that `SHIELD_TOKEN` is one of the file's `eXYZs` entries and reports that entry's symbol on-chain; the `StablecoinImpl` address is refused by name, because it answers the role reads like a token but administers nothing, so a vault bound to it would deploy cleanly and stay inert for good
 - Deploys the `ShieldVault` implementation (its constructor locks it with `_disableInitializers`)
-- Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`
+- Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`, the owner being the governance safe unless explicitly overridden
 - Grants the token's `MINTER_ROLE` and `BURNER_ROLE` to the proxy when the broadcaster administers those roles on the token, and otherwise prints the two grant calls for the token admin
+- Records the proxy under `shieldVaults.<symbol>` in the deployments file
 - Logs the implementation and proxy addresses and the remaining checklist
 - Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so the role grants are safe to make early but nothing can be shielded yet
 
@@ -59,10 +62,11 @@ One vault is deployed per token, so run the script once per stablecoin.
 
 ### Parameters
 
-| Env var              | Value                                                                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `SHIELD_TOKEN`       | The eXYZ `Stablecoin` proxy the vault shields                                                                                          |
-| `SHIELD_VAULT_OWNER` | The vault owner, which gates pause/unpause and upgrades; intended to be the governance safe (`Safe` in the network's deployments file) |
+| Env var                       | Value                                                                                                                                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SHIELD_TOKEN`                | The eXYZ `Stablecoin` proxy the vault shields; must be listed under `eXYZs` in the resolved deployments file                                                                                                                                      |
+| `SHIELD_VAULT_OWNER`          | Optional. The vault owner, which gates pause/unpause and upgrades. Defaults to the governance safe (`Safe` in the deployments file, `0x...07a0` on every network) and must equal it unless `SHIELD_ALLOW_NON_SAFE_OWNER` is set                    |
+| `SHIELD_ALLOW_NON_SAFE_OWNER` | Optional, default `false`. Set to `true` to deploy with an owner other than the governance safe. Devnet only: a wrong owner is permanent, because ownership can never be renounced and only the owner can transfer it, and the owner's upgrade authority reaches the token's mint path |
 
 The owner is set directly at initialization, with no acceptance step.
 Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the new owner) and ownership can never be renounced.
@@ -70,7 +74,7 @@ Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the
 ### How to run
 
 ```bash
-SHIELD_TOKEN=<stablecoin address> SHIELD_VAULT_OWNER=<governance safe> \
+SHIELD_TOKEN=<stablecoin address> \
 forge script script/DeployShieldVault.s.sol \
   --rpc-url $TN_RPC_URL \
   --private-key $ADMIN_PK \
@@ -86,7 +90,7 @@ The vault is inert until two out-of-band steps complete, both printed by the scr
 1. If the broadcaster did not administer the token's roles, the token admin grants `MINTER_ROLE` and `BURNER_ROLE` on the token to the proxy.
 2. The governance safe registers the vault on the precompile with `setTokenConfig(token, vault, auditorKey)`; until then the precompile rejects the vault's `shield` and `unshield` calls.
 
-The script does not write to the deployments file (there is no `ShieldVault` entry in it); record the logged proxy address wherever the token's deployment is tracked.
+The proxy address is written to `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
 
 ---
 

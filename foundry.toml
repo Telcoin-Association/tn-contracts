@@ -20,6 +20,8 @@ fs_permissions = [
     { access = "read", path = "./deployments/deployments-mainnet.json" },
     { access = "read", path = "./external/uniswap/precompiles" },
     { access = "read", path = "./cache/seed-testnet-lps-fx.json" },
+    # scratch copies of the address book written by the DeployShieldVault tests
+    { access = "read-write", path = "./cache/deploy-shield-vault" },
 ]
 
 [profile.ci]

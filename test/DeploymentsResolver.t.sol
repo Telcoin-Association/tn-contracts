@@ -82,6 +82,7 @@ contract DeploymentsResolverTest is Test {
         assertEq(mainnet.StablecoinManager, address(0));
         assertEq(mainnet.GitAttestationRegistry, address(0));
         assertEq(mainnet.eXYZs.eUSD, address(0));
+        assertEq(mainnet.shieldVaults.eUSD, address(0));
         assertEq(mainnet.uniswapV2.UniswapV2Factory, address(0));
         assertEq(mainnet.uniswapV3.UniswapV3Factory, address(0));
         assertEq(mainnet.uniswapV4.PoolManager, address(0));
