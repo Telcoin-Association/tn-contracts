@@ -131,6 +131,10 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
     ///      no code (a chain whose genesis lacks the account, before the fork injects it, or any
     ///      foreign chain), because a CALL to a codeless account "succeeds" and the burn would
     ///      stand with no note created.
+    /// @dev GAS: the precompile call forwards the default all-but-1/64 of the remaining gas on
+    ///      purpose; a refusal is a halt that consumes everything forwarded, and the submitter
+    ///      bounds that loss with the transaction gas limit. A fixed stipend is deferred until the
+    ///      node's per-selector charges are calibrated.
     /// @param amount Token amount to shield; must be nonzero (u128 per TN-SHIELD v1).
     /// @param ownerAddr Shielded address `a = keccak256(DOM_ADDR || pk_spend || pk_view)` that
     ///                  owns the new note.
@@ -171,6 +175,9 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
     /// @dev On success the precompile returns exactly `abi.encode(address recipient, uint128
     ///      amount)`; the vault mints only when the returndata is exactly 64 bytes (TNEP §4.11)
     ///      and `abi.decode` rejects dirty high-order bits in either word.
+    /// @dev GAS: same intentional default all-but-1/64 forwarding as `shield`; a refusal (invalid
+    ///      proof, stale root, spent nullifier, kill switch) consumes the forwarded gas and the
+    ///      submitter bounds that loss with the transaction gas limit.
     /// @param proof TN-SHIELD v1 Plonk proof envelope bytes (opaque to the vault).
     /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
     function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {

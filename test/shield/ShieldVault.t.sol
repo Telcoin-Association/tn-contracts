@@ -48,6 +48,9 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///           carrying empty bytes and the revert restores all token pre-state.
 ///         - **Precompile liveness:** while the precompile account has no code, `shield` and
 ///           `unshield` revert with `PrecompileNotLive` instead of burning into a codeless CALL.
+///         - **Gas on refusal (accepted behavior):** an un-mocked call hits the 0xfe byte and
+///           halts; the vault reverts atomically and the halt consumes the default all-but-1/64
+///           forwarded gas (no stipend until the node's charges are calibrated).
 ///         - **Token binding:** `unshield` requires a `PV_LEN`-byte blob whose token field is the
 ///           vault's own token, so a T-bound proof through a T2 vault (the registry re-point case)
 ///           reverts before the precompile leg instead of minting T2.
@@ -600,6 +603,29 @@ contract ShieldVaultTest is Test {
         vault.unshield(proof, publicValues);
 
         assertEq(token.totalSupply(), 0, "failed unshield must not mint");
+    }
+
+    /// @dev Pins the accepted gas behavior (TNEP §4.17): with the genesis 0xfe byte and no mock
+    ///      the call halts, the vault reverts `LowLevelCallFailure("")` with the burn rolled back,
+    ///      and the halt consumes the default all-but-1/64 forwarded gas. A fixed stipend is
+    ///      deferred until the node's per-selector charges are calibrated.
+    function testShieldRefusalHaltsAndConsumesForwardedGas() public {
+        uint128 amount = 1_000_000;
+        _mintAndApprove(amount);
+
+        uint256 budget = 2_000_000;
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.LowLevelCallFailure.selector, bytes("")));
+        vault.shield{ gas: budget }(amount, OWNER_ADDR, SALT);
+        assertEq(token.balanceOf(user), amount, "burn rolled back");
+
+        // how much of the same budget does the refused shield consume?
+        vm.prank(user);
+        uint256 gasBefore = gasleft();
+        try vault.shield{ gas: budget }(amount, OWNER_ADDR, SALT) { } catch { }
+        uint256 used = gasBefore - gasleft();
+        assertGt(used, budget * 60 / 64, "a halt consumes nearly everything forwarded");
+        assertEq(token.balanceOf(user), amount, "second attempt rolled back too");
     }
 
     // -------------
