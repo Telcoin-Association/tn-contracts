@@ -53,7 +53,7 @@ git diff deployments/genesis/precompile-config.yaml
 - Checks that `SHIELD_TOKEN` is one of the file's `eXYZs` entries and reports that entry's symbol on-chain; the `StablecoinImpl` address is refused by name, because it answers the role reads like a token but administers nothing, so a vault bound to it would deploy cleanly and stay inert for good
 - Deploys the `ShieldVault` implementation (its constructor locks it with `_disableInitializers`)
 - Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`, the owner being the governance safe unless explicitly overridden
-- Grants the token's `MINTER_ROLE` and `BURNER_ROLE` to the proxy when the broadcaster administers those roles on the token, and otherwise prints the two grant calls for the token admin
+- Prints the token's `MINTER_ROLE` and `BURNER_ROLE` grants to the proxy for the token admin, or makes them itself when `SHIELD_GRANT_INLINE=true` and the broadcaster administers those roles on the token
 - Records the proxy under `shieldVaults.<symbol>` in the deployments file
 - Logs the implementation and proxy addresses and the remaining checklist
 - Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so the role grants are safe to make early but nothing can be shielded yet
@@ -67,6 +67,7 @@ One vault is deployed per token, so run the script once per stablecoin.
 | `SHIELD_TOKEN`                | The eXYZ `Stablecoin` proxy the vault shields; must be listed under `eXYZs` in the resolved deployments file                                                                                                                                      |
 | `SHIELD_VAULT_OWNER`          | Optional. The vault owner, which gates pause/unpause and upgrades. Defaults to the governance safe (`Safe` in the deployments file, `0x...07a0` on every network) and must equal it unless `SHIELD_ALLOW_NON_SAFE_OWNER` is set                    |
 | `SHIELD_ALLOW_NON_SAFE_OWNER` | Optional, default `false`. Set to `true` to deploy with an owner other than the governance safe. Devnet only: a wrong owner is permanent, because ownership can never be renounced and only the owner can transfer it, and the owner's upgrade authority reaches the token's mint path |
+| `SHIELD_GRANT_INLINE`         | Optional, default `false`. Set to `true` to grant the token roles (and, on a redeploy, revoke the superseded vault's) inline; the broadcaster must then hold the token's `DEFAULT_ADMIN_ROLE`                                                                                      |
 
 The owner is set directly at initialization, with no acceptance step.
 Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the new owner) and ownership can never be renounced.
@@ -77,11 +78,13 @@ Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the
 SHIELD_TOKEN=<stablecoin address> \
 forge script script/DeployShieldVault.s.sol \
   --rpc-url $TN_RPC_URL \
-  --private-key $ADMIN_PK \
+  --private-key $DEPLOYER_PK \
   -vvvv --slow
 ```
 
 Append `--broadcast` to actually send transactions (without it, forge only simulates).
+The deployment needs no privilege, so use a plain deployer key.
+The token's `DEFAULT_ADMIN_ROLE` key mints without limit and administers itself, and one vault is deployed per token, so exposing it for every run is a window that recurs 23 times; broadcast with it only when `SHIELD_GRANT_INLINE=true` is set on purpose, and otherwise hand the printed grants to whoever holds it.
 Keep `--slow`: the role grants carry the proxy address computed in the simulation, and without it a reverted deployment would not stop them from being sent at their own nonces.
 
 ### After running
@@ -103,7 +106,7 @@ A redeploy supersedes the vault recorded under `shieldVaults.<symbol>`, and that
 Nothing else in the system points at it any more, so an unrevoked vault is mint authority that the precompile registry does not show.
 Step zero of any redeploy is therefore the revoke:
 
-- when the broadcaster administers the token's roles, the script revokes both roles from the recorded vault itself, before granting them to the new one;
+- with `SHIELD_GRANT_INLINE=true` and the token admin broadcasting, the script revokes both roles from the recorded vault itself, before granting them to the new one;
 - otherwise it stops before deploying anything and prints the two `revokeRole` commands for the token admin; run them, then run the script again.
 
 Only a recorded vault that still holds a role triggers this; one whose roles were already revoked is superseded silently.

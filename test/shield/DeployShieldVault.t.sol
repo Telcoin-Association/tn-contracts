@@ -37,8 +37,8 @@ contract DeployShieldVaultHarness is DeployShieldVault {
 ///         .t.sol pattern: instantiate the script, `setUp()`, `run()`) on the testnet chain id: a
 ///         `Stablecoin` is etched at the book's `eUSD` address so the token the script validates,
 ///         binds, and records is the one the book names. Covers the implementation and proxy
-///         deployment, the inline role grant when the broadcaster administers the token's roles
-///         and the checklist path when it does not, the address-book write-back, the redeploy
+///         deployment, the inline role grant when asked for and the broadcaster administers the
+///         token's roles and the checklist path otherwise, the address-book write-back, the redeploy
 ///         paths (the superseded vault's roles are revoked inline, or the run stops before
 ///         deploying with the revoke commands in the reason), and every refusal: an unmapped
 ///         chain id, a token outside the book or with a foreign symbol, the `StablecoinImpl`
@@ -95,8 +95,17 @@ contract DeployShieldVaultTest is Test {
         vm.copyFile(_seedPath(), path);
     }
 
+    /// @dev Safe owner, no inline role management: the privilege-free default.
     function _defaultConfig() internal view returns (DeployShieldVault.Config memory) {
-        return DeployShieldVault.Config({ token: address(token), owner: address(0), allowNonSafeOwner: false });
+        return DeployShieldVault.Config({
+            token: address(token), owner: address(0), allowNonSafeOwner: false, grantInline: false
+        });
+    }
+
+    /// @dev The default plus the explicit request to manage the token roles inline.
+    function _inlineConfig() internal view returns (DeployShieldVault.Config memory config) {
+        config = _defaultConfig();
+        config.grantInline = true;
     }
 
     function _newScript(
@@ -152,10 +161,10 @@ contract DeployShieldVaultTest is Test {
     // deployment
     // -------------
 
-    function test_DeploysAndGrantsRolesWhenBroadcasterAdministersToken() public {
+    function test_DeploysAndGrantsRolesWhenAskedAndBroadcasterAdministersToken() public {
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
-        DeployShieldVault script = _runScript("grants-inline");
+        DeployShieldVault script = _runScript("grants-inline", _inlineConfig());
         _assertDeployed(script);
 
         ShieldVault vault = script.vault();
@@ -176,12 +185,26 @@ contract DeployShieldVaultTest is Test {
         assertTrue(script.precompileLive(), "script should see the precompile account's code");
     }
 
+    /// @dev Without the flag the admin key is never used, even when the broadcaster holds it.
+    function test_LeavesRolesToTokenAdminUnlessAskedToGrantInline() public {
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        DeployShieldVault script = _runScript("default-no-grant");
+        _assertDeployed(script);
+
+        ShieldVault vault = script.vault();
+        assertFalse(script.grantInline(), "the default must not ask for inline grants");
+        assertFalse(script.rolesGranted(), "script must not grant without being asked");
+        assertFalse(token.hasRole(token.MINTER_ROLE(), address(vault)), "no MINTER_ROLE unless asked");
+        assertFalse(token.hasRole(token.BURNER_ROLE(), address(vault)), "no BURNER_ROLE unless asked");
+    }
+
     function test_DeploysAndLeavesRolesToTokenAdminOtherwise() public {
         assertFalse(
             token.hasRole(token.DEFAULT_ADMIN_ROLE(), broadcaster), "precondition: broadcaster is not the token admin"
         );
 
-        DeployShieldVault script = _runScript("checklist");
+        DeployShieldVault script = _runScript("checklist", _inlineConfig());
         _assertDeployed(script);
 
         ShieldVault vault = script.vault();
@@ -214,7 +237,7 @@ contract DeployShieldVaultTest is Test {
         vm.mockCall(
             address(token), abi.encodeCall(token.hasRole, (token.MINTER_ROLE(), expectedVault)), abi.encode(false)
         );
-        DeployShieldVaultHarness script = _newScript("verification", _defaultConfig());
+        DeployShieldVaultHarness script = _newScript("verification", _inlineConfig());
         script.setUp();
 
         vm.expectRevert(bytes("DeployShieldVault: the vault does not hold MINTER_ROLE and BURNER_ROLE after the grant"));
@@ -307,17 +330,23 @@ contract DeployShieldVaultTest is Test {
         token.grantRole(token.BURNER_ROLE(), address(first.vault()));
     }
 
-    function _redeploy(DeployShieldVaultHarness first) internal returns (DeployShieldVaultHarness second) {
-        second = new DeployShieldVaultHarness(_defaultConfig(), first.deploymentsPath());
+    function _redeploy(
+        DeployShieldVaultHarness first,
+        DeployShieldVault.Config memory config
+    )
+        internal
+        returns (DeployShieldVaultHarness second)
+    {
+        second = new DeployShieldVaultHarness(config, first.deploymentsPath());
         second.setUp();
     }
 
-    function test_RedeployRevokesTheSupersededVaultWhenBroadcasterAdministersToken() public {
+    function test_RedeployRevokesTheSupersededVaultWhenAskedAndBroadcasterAdministersToken() public {
         DeployShieldVaultHarness first = _staleRun("redeploy-revokes");
         address stale = address(first.vault());
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
-        DeployShieldVaultHarness second = _redeploy(first);
+        DeployShieldVaultHarness second = _redeploy(first, _inlineConfig());
         assertEq(second.previousVault(), stale, "the redeploy must find the recorded vault");
         second.run();
 
@@ -333,11 +362,24 @@ contract DeployShieldVaultTest is Test {
     /// @dev Without the admin role the script cannot revoke, so it stops before deploying anything
     ///      and puts the exact revoke commands in the reason rather than stranding a second vault
     ///      with mint authority.
-    function test_RedeployRefusesToStrandMintAuthorityOtherwise() public {
+    function test_RedeployRefusesToStrandMintAuthorityWithoutTheAdmin() public {
         DeployShieldVaultHarness first = _staleRun("redeploy-refuses");
         address stale = address(first.vault());
 
-        DeployShieldVaultHarness second = _redeploy(first);
+        _assertRedeployRefused(_redeploy(first, _inlineConfig()), stale);
+    }
+
+    /// @dev Holding the admin role is not enough: the revoke rides on the same explicit request as
+    ///      the grant, so the admin key is never used unasked.
+    function test_RedeployRefusesToStrandMintAuthorityWithoutTheInlineFlag() public {
+        DeployShieldVaultHarness first = _staleRun("redeploy-refuses-default");
+        address stale = address(first.vault());
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        _assertRedeployRefused(_redeploy(first, _defaultConfig()), stale);
+    }
+
+    function _assertRedeployRefused(DeployShieldVaultHarness second, address stale) internal {
         try second.run() {
             fail("the redeploy must not proceed while the superseded vault holds the roles");
         } catch Error(string memory reason) {
@@ -361,7 +403,7 @@ contract DeployShieldVaultTest is Test {
         token.revokeRole(token.MINTER_ROLE(), stale);
         token.revokeRole(token.BURNER_ROLE(), stale);
 
-        DeployShieldVaultHarness second = _redeploy(first);
+        DeployShieldVaultHarness second = _redeploy(first, _defaultConfig());
         second.run();
 
         _assertDeployed(second);

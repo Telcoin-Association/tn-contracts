@@ -13,10 +13,16 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 /// @title Deploy a ShieldVault for one eXYZ stablecoin
 ///
 /// @notice Deploys the `ShieldVault` implementation and an `ERC1967Proxy` initialized with
-///         `initialize(token, owner)`, then grants the token's `MINTER_ROLE` and `BURNER_ROLE` to
-///         the proxy when the broadcaster administers those roles on the token, or prints the two
-///         grant calls as a checklist for the token admin when it does not. One vault is deployed
-///         per token, so run the script once per stablecoin.
+///         `initialize(token, owner)`, then prints the token's `MINTER_ROLE` and `BURNER_ROLE`
+///         grants to the proxy as a checklist for the token admin, or makes them itself when
+///         `SHIELD_GRANT_INLINE=true` and the broadcaster administers those roles on the token.
+///         One vault is deployed per token, so run the script once per stablecoin.
+///
+/// @notice The deployment itself needs no privilege, so broadcast it with a plain deployer key.
+///         The token's `DEFAULT_ADMIN_ROLE` key mints without limit and administers itself, and
+///         the rollout exposes it once per token, so the script only touches the roles when asked
+///         to in so many words; by default the grants are a printed hand-off to whoever holds
+///         that key.
 ///
 /// @notice Every address is bound to the chain's address book, `deployments/deployments-*.json`
 ///         resolved by chain id through `DeploymentsResolver`:
@@ -36,10 +42,10 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///         keeps its `MINTER_ROLE`/`BURNER_ROLE` on the token until someone revokes them: through
 ///         its owner's upgrade authority that is a way to mint without any proof, and it is
 ///         invisible to the precompile registry, the one place an auditor would look. The script
-///         therefore revokes both roles from the superseded vault when the broadcaster
-///         administers them and otherwise stops before deploying anything, with the exact
-///         `revokeRole` commands in the failure message; it never leaves two vaults with mint
-///         authority silently.
+///         therefore revokes both roles from the superseded vault when it manages the roles
+///         inline and otherwise stops before deploying anything, with the exact `revokeRole`
+///         commands in the failure message; it never leaves two vaults with mint authority
+///         silently.
 ///
 /// @dev The vault stays inert until the governance safe registers it on the precompile with
 ///      `setTokenConfig(token, vault, auditorKey)`; the script prints that call as the final
@@ -69,6 +75,8 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///        defaults to `Safe` and must equal it unless `SHIELD_ALLOW_NON_SAFE_OWNER=true`
 ///      - `SHIELD_ALLOW_NON_SAFE_OWNER` (optional, default `false`): devnet-only opt-out from the
 ///        owner check
+///      - `SHIELD_GRANT_INLINE` (optional, default `false`): grant (and on a redeploy revoke) the
+///        token roles inline; requires broadcasting with the token admin key
 ///
 /// @dev The environment and the address-book path are read through `_config` and
 ///      `_deploymentsPath`, which are virtual so the test suite can pin a configuration per test
@@ -76,7 +84,7 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      environment or the committed file.
 ///
 /// @dev Usage: `SHIELD_TOKEN=0x... forge script script/DeployShieldVault.s.sol \
-///      --rpc-url $TN_RPC_URL --private-key $ADMIN_PK -vvvv --slow --broadcast`
+///      --rpc-url $TN_RPC_URL --private-key $DEPLOYER_PK -vvvv --slow --broadcast`
 contract DeployShieldVault is Script {
     /// @notice The run configuration; see `_config` for the environment variables behind it.
     struct Config {
@@ -86,6 +94,8 @@ contract DeployShieldVault is Script {
         address owner;
         /// @dev `SHIELD_ALLOW_NON_SAFE_OWNER`.
         bool allowNonSafeOwner;
+        /// @dev `SHIELD_GRANT_INLINE`.
+        bool grantInline;
     }
 
     Deployments deployments;
@@ -99,11 +109,14 @@ contract DeployShieldVault is Script {
     address public owner;
     /// @notice The vault the address book recorded for the token before this run, or zero.
     address public previousVault;
+    /// @notice Whether the run was asked to manage the token roles inline.
+    bool public grantInline;
 
     /// @notice Populated by run(). Public so tests can read the deployed addresses back.
     ShieldVault public vaultImpl;
     ShieldVault public vault;
-    /// @notice Whether run() granted the token roles itself (the broadcaster administers them).
+    /// @notice Whether run() granted the token roles itself (asked to, and the broadcaster
+    ///         administers them).
     bool public rolesGranted;
     /// @notice Whether run() revoked the token roles from `previousVault`, which this run superseded.
     bool public rolesRevoked;
@@ -142,6 +155,7 @@ contract DeployShieldVault is Script {
             string.concat("DeployShieldVault: SHIELD_TOKEN is recorded as ", symbol, " but reports ", token.symbol())
         );
         previousVault = vm.parseJsonAddress(json, string.concat(".shieldVaults.", symbol));
+        grantInline = config.grantInline;
 
         // the owner holds the vault's upgrade authority, which reaches the token's mint path, so
         // it is the governance safe unless the operator says otherwise in so many words
@@ -164,9 +178,10 @@ contract DeployShieldVault is Script {
         (, address broadcaster,) = vm.readCallers();
 
         // `grantRole`/`revokeRole` are gated on the role's admin role (DEFAULT_ADMIN_ROLE on
-        // Stablecoin), so manage the roles inline only when the broadcaster holds it and
-        // otherwise leave the calls to the token admin: the roles live on the token, not on the vault
-        bool canManageRoles = token.hasRole(token.getRoleAdmin(minterRole), broadcaster)
+        // Stablecoin), so manage the roles inline only when asked to and the broadcaster holds
+        // it, and otherwise leave the calls to the token admin: the roles live on the token, not
+        // on the vault
+        bool canManageRoles = grantInline && token.hasRole(token.getRoleAdmin(minterRole), broadcaster)
             && token.hasRole(token.getRoleAdmin(burnerRole), broadcaster);
 
         // a redeploy supersedes the recorded vault, whose roles nobody else is told to revoke:
@@ -253,7 +268,15 @@ contract DeployShieldVault is Script {
             console2.log(_roleCheck(minterRole, address(vault), true));
             console2.log(_roleCheck(burnerRole, address(vault), true));
         } else {
-            console2.log("Broadcaster", broadcaster, "does not administer the token's roles; the token admin must run:");
+            if (grantInline) {
+                console2.log(
+                    "Broadcaster", broadcaster, "does not administer the token's roles; the token admin must run:"
+                );
+            } else {
+                console2.log(
+                    "The token admin must grant the roles (or rerun with SHIELD_GRANT_INLINE=true and the admin key):"
+                );
+            }
             console2.log(_roleCommand("grantRole", minterRole, address(vault)));
             console2.log(_roleCommand("grantRole", burnerRole, address(vault)));
             console2.log("and confirm:");
@@ -279,7 +302,8 @@ contract DeployShieldVault is Script {
         return Config({
             token: vm.envOr("SHIELD_TOKEN", address(0)),
             owner: vm.envOr("SHIELD_VAULT_OWNER", address(0)),
-            allowNonSafeOwner: vm.envOr("SHIELD_ALLOW_NON_SAFE_OWNER", false)
+            allowNonSafeOwner: vm.envOr("SHIELD_ALLOW_NON_SAFE_OWNER", false),
+            grantInline: vm.envOr("SHIELD_GRANT_INLINE", false)
         });
     }
 
