@@ -39,8 +39,11 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///         - **Precompile-failure propagation:** per the frozen error idiom, precompile failures
 ///           are frame halts with EMPTY returndata - the vault surfaces `LowLevelCallFailure`
 ///           carrying empty bytes and the revert restores all token pre-state.
-///         - **Malformed unshield returndata:** too-short precompile returndata makes
-///           `abi.decode` revert; no mint happens.
+///         - **Token binding:** `unshield` requires a `PV_LEN`-byte blob whose token field is the
+///           vault's own token, so a T-bound proof through a T2 vault (the registry re-point case)
+///           reverts before the precompile leg instead of minting T2.
+///         - **Malformed unshield returndata:** returndata other than exactly 64 bytes (too short
+///           or too long) makes the vault revert; no mint happens.
 ///         - **Implementation lock:** `initialize` on the bare implementation reverts
 ///           (`_disableInitializers` in the constructor), so only a proxy can ever be initialized.
 ///         - **Fuzz:** shield amount over (0, type(uint128).max] with allowance == amount - the
@@ -95,6 +98,20 @@ contract ShieldVaultTest is Test {
     /// @dev Exact calldata the vault must send for `unshield`.
     function _unshieldCalldata(bytes memory proof, bytes memory publicValues) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(ShieldPrecompileSelectors.UNSHIELD, proof, publicValues);
+    }
+
+    /// @dev A TNEP §4.8 public-values blob (1192 bytes) bound to `token_`: version 1, op unshield
+    ///      (0x03), the token at offset 10; every other field zero (opaque to the vault). The
+    ///      length and offset are written out here so the test pins the vault's constants
+    ///      independently.
+    function _publicValues(address token_) internal pure returns (bytes memory pv) {
+        pv = new bytes(1192);
+        pv[0] = 0x01;
+        pv[1] = 0x03;
+        bytes20 t = bytes20(token_);
+        for (uint256 i = 0; i < 20; ++i) {
+            pv[10 + i] = t[i];
+        }
     }
 
     /// @dev Seeds `user` with `amount` and sets the burnFrom-prerequisite allowance for the vault.
@@ -158,7 +175,7 @@ contract ShieldVaultTest is Test {
             "shield calldata must be byte-identical across encoders"
         );
         bytes memory proof = hex"1234";
-        bytes memory publicValues = hex"5678";
+        bytes memory publicValues = _publicValues(address(token));
         assertEq(
             abi.encodeCall(IShieldedStablecoin.unshield, (proof, publicValues)),
             _unshieldCalldata(proof, publicValues),
@@ -194,7 +211,7 @@ contract ShieldVaultTest is Test {
         uint128 amount = 5_000_000;
         // proof + public values are opaque to the vault; the mocked precompile "verifies" them
         bytes memory proof = hex"1234";
-        bytes memory publicValues = hex"5678";
+        bytes memory publicValues = _publicValues(address(token));
 
         bytes memory precompileCalldata = _unshieldCalldata(proof, publicValues);
         vm.mockCall(precompile, precompileCalldata, abi.encode(recipient, amount));
@@ -252,7 +269,7 @@ contract ShieldVaultTest is Test {
         token.addBlackList(recipient);
 
         bytes memory proof = hex"1234";
-        bytes memory publicValues = hex"5678";
+        bytes memory publicValues = _publicValues(address(token));
         vm.mockCall(precompile, _unshieldCalldata(proof, publicValues), abi.encode(recipient, amount));
 
         vm.prank(user);
@@ -329,7 +346,7 @@ contract ShieldVaultTest is Test {
 
         vm.prank(user);
         vm.expectRevert(Pausable.EnforcedPause.selector);
-        vault.unshield(hex"1234", hex"5678");
+        vault.unshield(hex"1234", _publicValues(address(token)));
 
         assertEq(token.totalSupply(), 0, "paused unshield must not mint");
     }
@@ -355,7 +372,7 @@ contract ShieldVaultTest is Test {
         // unshield works again
         address recipient = address(0xCAFE);
         bytes memory proof = hex"aaaa";
-        bytes memory publicValues = hex"bbbb";
+        bytes memory publicValues = _publicValues(address(token));
         vm.mockCall(precompile, _unshieldCalldata(proof, publicValues), abi.encode(recipient, amount));
         vm.prank(user);
         vault.unshield(proof, publicValues);
@@ -461,7 +478,7 @@ contract ShieldVaultTest is Test {
     ///      and no mint happens.
     function testUnshieldPrecompileFailureRevertsWithEmptyReturndata() public {
         bytes memory proof = hex"1234";
-        bytes memory publicValues = hex"5678";
+        bytes memory publicValues = _publicValues(address(token));
         vm.mockCallRevert(precompile, _unshieldCalldata(proof, publicValues), "");
 
         vm.prank(user);
@@ -475,29 +492,97 @@ contract ShieldVaultTest is Test {
     // malformed unshield returndata
     // -------------
 
-    /// @dev Precompile returndata shorter than `abi.encode(address, uint128)` (64 bytes) makes
-    ///      the vault's `abi.decode` revert; no mint happens.
+    /// @dev Precompile returndata other than exactly `abi.encode(address, uint128)` (64 bytes)
+    ///      makes the vault revert with `MalformedReturndata` (TNEP §4.11: mint only when
+    ///      `returndata.length == 64`); no mint happens in either direction.
     function testUnshieldMalformedReturndataReverts() public {
+        bytes memory publicValues = _publicValues(address(token));
+
         // round 1: junk bytes far too short for any head
         bytes memory proof1 = hex"aa";
-        bytes memory publicValues1 = hex"bb";
-        vm.mockCall(precompile, _unshieldCalldata(proof1, publicValues1), hex"1234");
+        vm.mockCall(precompile, _unshieldCalldata(proof1, publicValues), hex"1234");
 
         vm.prank(user);
-        vm.expectRevert();
-        vault.unshield(proof1, publicValues1);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.MalformedReturndata.selector, 2));
+        vault.unshield(proof1, publicValues);
 
         // round 2: one valid word (the recipient) but the amount word missing
         bytes memory proof2 = hex"cc";
-        bytes memory publicValues2 = hex"dd";
-        vm.mockCall(precompile, _unshieldCalldata(proof2, publicValues2), abi.encode(address(0xCAFE)));
+        vm.mockCall(precompile, _unshieldCalldata(proof2, publicValues), abi.encode(address(0xCAFE)));
 
         vm.prank(user);
-        vm.expectRevert();
-        vault.unshield(proof2, publicValues2);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.MalformedReturndata.selector, 32));
+        vault.unshield(proof2, publicValues);
+
+        // round 3: a well-formed pair followed by an extra word (a future layout the vault was
+        // not written for) - `abi.decode` alone would have accepted it
+        bytes memory proof3 = hex"ee";
+        vm.mockCall(
+            precompile,
+            _unshieldCalldata(proof3, publicValues),
+            abi.encode(address(0xCAFE), uint128(5), uint256(0xdead))
+        );
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.MalformedReturndata.selector, 96));
+        vault.unshield(proof3, publicValues);
 
         assertEq(token.totalSupply(), 0, "malformed returndata must not mint");
         assertEq(token.balanceOf(address(0xCAFE)), 0, "malformed returndata must not mint to the decoded word");
+    }
+
+    // -------------
+    // token binding: unshield mints only against a proof bound to this vault's token
+    // -------------
+
+    /// @dev A registry re-point (`setTokenConfig(T, V2, k)`) lets a T-bound proof reach a vault
+    ///      whose token is T2; the vault binds the mint to the proof's token field (TNEP §4.8,
+    ///      offset 10) and reverts before the precompile leg instead of minting T2.
+    function testUnshieldRejectsProofBoundToAnotherToken() public {
+        // a second token T2 with its own vault V2
+        Stablecoin t2 = new Stablecoin();
+        t2.initialize("Telcoin eABC", "eABC", 6);
+        ShieldVault v2 = ShieldVault(
+            address(
+                new ERC1967Proxy(
+                    address(vaultImpl), abi.encodeWithSelector(ShieldVault.initialize.selector, address(t2), governance)
+                )
+            )
+        );
+        t2.grantRole(t2.MINTER_ROLE(), address(v2));
+        t2.grantRole(t2.BURNER_ROLE(), address(v2));
+
+        bytes memory proof = hex"1234";
+        bytes memory publicValues = _publicValues(address(token)); // bound to T, not T2
+        bytes memory precompileCalldata = _unshieldCalldata(proof, publicValues);
+        // even a cooperative precompile answer must never reach the mint: the leg is not called
+        vm.mockCall(precompile, precompileCalldata, abi.encode(address(0xCAFE), uint128(7_000_000)));
+        vm.expectCall(precompile, precompileCalldata, 0);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.TokenMismatch.selector, address(token), address(t2)));
+        v2.unshield(proof, publicValues);
+
+        assertEq(t2.totalSupply(), 0, "V2 must not mint T2 against a T-bound proof");
+        assertEq(token.totalSupply(), 0, "nothing was minted as T either");
+    }
+
+    /// @dev The blob must be exactly `PV_LEN` (1192) bytes: the token offset is only meaningful
+    ///      inside the frozen v1 layout, so any other length is rejected before the precompile leg.
+    function testUnshieldRejectsWrongLengthPublicValues() public {
+        bytes memory proof = hex"1234";
+
+        bytes memory tooShort = hex"5678";
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.PublicValuesLength.selector, 2));
+        vault.unshield(proof, tooShort);
+
+        bytes memory tooLong = bytes.concat(_publicValues(address(token)), hex"00");
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(ShieldVault.PublicValuesLength.selector, 1193));
+        vault.unshield(proof, tooLong);
+
+        assertEq(token.totalSupply(), 0, "a rejected blob must not mint");
     }
 
     // -------------

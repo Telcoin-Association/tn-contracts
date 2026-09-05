@@ -47,6 +47,18 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     error ZeroAmount();
     /// @notice The initializer rejects the zero address for the token.
     error ZeroAddress();
+    /// @notice `unshield` rejects a public-values blob that is not exactly `PV_LEN` bytes.
+    error PublicValuesLength(uint256 length);
+    /// @notice `unshield` rejects a proof whose public values name a token other than this vault's.
+    error TokenMismatch(address proven, address vault);
+    /// @notice The precompile's `unshield` returndata is not exactly the 64-byte
+    ///         `abi.encode(address recipient, uint128 amount)`.
+    error MalformedReturndata(uint256 length);
+
+    /// @dev Byte length of the TN-SHIELD v1 public-values blob (`PV_LEN`, TNEP §4.8).
+    uint256 internal constant PV_LEN = 1192;
+    /// @dev Offset of the 20-byte originating token address inside the blob (TNEP §4.8).
+    uint256 internal constant PV_TOKEN_OFFSET = 10;
 
     /// @custom:storage-location erc7201:telcoin.storage.ShieldVault
     struct ShieldVaultStorage {
@@ -115,6 +127,12 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     /// @notice Unshields tokens: submits `(proof, publicValues)` to the precompile, which verifies
     ///         the proof, marks the input nullifiers spent, and returns the proven
     ///         `(recipient, amount)`; the vault then mints `amount` of its token to `recipient`.
+    /// @dev TOKEN BINDING: the precompile only checks that the caller is `vaultOf[pv.token]`, not
+    ///      that the caller's token is `pv.token`, so after a registry re-point
+    ///      (`setTokenConfig(T, V2, k)` with `V2.token() == T2`) a T-bound proof would otherwise
+    ///      mint T2. The vault therefore requires the blob to be exactly `PV_LEN` bytes and its
+    ///      token field (offset `PV_TOKEN_OFFSET`, frozen v1 layout) to equal its own token, and
+    ///      reverts before the precompile leg otherwise.
     /// @dev COMPLIANCE: a blacklisted `recipient` makes the token's `_update` hook revert
     ///      (`Blacklisted(to)`), rolling back the WHOLE transaction - including the precompile's
     ///      nullifier marks and tree insertion - so the shielded note stays unspent and remains
@@ -123,16 +141,23 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     ///      values, not by the caller. The precompile independently enforces that this vault is
     ///      `vaultOf[token]` for the proof's token.
     /// @dev On success the precompile returns exactly `abi.encode(address recipient, uint128
-    ///      amount)`; malformed returndata makes `abi.decode` revert.
+    ///      amount)`; the vault mints only when the returndata is exactly 64 bytes (TNEP §4.11)
+    ///      and `abi.decode` rejects dirty high-order bits in either word.
     /// @param proof TN-SHIELD v1 Plonk proof envelope bytes (opaque to the vault).
     /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
     function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {
+        if (publicValues.length != PV_LEN) revert PublicValuesLength(publicValues.length);
+        IStablecoin token_ = _shieldVaultStorage()._token;
+        address proven = address(bytes20(publicValues[PV_TOKEN_OFFSET:PV_TOKEN_OFFSET + 20]));
+        if (proven != address(token_)) revert TokenMismatch(proven, address(token_));
+
         (bool ok, bytes memory ret) =
             PRECOMPILE.call(abi.encodeCall(IShieldedStablecoin.unshield, (proof, publicValues)));
         if (!ok) revert LowLevelCallFailure(ret);
+        if (ret.length != 64) revert MalformedReturndata(ret.length);
 
         (address recipient, uint128 amount) = abi.decode(ret, (address, uint128));
-        _shieldVaultStorage()._token.mintTo(recipient, amount);
+        token_.mintTo(recipient, amount);
     }
 
     /// @notice Pauses `shield` and `unshield`. Only the owner (governance safe) may pause.
