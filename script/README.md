@@ -51,10 +51,10 @@ git diff deployments/genesis/precompile-config.yaml
 
 - Resolves the chain's deployments file by chain id (`deployments/DeploymentsResolver.sol`) and refuses any chain id the resolver does not map, so a stale `--rpc-url` cannot deploy against the wrong network
 - Checks that `SHIELD_TOKEN` is one of the file's `eXYZs` entries and reports that entry's symbol on-chain; the `StablecoinImpl` address is refused by name, because it answers the role reads like a token but administers nothing, so a vault bound to it would deploy cleanly and stay inert for good
-- Deploys the `ShieldVault` implementation (its constructor locks it with `_disableInitializers`)
-- Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`, the owner being the governance safe unless explicitly overridden
+- Reuses the chain's `ShieldVault` implementation, recorded under `ShieldVaultImpl` in the deployments file, and deploys it via CREATE2 (salt `ShieldVault`) when there is none; its constructor locks it with `_disableInitializers`
+- Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)` via CREATE2, salted on the token, the owner being the governance safe unless explicitly overridden; a re-run for the same token finds the proxy already deployed and only completes what is missing
 - Prints the token's `MINTER_ROLE` and `BURNER_ROLE` grants to the proxy for the token admin, or makes them itself when `SHIELD_GRANT_INLINE=true` and the broadcaster administers those roles on the token
-- Records the proxy under `shieldVaults.<symbol>` in the deployments file
+- Records the implementation under `ShieldVaultImpl` and the proxy under `shieldVaults.<symbol>` in the deployments file
 - Logs the implementation and proxy addresses and the remaining checklist
 - Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so the role grants are safe to make early but nothing can be shielded yet
 
@@ -99,6 +99,15 @@ The script prints the reads: `token()` and `owner()` on the proxy, and `hasRole`
 Every `cast send` it prints carries `--rpc-url` and `--chain`; the chain id goes into the signed transaction, so a command copied to another network's RPC is rejected by that node instead of appearing to succeed against an address that has no code there.
 
 The proxy address is written to `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
+
+### Deterministic addresses
+
+Both contracts go through the genesis-deployed CREATE2 deployer, so the vault address is a pure function of the implementation, the token, and the owner, and a run without `--broadcast` prints it before anything is sent.
+That lets the governance safe collect its signatures on `setTokenConfig(token, vault, auditorKey)` in parallel with the deployment instead of after it, and gives every audit and verification one implementation to look at rather than one per token.
+
+The implementation's address moves with any compiler or source change, and the proxies' addresses follow it because their initcode embeds it.
+The script keeps using the recorded implementation while it has code, so all vaults on a chain share one, and warns when that implementation was not built from the current source.
+Roll new code with a UUPS upgrade of the existing vaults; zero `ShieldVaultImpl` in the deployments file only if new vaults are meant to start on code the existing ones do not run.
 
 ### Redeploying
 

@@ -38,6 +38,16 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///         - the proxy is written back under `shieldVaults.<symbol>` so the role grant and the
 ///           precompile registration hand-offs never depend on terminal scrollback.
 ///
+/// @notice One implementation per chain, at deterministic addresses: the implementation is the one
+///         recorded under `ShieldVaultImpl` in the address book (failing that, the CREATE2 address
+///         of the current source, deployed when nothing is there yet), and the proxy is CREATE2-
+///         salted on the token, so its address is a pure function of the implementation, the
+///         token, and the owner. A dry run therefore prints the vault address before anything is
+///         broadcast, which lets the governance safe collect signatures on `setTokenConfig` in
+///         parallel with the deploy; a re-run for the same token finds its vault already deployed
+///         and only completes what is missing (the record, the roles); and 23 vaults share one
+///         implementation to verify, audit, and upgrade instead of 23.
+///
 /// @notice A redeploy supersedes the vault the address book records for the token, and that vault
 ///         keeps its `MINTER_ROLE`/`BURNER_ROLE` on the token until someone revokes them: through
 ///         its owner's upgrade authority that is a way to mint without any proof, and it is
@@ -98,6 +108,13 @@ contract DeployShieldVault is Script {
         bool grantInline;
     }
 
+    /// @dev CREATE2 salt of the implementation. `ShieldVault` compiles from source, so its initcode
+    ///      (and with it this address) moves with any compiler or source change, and the proxies'
+    ///      addresses follow the implementation's because their initcode embeds it. Redeploying
+    ///      identical bytecode on a chain that already holds it lands on the same address and is
+    ///      skipped rather than needing a bumped salt.
+    bytes32 internal constant IMPL_SALT = bytes32(bytes("ShieldVault"));
+
     Deployments deployments;
     /// @notice The address book this run reads and writes back to.
     string public deploymentsPath;
@@ -115,6 +132,10 @@ contract DeployShieldVault is Script {
     /// @notice Populated by run(). Public so tests can read the deployed addresses back.
     ShieldVault public vaultImpl;
     ShieldVault public vault;
+    /// @notice Whether the implementation already had code (recorded, or at its CREATE2 address).
+    bool public implReused;
+    /// @notice Whether the proxy already had code at its CREATE2 address (a re-run for the token).
+    bool public vaultReused;
     /// @notice Whether run() granted the token roles itself (asked to, and the broadcaster
     ///         administers them).
     bool public rolesGranted;
@@ -174,6 +195,36 @@ contract DeployShieldVault is Script {
         bytes32 minterRole = token.MINTER_ROLE();
         bytes32 burnerRole = token.BURNER_ROLE();
 
+        // one implementation per chain: the recorded one, else the CREATE2 address of the current
+        // source, deployed below when nothing is there yet
+        address impl = deployments.ShieldVaultImpl;
+        address currentImpl = vm.computeCreate2Address(IMPL_SALT, keccak256(type(ShieldVault).creationCode));
+        if (impl.code.length == 0) impl = currentImpl;
+        implReused = impl.code.length > 0;
+        vaultImpl = ShieldVault(impl);
+
+        // the proxy is a pure function of (implementation, token, owner): a re-run for the token
+        // lands on the same address and is skipped, and a dry run knows the address before
+        // anything is broadcast
+        bytes memory initCall = abi.encodeCall(ShieldVault.initialize, (address(token), owner));
+        bytes32 vaultSalt = keccak256(abi.encodePacked("ShieldVault", address(token)));
+        address predictedVault = vm.computeCreate2Address(
+            vaultSalt, keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(impl, initCall)))
+        );
+        vaultReused = predictedVault.code.length > 0;
+        vault = ShieldVault(predictedVault);
+
+        console2.log(implReused ? "ShieldVault implementation in use:" : "ShieldVault implementation to deploy:", impl);
+        console2.log(
+            vaultReused ? "ShieldVault proxy already deployed:" : "ShieldVault proxy to deploy:", predictedVault
+        );
+        if (implReused && impl != currentImpl) {
+            console2.log(
+                "WARNING: the implementation in use was not built from the current source; new vaults reuse it."
+            );
+            console2.log("         Roll new code with a UUPS upgrade, or zero ShieldVaultImpl in the address book.");
+        }
+
         vm.startBroadcast();
         (, address broadcaster,) = vm.readCallers();
 
@@ -185,8 +236,9 @@ contract DeployShieldVault is Script {
             && token.hasRole(token.getRoleAdmin(burnerRole), broadcaster);
 
         // a redeploy supersedes the recorded vault, whose roles nobody else is told to revoke:
-        // revoke them here or stop before anything is deployed
-        bool supersedes = previousVault != address(0)
+        // revoke them here or stop before anything is deployed (a re-run for the same vault
+        // supersedes nothing)
+        bool supersedes = previousVault != address(0) && previousVault != predictedVault
             && (token.hasRole(minterRole, previousVault) || token.hasRole(burnerRole, previousVault));
         if (supersedes && !canManageRoles) {
             revert(
@@ -203,9 +255,18 @@ contract DeployShieldVault is Script {
             );
         }
 
-        vaultImpl = new ShieldVault();
-        bytes memory initCall = abi.encodeCall(ShieldVault.initialize, (address(token), owner));
-        vault = ShieldVault(address(new ERC1967Proxy(address(vaultImpl), initCall)));
+        if (!implReused) {
+            vaultImpl = new ShieldVault{ salt: IMPL_SALT }();
+            require(
+                address(vaultImpl) == impl, "DeployShieldVault: the implementation did not land at its CREATE2 address"
+            );
+        }
+        if (!vaultReused) {
+            vault = ShieldVault(address(new ERC1967Proxy{ salt: vaultSalt }(impl, initCall)));
+            require(
+                address(vault) == predictedVault, "DeployShieldVault: the proxy did not land at its CREATE2 address"
+            );
+        }
 
         if (canManageRoles) {
             if (supersedes) {
@@ -213,8 +274,8 @@ contract DeployShieldVault is Script {
                 token.revokeRole(burnerRole, previousVault);
                 rolesRevoked = true;
             }
-            token.grantRole(minterRole, address(vault));
-            token.grantRole(burnerRole, address(vault));
+            if (!token.hasRole(minterRole, address(vault))) token.grantRole(minterRole, address(vault));
+            if (!token.hasRole(burnerRole, address(vault))) token.grantRole(burnerRole, address(vault));
             rolesGranted = true;
         }
 
@@ -242,7 +303,11 @@ contract DeployShieldVault is Script {
             );
         }
 
-        // record the proxy under the token's symbol so the hand-offs below read the address book
+        // record the implementation and the proxy (under the token's symbol) so the hand-offs
+        // below read the address book
+        vm.writeJson(
+            LibString.toHexString(uint256(uint160(address(vaultImpl))), 20), deploymentsPath, ".ShieldVaultImpl"
+        );
         vm.writeJson(
             LibString.toHexString(uint256(uint160(address(vault))), 20),
             deploymentsPath,
@@ -250,11 +315,15 @@ contract DeployShieldVault is Script {
         );
 
         // logs
-        console2.log("ShieldVault implementation deployed at:", address(vaultImpl));
-        console2.log("ShieldVault proxy deployed at:", address(vault));
+        console2.log(
+            implReused ? "ShieldVault implementation reused:" : "ShieldVault implementation deployed at:", impl
+        );
+        console2.log(vaultReused ? "ShieldVault proxy found at:" : "ShieldVault proxy deployed at:", address(vault));
         console2.log("  token:", address(token), symbol);
         console2.log("  owner:", owner);
-        console2.log(string.concat("  recorded under shieldVaults.", symbol, " in ", deploymentsPath));
+        console2.log(
+            string.concat("  recorded under ShieldVaultImpl and shieldVaults.", symbol, " in ", deploymentsPath)
+        );
         console2.log("Confirm the broadcast against chain state (the lines above describe the simulation):");
         console2.log(_vaultCheck("token()", address(token)));
         console2.log(_vaultCheck("owner()", owner));

@@ -3,6 +3,7 @@ pragma solidity 0.8.35;
 
 import { Test } from "forge-std/Test.sol";
 import { LibString } from "solady/utils/LibString.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import { DeployShieldVault } from "../../script/DeployShieldVault.s.sol";
@@ -38,7 +39,9 @@ contract DeployShieldVaultHarness is DeployShieldVault {
 ///         `Stablecoin` is etched at the book's `eUSD` address so the token the script validates,
 ///         binds, and records is the one the book names. Covers the implementation and proxy
 ///         deployment, the inline role grant when asked for and the broadcaster administers the
-///         token's roles and the checklist path otherwise, the address-book write-back, the redeploy
+///         token's roles and the checklist path otherwise, the address-book write-back, the
+///         deterministic addresses (one CREATE2 implementation per chain reused across tokens, a
+///         proxy salted on the token that a re-run finds instead of redeploying), the redeploy
 ///         paths (the superseded vault's roles are revoked inline, or the run stops before
 ///         deploying with the revoke commands in the reason), and every refusal: an unmapped
 ///         chain id, a token outside the book or with a foreign symbol, the `StablecoinImpl`
@@ -138,6 +141,24 @@ contract DeployShieldVaultTest is Test {
         return vm.parseJsonAddress(vm.readFile(script.deploymentsPath()), string.concat(".shieldVaults.", symbol_));
     }
 
+    function _recordedImpl(DeployShieldVault script) internal view returns (address) {
+        return vm.parseJsonAddress(vm.readFile(script.deploymentsPath()), ".ShieldVaultImpl");
+    }
+
+    /// @dev Where the script's CREATE2 recipe puts the implementation built from the current source.
+    function _predictedImpl() internal pure returns (address) {
+        return vm.computeCreate2Address(bytes32(bytes("ShieldVault")), keccak256(type(ShieldVault).creationCode));
+    }
+
+    /// @dev Where the script's CREATE2 recipe puts the proxy over `impl` for `token_` and `owner_`.
+    function _predictedVault(address impl, address token_, address owner_) internal pure returns (address) {
+        bytes memory initCall = abi.encodeCall(ShieldVault.initialize, (token_, owner_));
+        return vm.computeCreate2Address(
+            keccak256(abi.encodePacked("ShieldVault", token_)),
+            keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(impl, initCall)))
+        );
+    }
+
     /// @dev The proxy must point at the freshly deployed implementation and be initialized for the
     ///      configured token and the governance safe.
     function _assertDeployed(DeployShieldVault script) internal view {
@@ -155,6 +176,8 @@ contract DeployShieldVaultTest is Test {
         assertFalse(vault.paused(), "fresh vault must not be paused");
         assertEq(vault.PRECOMPILE(), PRECOMPILE, "test mirrors the vault's precompile address");
         assertEq(script.symbol(), "eUSD", "the script must resolve the token's address-book key");
+        assertEq(address(impl), _predictedImpl(), "the implementation must sit at its CREATE2 address");
+        assertEq(address(vault), _predictedVault(address(impl), address(token), book.Safe), "proxy CREATE2 address");
     }
 
     // -------------
@@ -232,8 +255,7 @@ contract DeployShieldVaultTest is Test {
     ///      transactions: a grant that did not land fails by name.
     function test_VerificationReadsTheGrantedRolesBack() public {
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
-        // the proxy is the broadcaster's second CREATE of the run (the implementation is the first)
-        address expectedVault = vm.computeCreateAddress(broadcaster, vm.getNonce(broadcaster) + 1);
+        address expectedVault = _predictedVault(_predictedImpl(), address(token), book.Safe);
         vm.mockCall(
             address(token), abi.encodeCall(token.hasRole, (token.MINTER_ROLE(), expectedVault)), abi.encode(false)
         );
@@ -248,11 +270,13 @@ contract DeployShieldVaultTest is Test {
     // address book
     // -------------
 
-    /// @dev The proxy is recorded under the token's symbol, and nothing else in the book moves.
+    /// @dev The implementation and the proxy (under the token's symbol) are recorded, and nothing
+    ///      else in the book moves.
     function test_RecordsTheVaultUnderTheTokenSymbol() public {
         DeployShieldVault script = _runScript("records-vault");
 
         assertEq(_recordedVault(script, "eUSD"), address(script.vault()), "shieldVaults.eUSD must be the proxy");
+        assertEq(_recordedImpl(script), address(script.vaultImpl()), "ShieldVaultImpl must be the implementation");
         Deployments memory written = abi.decode(vm.parseJson(vm.readFile(script.deploymentsPath())), (Deployments));
         assertEq(written.shieldVaults.eEUR, book.shieldVaults.eEUR, "other vault entries must not move");
         assertEq(written.eXYZs.eUSD, book.eXYZs.eUSD, "token entries must not move");
@@ -312,6 +336,77 @@ contract DeployShieldVaultTest is Test {
 
         vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN is recorded as eEUR but reports eXXX"));
         script.setUp();
+    }
+
+    // -------------
+    // deterministic addresses
+    // -------------
+
+    /// @dev A second run for the same token finds its vault at the CREATE2 address instead of
+    ///      deploying another, supersedes nothing, and completes what the first run left out.
+    function test_RerunFindsTheVaultAndCompletesTheRoles() public {
+        DeployShieldVaultHarness first = _runScript("rerun");
+        assertFalse(first.rolesGranted(), "precondition: the first run left the roles to the admin");
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        DeployShieldVaultHarness second = _redeploy(first, _inlineConfig());
+        second.run();
+
+        assertTrue(second.implReused(), "the implementation must be reused");
+        assertTrue(second.vaultReused(), "the vault must be found, not redeployed");
+        assertEq(address(second.vault()), address(first.vault()), "same vault");
+        assertFalse(second.rolesRevoked(), "a re-run for the same vault supersedes nothing");
+        assertTrue(second.rolesGranted(), "the re-run must complete the roles");
+        assertTrue(token.hasRole(token.MINTER_ROLE(), address(first.vault())), "MINTER_ROLE completed");
+        assertTrue(token.hasRole(token.BURNER_ROLE(), address(first.vault())), "BURNER_ROLE completed");
+        assertEq(_recordedVault(second, "eUSD"), address(first.vault()), "the record must not move");
+    }
+
+    /// @dev The chain's one implementation, recorded by the first token's run, serves the next.
+    function test_ReusesTheRecordedImplementationAcrossTokens() public {
+        DeployShieldVaultHarness first = _runScript("shared-impl");
+        Stablecoin eEUR = _etchToken(book.eXYZs.eEUR, "eEUR");
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = address(eEUR);
+
+        DeployShieldVaultHarness second = _redeploy(first, config);
+        second.run();
+
+        assertTrue(second.implReused(), "the recorded implementation must be reused");
+        assertEq(address(second.vaultImpl()), address(first.vaultImpl()), "one implementation per chain");
+        assertTrue(address(second.vault()) != address(first.vault()), "one vault per token");
+        assertEq(address(second.vault().token()), address(eEUR), "the second vault shields the second token");
+        assertEq(_recordedVault(second, "eEUR"), address(second.vault()), "shieldVaults.eEUR must be recorded");
+        assertEq(_recordedVault(second, "eUSD"), address(first.vault()), "shieldVaults.eUSD must not move");
+        assertEq(_recordedImpl(second), address(first.vaultImpl()), "ShieldVaultImpl must not move");
+    }
+
+    /// @dev An implementation the book does not record (a run whose write-back was lost) is found
+    ///      at its CREATE2 address rather than colliding with it in the deployer.
+    function test_ReusesAnUnrecordedImplementationAtItsCreate2Address() public {
+        DeployShieldVaultHarness first = _runScript("unrecorded-impl-first");
+        Stablecoin eEUR = _etchToken(book.eXYZs.eEUR, "eEUR");
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = address(eEUR);
+
+        DeployShieldVaultHarness second = _runScript("unrecorded-impl-second", config);
+
+        assertTrue(second.implReused(), "the implementation at the CREATE2 address must be reused");
+        assertEq(address(second.vaultImpl()), address(first.vaultImpl()), "one implementation per chain");
+        assertEq(_recordedImpl(second), address(first.vaultImpl()), "the fresh book must record it");
+    }
+
+    /// @dev A recorded implementation with no code is a stale record, not an implementation.
+    function test_RedeploysAnImplementationWhoseRecordHasNoCode() public {
+        DeployShieldVaultHarness script = _newScript("stale-impl-record", _defaultConfig());
+        string memory path = string.concat(vm.projectRoot(), SCRATCH_DIR, "stale-impl-record.json");
+        vm.writeJson("0x0000000000000000000000000000000000001234", path, ".ShieldVaultImpl");
+        script.setUp();
+        script.run();
+
+        assertFalse(script.implReused(), "a codeless record must not be reused");
+        _assertDeployed(script);
+        assertEq(_recordedImpl(script), _predictedImpl(), "the record must be replaced");
     }
 
     // -------------

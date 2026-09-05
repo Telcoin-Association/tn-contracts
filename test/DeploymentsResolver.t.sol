@@ -78,6 +78,7 @@ contract DeploymentsResolverTest is Test {
         // nothing aspirational: non-genesis keys stay zeroed until deployed for real
         assertEq(mainnet.admin, address(0));
         assertEq(mainnet.uniswapV4.Permit2, address(0));
+        assertEq(mainnet.ShieldVaultImpl, address(0));
         assertEq(mainnet.StablecoinImpl, address(0));
         assertEq(mainnet.StablecoinManager, address(0));
         assertEq(mainnet.GitAttestationRegistry, address(0));

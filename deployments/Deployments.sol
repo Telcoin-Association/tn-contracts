@@ -15,6 +15,9 @@ struct Deployments {
     address Safe;
     address SafeImpl;
     address SafeProxyFactory;
+    /// @notice The one `ShieldVault` implementation every vault proxy on the chain shares.
+    ///         `DeployShieldVault` reuses it while it has code and otherwise deploys and records it.
+    address ShieldVaultImpl;
     address StablecoinImpl;
     address StablecoinManager;
     address StablecoinManagerImpl;
