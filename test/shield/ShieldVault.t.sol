@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -57,7 +58,10 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///         - **Malformed unshield returndata:** returndata other than exactly 64 bytes (too short
 ///           or too long) makes the vault revert; no mint happens.
 ///         - **Implementation lock:** `initialize` on the bare implementation reverts
-///           (`_disableInitializers` in the constructor), so only a proxy can ever be initialized.
+///           (`_disableInitializers` in the constructor), so only a proxy can ever be initialized,
+///           and UUPS `onlyProxy` keeps `upgradeToAndCall` unreachable on it.
+///         - **Initializer inputs:** a zero token reverts with `ZeroAddress`, a zero owner with
+///           `OwnableInvalidOwner(0)`, and re-initialization with `InvalidInitialization`.
 ///         - **Fuzz:** shield amount over (0, type(uint128).max] with allowance == amount - the
 ///           burn leg and the precompile calldata encoding are exact for every input
 ///           (`vm.expectCall` with computed calldata).
@@ -671,6 +675,23 @@ contract ShieldVaultTest is Test {
         assertEq(token.balanceOf(address(0xCAFE)), 0, "malformed returndata must not mint to the decoded word");
     }
 
+    /// @dev A 64-byte answer whose recipient word carries dirty high-order bits passes the length
+    ///      guard but is rejected by `abi.decode`, so nothing is minted to the truncated address.
+    function testUnshieldRejectsDirtyRecipientWord() public {
+        uint128 amount = 5_000_000;
+        bytes memory proof = hex"1234";
+        bytes memory publicValues = _publicValues(address(token));
+        bytes32 dirty = bytes32(uint256(uint160(address(0xCAFE))) | (uint256(1) << 200));
+        vm.mockCall(precompile, _unshieldCalldata(proof, publicValues), abi.encode(dirty, amount));
+
+        vm.prank(user);
+        vm.expectRevert();
+        vault.unshield(proof, publicValues);
+
+        assertEq(token.totalSupply(), 0, "dirty recipient word must not mint");
+        assertEq(token.balanceOf(address(0xCAFE)), 0, "nor to the truncated address");
+    }
+
     // -------------
     // token binding: unshield mints only against a proof bound to this vault's token
     // -------------
@@ -745,6 +766,12 @@ contract ShieldVaultTest is Test {
         new ERC1967Proxy(address(vaultImpl), initCall);
     }
 
+    function testInitializeZeroOwnerReverts() public {
+        bytes memory initCall = abi.encodeWithSelector(ShieldVault.initialize.selector, address(token), address(0));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableInvalidOwner.selector, address(0)));
+        new ERC1967Proxy(address(vaultImpl), initCall);
+    }
+
     function testReinitializeReverts() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(address(token), user);
@@ -761,6 +788,14 @@ contract ShieldVaultTest is Test {
         ShieldVault fresh = new ShieldVault();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         fresh.initialize(address(token), user);
+    }
+
+    /// @dev UUPS `onlyProxy` keeps `upgradeToAndCall` unreachable on the bare implementation, so
+    ///      even someone who could initialize it could not swap its code.
+    function testImplementationUpgradeRevertsOutsideProxy() public {
+        ShieldVaultV2Harness v2Impl = new ShieldVaultV2Harness();
+        vm.expectRevert(UUPSUpgradeable.UUPSUnauthorizedCallContext.selector);
+        vaultImpl.upgradeToAndCall(address(v2Impl), "");
     }
 
     // -------------
