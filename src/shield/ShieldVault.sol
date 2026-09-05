@@ -67,10 +67,11 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
         IStablecoin _token;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("erc7201.telcoin.storage.ShieldVault")) - 1))
-    //   & ~bytes32(uint256(0xff))
+    // keccak256(abi.encode(uint256(keccak256("telcoin.storage.ShieldVault")) - 1))
+    //   & ~bytes32(uint256(0xff)): the ERC-7201 slot of the annotated namespace id above, so
+    //   tooling that derives the slot from the annotation agrees with the code
     bytes32 internal constant ShieldVaultStorageSlot =
-        0x16de1eecb503ef3416fad799fdf9d78f215b6274e619e7f529e39af019b95700;
+        0xa8fc5eec84208657c7c9e20b20a0fed5f647f5011f2f5e39e54e9e8876af1400;
 
     /// @dev Locks the bare implementation: `initialize` can only ever run through a proxy's
     ///      delegatecall, so nobody can claim the implementation's owner slot. The e2e harness

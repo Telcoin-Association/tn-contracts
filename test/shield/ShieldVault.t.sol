@@ -36,6 +36,8 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///           owner-only.
 ///         - **Upgrade auth:** non-owner `upgradeToAndCall` reverts; owner upgrade succeeds and
 ///           preserves the ERC-7201 namespaced storage (token pointer, owner, paused flag).
+///         - **ERC-7201 slot:** the slot constant equals the formula applied to the annotated
+///           namespace id and is the slot the proxy really writes the token pointer into.
 ///         - **Precompile-failure propagation:** per the frozen error idiom, precompile failures
 ///           are frame halts with EMPTY returndata - the vault surfaces `LowLevelCallFailure`
 ///           carrying empty bytes and the revert restores all token pre-state.
@@ -452,6 +454,26 @@ contract ShieldVaultTest is Test {
     }
 
     // -------------
+    // ERC-7201 storage slot
+    // -------------
+
+    /// @dev The slot constant must be the ERC-7201 slot of the annotated namespace id
+    ///      `telcoin.storage.ShieldVault` (not an `erc7201.`-prefixed string), so upgrade tooling
+    ///      that derives the slot from the annotation agrees with the code, and it must be the slot
+    ///      the proxy really writes the token pointer into.
+    function testErc7201SlotMatchesAnnotatedNamespace() public {
+        bytes32 expected =
+            keccak256(abi.encode(uint256(keccak256("telcoin.storage.ShieldVault")) - 1)) & ~bytes32(uint256(0xff));
+        bytes32 slot = new ShieldVaultV2Harness().storageSlot();
+        assertEq(slot, expected, "slot constant must derive from the annotated namespace id");
+        assertEq(
+            vm.load(address(vault), slot),
+            bytes32(uint256(uint160(address(token)))),
+            "the proxy must store the token pointer in that slot"
+        );
+    }
+
+    // -------------
     // precompile-failure propagation (frozen error idiom: frame halts carry EMPTY returndata)
     // -------------
 
@@ -660,5 +682,10 @@ contract ShieldVaultV2Harness is ShieldVault {
     /// @notice Marker distinguishing the upgraded implementation from the original.
     function shieldVaultVersion() external pure returns (uint256) {
         return 2;
+    }
+
+    /// @notice Exposes the ERC-7201 slot constant so the suite can pin it against its formula.
+    function storageSlot() external pure returns (bytes32) {
+        return ShieldVaultStorageSlot;
     }
 }
