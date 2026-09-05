@@ -43,6 +43,49 @@ git diff deployments/genesis/precompile-config.yaml
 
 ---
 
+## Shield Vault Deployment
+
+**`DeployShieldVault.s.sol`** deploys a `ShieldVault` for one eXYZ stablecoin: the public-side contract that burns tokens on `shield` and mints them on `unshield` against the TN-SHIELD precompile.
+
+### What it does
+
+- Deploys the `ShieldVault` implementation (its constructor locks it with `_disableInitializers`)
+- Deploys an `ERC1967Proxy` initialized with `initialize(token, owner)`
+- Grants the token's `MINTER_ROLE` and `BURNER_ROLE` to the proxy when the broadcaster administers those roles on the token, and otherwise prints the two grant calls for the token admin
+- Logs the implementation and proxy addresses and the remaining checklist
+
+One vault is deployed per token, so run the script once per stablecoin.
+
+### Parameters
+
+| Env var              | Value                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHIELD_TOKEN`       | The eXYZ `Stablecoin` proxy the vault shields                                                                                          |
+| `SHIELD_VAULT_OWNER` | The vault owner, which gates pause/unpause and upgrades; intended to be the governance safe (`Safe` in the network's deployments file) |
+
+### How to run
+
+```bash
+SHIELD_TOKEN=<stablecoin address> SHIELD_VAULT_OWNER=<governance safe> \
+forge script script/DeployShieldVault.s.sol \
+  --rpc-url $TN_RPC_URL \
+  --private-key $ADMIN_PK \
+  -vvvv
+```
+
+Append `--broadcast` to actually send transactions (without it, forge only simulates).
+
+### After running
+
+The vault is inert until two out-of-band steps complete, both printed by the script:
+
+1. If the broadcaster did not administer the token's roles, the token admin grants `MINTER_ROLE` and `BURNER_ROLE` on the token to the proxy.
+2. The governance safe registers the vault on the precompile with `setTokenConfig(token, vault, auditorKey)`; until then the precompile rejects the vault's `shield` and `unshield` calls.
+
+The script does not write to the deployments file (there is no `ShieldVault` entry in it); record the logged proxy address wherever the token's deployment is tracked.
+
+---
+
 ## Testnet Scripts
 
 All testnet scripts require `--rpc-url` and `--private-key` (or `--ledger`) to broadcast transactions.
