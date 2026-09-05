@@ -5,6 +5,7 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import { Stablecoin } from "../src/testnet/Stablecoin.sol";
 import { ShieldVault } from "../src/shield/ShieldVault.sol";
 import { Deployments } from "../deployments/Deployments.sol";
@@ -61,8 +62,12 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      `setTokenConfig(token, vault, auditorKey)`; the script prints that call as the final
 ///      checklist item and never attempts it. It also warns when the precompile account has no
 ///      code on the target chain (a genesis without the account, before the fork injects it):
-///      the vault refuses `shield`/`unshield` with `PrecompileNotLive` until then, so the role
-///      grants are safe to make early but nothing can be shielded yet.
+///      the vault refuses `shield`/`unshield` with `PrecompileNotLive` until then, so nothing can
+///      be shielded yet. That refusal is not what makes an early role grant safe: every guard on
+///      the mint path except the token's own `onlyRole(MINTER_ROLE)` lives in vault code the
+///      owner can replace by upgrade, so from the grant onward the binding control is the
+///      owner's key, which is why the owner check in `setUp` refuses anything but the governance
+///      safe unless told otherwise.
 ///
 /// @dev The checks after `vm.stopBroadcast()` read the vault and the token back rather than the
 ///      inputs that produced them, so a divergence in the simulation fails by name instead of
@@ -74,9 +79,11 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      transaction, so a command copied to another network's RPC is rejected by that node
 ///      instead of "succeeding" against an address with no code there.
 ///
-/// @dev A zero owner is rejected by the proxy's `initialize` call (OpenZeppelin's
-///      `OwnableInvalidOwner`), so forge's pre-broadcast simulation fails before any transaction
-///      is sent; a zero token never reaches `initialize` because it is not an `eXYZs` entry.
+/// @dev Neither of `initialize`'s own input guards is reachable from here: a zero or unset
+///      `SHIELD_TOKEN` fails the "is not set" check in `setUp`, and an unset or zero
+///      `SHIELD_VAULT_OWNER` means the governance safe. Every input check is a named `require` in
+///      `setUp`, before `vm.startBroadcast()`, so a bad input fails the simulation by name and
+///      nothing is sent.
 ///
 /// @dev Env vars:
 ///      - `SHIELD_TOKEN`: the eXYZ `Stablecoin` proxy the vault shields; must be listed under
@@ -156,6 +163,7 @@ contract DeployShieldVault is Script {
 
         Config memory config = _config();
 
+        require(config.token != address(0), "DeployShieldVault: SHIELD_TOKEN is not set");
         // the token must be an address-book entry: the StablecoinImpl address a few lines above
         // the eXYZs block answers MINTER_ROLE/BURNER_ROLE like a token but administers nothing,
         // so a vault bound to it would deploy cleanly and stay inert for good
@@ -168,6 +176,12 @@ contract DeployShieldVault is Script {
             bytes(symbol).length != 0,
             string.concat(
                 "DeployShieldVault: SHIELD_TOKEN ", vm.toString(config.token), " is not an eXYZ in ", deploymentsPath
+            )
+        );
+        require(
+            config.token.code.length > 0,
+            string.concat(
+                "DeployShieldVault: SHIELD_TOKEN ", symbol, " has no code on chain ", vm.toString(block.chainid)
             )
         );
         token = Stablecoin(config.token);
@@ -287,8 +301,13 @@ contract DeployShieldVault is Script {
         // verify what is on the chain, not the inputs that produced it
         require(address(vaultImpl).code.length > 0, "DeployShieldVault: the implementation has no code");
         require(address(vault).code.length > 0, "DeployShieldVault: the proxy has no code");
+        require(
+            vm.load(address(vault), ERC1967Utils.IMPLEMENTATION_SLOT) == bytes32(uint256(uint160(address(vaultImpl)))),
+            "DeployShieldVault: the proxy does not point at the implementation"
+        );
         require(address(vault.token()) == address(token), "DeployShieldVault: the vault is bound to another token");
         require(vault.owner() == owner, "DeployShieldVault: the vault has another owner");
+        require(vault.pendingOwner() == address(0), "DeployShieldVault: the vault has a pending owner");
         require(!vault.paused(), "DeployShieldVault: the fresh vault is paused");
         if (rolesGranted) {
             require(

@@ -56,7 +56,7 @@ git diff deployments/genesis/precompile-config.yaml
 - Prints the token's `MINTER_ROLE` and `BURNER_ROLE` grants to the proxy for the token admin, or makes them itself when `SHIELD_GRANT_INLINE=true` and the broadcaster administers those roles on the token
 - Records the implementation under `ShieldVaultImpl` and the proxy under `shieldVaults.<symbol>` in the deployments file
 - Logs the implementation and proxy addresses and the remaining checklist
-- Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so the role grants are safe to make early but nothing can be shielded yet
+- Warns when the precompile account has no code on the target chain; the vault refuses `shield` and `unshield` with `PrecompileNotLive` until the TN-SHIELD fork injects it, so nothing can be shielded yet (what makes an early role grant safe is the owner check, not this refusal: every other guard on the mint path lives in vault code the owner can replace by upgrade)
 
 One vault is deployed per token, so run the script once per stablecoin.
 
@@ -98,7 +98,7 @@ The script's checks and logs describe forge's simulation, not the receipts, so c
 The script prints the reads: `token()` and `owner()` on the proxy, and `hasRole` on the token for every role it granted, revoked, or left for the admin.
 Every `cast send` it prints carries `--rpc-url` and `--chain`; the chain id goes into the signed transaction, so a command copied to another network's RPC is rejected by that node instead of appearing to succeed against an address that has no code there.
 
-The proxy address is written to `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
+The implementation and proxy addresses are written to `ShieldVaultImpl` and `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
 
 ### Deterministic addresses
 

@@ -295,6 +295,26 @@ contract DeployShieldVaultTest is Test {
     // token validation
     // -------------
 
+    function test_RefusesAnUnsetToken() public {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = address(0);
+        DeployShieldVaultHarness script = _newScript("unset-token", config);
+
+        vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN is not set"));
+        script.setUp();
+    }
+
+    /// @dev An address-book entry with no code behind it is a stale book, not a token.
+    function test_RefusesATokenWithNoCode() public {
+        assertEq(book.eXYZs.eEUR.code.length, 0, "precondition: nothing etched at the book's eEUR");
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.token = book.eXYZs.eEUR;
+        DeployShieldVaultHarness script = _newScript("codeless-token", config);
+
+        vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN eEUR has no code on chain 2017"));
+        script.setUp();
+    }
+
     function test_RefusesATokenOutsideTheAddressBook() public {
         Stablecoin stray = new Stablecoin();
         stray.initialize("Telcoin eUSD", "eUSD", 6);
