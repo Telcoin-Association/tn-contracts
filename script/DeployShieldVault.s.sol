@@ -32,6 +32,15 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///         - the proxy is written back under `shieldVaults.<symbol>` so the role grant and the
 ///           precompile registration hand-offs never depend on terminal scrollback.
 ///
+/// @notice A redeploy supersedes the vault the address book records for the token, and that vault
+///         keeps its `MINTER_ROLE`/`BURNER_ROLE` on the token until someone revokes them: through
+///         its owner's upgrade authority that is a way to mint without any proof, and it is
+///         invisible to the precompile registry, the one place an auditor would look. The script
+///         therefore revokes both roles from the superseded vault when the broadcaster
+///         administers them and otherwise stops before deploying anything, with the exact
+///         `revokeRole` commands in the failure message; it never leaves two vaults with mint
+///         authority silently.
+///
 /// @dev The vault stays inert until the governance safe registers it on the precompile with
 ///      `setTokenConfig(token, vault, auditorKey)`; the script prints that call as the final
 ///      checklist item and never attempts it. It also warns when the precompile account has no
@@ -78,12 +87,16 @@ contract DeployShieldVault is Script {
     ///         `shieldVaults`.
     string public symbol;
     address public owner;
+    /// @notice The vault the address book recorded for the token before this run, or zero.
+    address public previousVault;
 
     /// @notice Populated by run(). Public so tests can read the deployed addresses back.
     ShieldVault public vaultImpl;
     ShieldVault public vault;
     /// @notice Whether run() granted the token roles itself (the broadcaster administers them).
     bool public rolesGranted;
+    /// @notice Whether run() revoked the token roles from `previousVault`, which this run superseded.
+    bool public rolesRevoked;
     /// @notice Whether the precompile account had code on the target chain when run() executed.
     bool public precompileLive;
 
@@ -118,6 +131,7 @@ contract DeployShieldVault is Script {
             LibString.eq(token.symbol(), symbol),
             string.concat("DeployShieldVault: SHIELD_TOKEN is recorded as ", symbol, " but reports ", token.symbol())
         );
+        previousVault = vm.parseJsonAddress(json, string.concat(".shieldVaults.", symbol));
 
         // the owner holds the vault's upgrade authority, which reaches the token's mint path, so
         // it is the governance safe unless the operator says otherwise in so many words
@@ -139,18 +153,44 @@ contract DeployShieldVault is Script {
         vm.startBroadcast();
         (, address broadcaster,) = vm.readCallers();
 
+        // `grantRole`/`revokeRole` are gated on the role's admin role (DEFAULT_ADMIN_ROLE on
+        // Stablecoin), so manage the roles inline only when the broadcaster holds it and
+        // otherwise leave the calls to the token admin: the roles live on the token, not on the vault
+        bool canManageRoles = token.hasRole(token.getRoleAdmin(minterRole), broadcaster)
+            && token.hasRole(token.getRoleAdmin(burnerRole), broadcaster);
+
+        // a redeploy supersedes the recorded vault, whose roles nobody else is told to revoke:
+        // revoke them here or stop before anything is deployed
+        bool supersedes = previousVault != address(0)
+            && (token.hasRole(minterRole, previousVault) || token.hasRole(burnerRole, previousVault));
+        if (supersedes && !canManageRoles) {
+            revert(
+                string.concat(
+                    "DeployShieldVault: the vault recorded for ",
+                    symbol,
+                    " at ",
+                    vm.toString(previousVault),
+                    " still holds MINTER_ROLE/BURNER_ROLE on the token; the token admin must revoke them before a redeploy:\n",
+                    _roleCommand("revokeRole", minterRole, previousVault),
+                    "\n",
+                    _roleCommand("revokeRole", burnerRole, previousVault)
+                )
+            );
+        }
+
         vaultImpl = new ShieldVault();
         bytes memory initCall = abi.encodeCall(ShieldVault.initialize, (address(token), owner));
         vault = ShieldVault(address(new ERC1967Proxy(address(vaultImpl), initCall)));
 
-        // `grantRole` is gated on the role's admin role (DEFAULT_ADMIN_ROLE on Stablecoin), so
-        // grant inline only when the broadcaster holds it and otherwise leave both calls to the
-        // token admin: the roles live on the token, not on the vault
-        rolesGranted = token.hasRole(token.getRoleAdmin(minterRole), broadcaster)
-            && token.hasRole(token.getRoleAdmin(burnerRole), broadcaster);
-        if (rolesGranted) {
+        if (canManageRoles) {
+            if (supersedes) {
+                token.revokeRole(minterRole, previousVault);
+                token.revokeRole(burnerRole, previousVault);
+                rolesRevoked = true;
+            }
             token.grantRole(minterRole, address(vault));
             token.grantRole(burnerRole, address(vault));
+            rolesGranted = true;
         }
 
         vm.stopBroadcast();
@@ -164,6 +204,8 @@ contract DeployShieldVault is Script {
         assert(!vault.paused());
         assert(token.hasRole(minterRole, address(vault)) == rolesGranted);
         assert(token.hasRole(burnerRole, address(vault)) == rolesGranted);
+        assert(!rolesRevoked || !token.hasRole(minterRole, previousVault));
+        assert(!rolesRevoked || !token.hasRole(burnerRole, previousVault));
 
         // record the proxy under the token's symbol so the hand-offs below read the address book
         vm.writeJson(
@@ -178,12 +220,15 @@ contract DeployShieldVault is Script {
         console2.log("  token:", address(token), symbol);
         console2.log("  owner:", owner);
         console2.log(string.concat("  recorded under shieldVaults.", symbol, " in ", deploymentsPath));
+        if (rolesRevoked) {
+            console2.log("Revoked MINTER_ROLE and BURNER_ROLE on the token from the superseded vault", previousVault);
+        }
         if (rolesGranted) {
             console2.log("Granted MINTER_ROLE and BURNER_ROLE on the token to the vault as", broadcaster);
         } else {
             console2.log("Broadcaster", broadcaster, "does not administer the token's roles; the token admin must run:");
-            console2.log(_grantCommand(minterRole));
-            console2.log(_grantCommand(burnerRole));
+            console2.log(_roleCommand("grantRole", minterRole, address(vault)));
+            console2.log(_roleCommand("grantRole", burnerRole, address(vault)));
         }
         if (!precompileLive) {
             console2.log(
@@ -222,15 +267,17 @@ contract DeployShieldVault is Script {
         return "";
     }
 
-    /// @dev A copy-pasteable `cast send` granting `role` on the token to the vault.
-    function _grantCommand(bytes32 role) internal view returns (string memory) {
+    /// @dev A copy-pasteable `cast send` calling `action(role, account)` on the token.
+    function _roleCommand(string memory action, bytes32 role, address account) internal view returns (string memory) {
         return string.concat(
             "  cast send ",
             vm.toString(address(token)),
-            ' "grantRole(bytes32,address)" ',
+            ' "',
+            action,
+            '(bytes32,address)" ',
             vm.toString(role),
             " ",
-            vm.toString(address(vault))
+            vm.toString(account)
         );
     }
 }

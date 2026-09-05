@@ -2,6 +2,7 @@
 pragma solidity 0.8.35;
 
 import { Test } from "forge-std/Test.sol";
+import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import { DeployShieldVault } from "../../script/DeployShieldVault.s.sol";
@@ -37,9 +38,11 @@ contract DeployShieldVaultHarness is DeployShieldVault {
 ///         `Stablecoin` is etched at the book's `eUSD` address so the token the script validates,
 ///         binds, and records is the one the book names. Covers the implementation and proxy
 ///         deployment, the inline role grant when the broadcaster administers the token's roles
-///         and the checklist path when it does not, the address-book write-back, and every
-///         refusal: an unmapped chain id, a token outside the book or with a foreign symbol, the
-///         `StablecoinImpl` address, and an owner other than the governance safe.
+///         and the checklist path when it does not, the address-book write-back, the redeploy
+///         paths (the superseded vault's roles are revoked inline, or the run stops before
+///         deploying with the revoke commands in the reason), and every refusal: an unmapped
+///         chain id, a token outside the book or with a foreign symbol, the `StablecoinImpl`
+///         address, and an owner other than the governance safe.
 /// @dev No test touches the environment: `vm.setEnv` is process-wide and forge runs test
 ///      contracts, not just the tests of one contract, in parallel, so two suites setting the
 ///      same variable would race. Each test instead pins its configuration on a harness and
@@ -270,6 +273,83 @@ contract DeployShieldVaultTest is Test {
 
         vm.expectRevert(bytes("DeployShieldVault: SHIELD_TOKEN is recorded as eEUR but reports eXXX"));
         script.setUp();
+    }
+
+    // -------------
+    // redeploy
+    // -------------
+
+    /// @dev A first run that leaves a vault behind in the book with both token roles, the way a
+    ///      run with a wrong (opted-in) owner does: the owner cannot be changed by anyone else, so
+    ///      the fix is a redeploy with the safe as owner, against the same book.
+    function _staleRun(string memory name) internal returns (DeployShieldVaultHarness first) {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.owner = address(0xBEEF);
+        config.allowNonSafeOwner = true;
+        first = _runScript(name, config);
+        token.grantRole(token.MINTER_ROLE(), address(first.vault()));
+        token.grantRole(token.BURNER_ROLE(), address(first.vault()));
+    }
+
+    function _redeploy(DeployShieldVaultHarness first) internal returns (DeployShieldVaultHarness second) {
+        second = new DeployShieldVaultHarness(_defaultConfig(), first.deploymentsPath());
+        second.setUp();
+    }
+
+    function test_RedeployRevokesTheSupersededVaultWhenBroadcasterAdministersToken() public {
+        DeployShieldVaultHarness first = _staleRun("redeploy-revokes");
+        address stale = address(first.vault());
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        DeployShieldVaultHarness second = _redeploy(first);
+        assertEq(second.previousVault(), stale, "the redeploy must find the recorded vault");
+        second.run();
+
+        _assertDeployed(second);
+        assertTrue(second.rolesRevoked(), "the script must report the revoke");
+        assertFalse(token.hasRole(token.MINTER_ROLE(), stale), "superseded vault must lose MINTER_ROLE");
+        assertFalse(token.hasRole(token.BURNER_ROLE(), stale), "superseded vault must lose BURNER_ROLE");
+        assertTrue(token.hasRole(token.MINTER_ROLE(), address(second.vault())), "new vault must hold MINTER_ROLE");
+        assertTrue(token.hasRole(token.BURNER_ROLE(), address(second.vault())), "new vault must hold BURNER_ROLE");
+        assertEq(_recordedVault(second, "eUSD"), address(second.vault()), "the book must record the new vault");
+    }
+
+    /// @dev Without the admin role the script cannot revoke, so it stops before deploying anything
+    ///      and puts the exact revoke commands in the reason rather than stranding a second vault
+    ///      with mint authority.
+    function test_RedeployRefusesToStrandMintAuthorityOtherwise() public {
+        DeployShieldVaultHarness first = _staleRun("redeploy-refuses");
+        address stale = address(first.vault());
+
+        DeployShieldVaultHarness second = _redeploy(first);
+        try second.run() {
+            fail("the redeploy must not proceed while the superseded vault holds the roles");
+        } catch Error(string memory reason) {
+            assertTrue(LibString.contains(reason, vm.toString(stale)), "the reason must name the superseded vault");
+            assertTrue(
+                LibString.contains(reason, "revokeRole(bytes32,address)"), "the reason must carry the revoke calls"
+            );
+            assertTrue(LibString.contains(reason, vm.toString(token.MINTER_ROLE())), "the reason must name MINTER_ROLE");
+            assertTrue(LibString.contains(reason, vm.toString(token.BURNER_ROLE())), "the reason must name BURNER_ROLE");
+        }
+        assertEq(address(second.vault()), address(0), "nothing must be deployed");
+        assertTrue(token.hasRole(token.MINTER_ROLE(), stale), "the recorded vault is left for the admin to revoke");
+        assertEq(_recordedVault(second, "eUSD"), stale, "the book must still record the superseded vault");
+    }
+
+    /// @dev A recorded vault without the roles strands nothing, so a redeploy needs no admin.
+    function test_RedeployProceedsWhenTheRecordedVaultHoldsNoRoles() public {
+        DeployShieldVaultHarness first = _staleRun("redeploy-clean");
+        address stale = address(first.vault());
+        token.revokeRole(token.MINTER_ROLE(), stale);
+        token.revokeRole(token.BURNER_ROLE(), stale);
+
+        DeployShieldVaultHarness second = _redeploy(first);
+        second.run();
+
+        _assertDeployed(second);
+        assertFalse(second.rolesRevoked(), "nothing to revoke");
+        assertEq(_recordedVault(second, "eUSD"), address(second.vault()), "the book must record the new vault");
     }
 
     // -------------

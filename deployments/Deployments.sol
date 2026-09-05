@@ -32,7 +32,8 @@ struct Deployments {
     EXYZs eXYZs;
     MagicAddresses magicAddresses;
     /// @notice `ShieldVault` proxies keyed by the symbol of the eXYZ stablecoin each one shields.
-    ///         Written back by `DeployShieldVault`; zero until a vault is deployed for the token.
+    ///         Written back by `DeployShieldVault`, which also reads the entry to revoke a
+    ///         superseded vault's token roles on a redeploy; zero until a vault is deployed.
     ShieldVaults shieldVaults;
     UniswapV2 uniswapV2;
     UniswapV3 uniswapV3;

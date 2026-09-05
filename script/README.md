@@ -92,6 +92,17 @@ The vault is inert until two out-of-band steps complete, both printed by the scr
 
 The proxy address is written to `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
 
+### Redeploying
+
+A redeploy supersedes the vault recorded under `shieldVaults.<symbol>`, and that vault keeps its `MINTER_ROLE` and `BURNER_ROLE` on the token until someone revokes them.
+Nothing else in the system points at it any more, so an unrevoked vault is mint authority that the precompile registry does not show.
+Step zero of any redeploy is therefore the revoke:
+
+- when the broadcaster administers the token's roles, the script revokes both roles from the recorded vault itself, before granting them to the new one;
+- otherwise it stops before deploying anything and prints the two `revokeRole` commands for the token admin; run them, then run the script again.
+
+Only a recorded vault that still holds a role triggers this; one whose roles were already revoked is superseded silently.
+
 ---
 
 ## Testnet Scripts
