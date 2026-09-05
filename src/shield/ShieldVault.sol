@@ -89,9 +89,18 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
         0xa8fc5eec84208657c7c9e20b20a0fed5f647f5011f2f5e39e54e9e8876af1400;
 
     /// @dev Locks the bare implementation: `initialize` can only ever run through a proxy's
-    ///      delegatecall, so nobody can claim the implementation's owner slot. The e2e harness
-    ///      etches `deployedBytecode` directly (the constructor never runs there); that is fine
-    ///      because the etched implementation is only ever reached through its proxy.
+    ///      delegatecall, so nobody can claim the implementation's owner slot.
+    /// @dev ETCHING IS NOT DEPLOYING: the node's e2e harness etches the artifact's
+    ///      `deployedBytecode` instead of running this constructor, and that bytecode is not the
+    ///      code a deployment leaves behind. The lock above never runs, so anyone can initialize
+    ///      the etched implementation directly; and UUPS's `__self` immutable, which the
+    ///      constructor would have filled with the implementation's address, is zero in the
+    ///      artifact, so `upgradeToAndCall` through a proxy over an etched implementation reverts
+    ///      with `UUPSUnauthorizedCallContext`: an etched vault cannot be upgraded. That is
+    ///      acceptable for the harness, which never upgrades, and wrong for anything else; to
+    ///      inject this contract rather than deploy it, patch the artifact's
+    ///      `immutableReferences` with the target address first. `ShieldVaultEtch.t.sol` pins both
+    ///      consequences.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
