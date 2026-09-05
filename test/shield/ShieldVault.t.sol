@@ -684,8 +684,10 @@ contract ShieldVaultTest is Test {
         bytes32 dirty = bytes32(uint256(uint160(address(0xCAFE))) | (uint256(1) << 200));
         vm.mockCall(precompile, _unshieldCalldata(proof, publicValues), abi.encode(dirty, amount));
 
+        // the decoder's cleanup check reverts with empty returndata, and the mint leg is never reached
+        vm.expectCall(address(token), abi.encodeWithSelector(Stablecoin.mintTo.selector, address(0xCAFE), amount), 0);
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(bytes(""));
         vault.unshield(proof, publicValues);
 
         assertEq(token.totalSupply(), 0, "dirty recipient word must not mint");
