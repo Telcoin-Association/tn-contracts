@@ -48,6 +48,16 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      the vault refuses `shield`/`unshield` with `PrecompileNotLive` until then, so the role
 ///      grants are safe to make early but nothing can be shielded yet.
 ///
+/// @dev The checks after `vm.stopBroadcast()` read the vault and the token back rather than the
+///      inputs that produced them, so a divergence in the simulation fails by name instead of
+///      with a bare panic. Under `--broadcast` they still describe the simulation, not the
+///      receipts: run with `--slow` so a failed transaction stops the sequence (the role grants
+///      carry the simulated proxy address, and a reverted CREATE would not stop them at their own
+///      nonces), and confirm real state afterwards with the `cast call` reads the script prints.
+///      Every printed `cast send` carries `--chain`, which puts the chain id into the signed
+///      transaction, so a command copied to another network's RPC is rejected by that node
+///      instead of "succeeding" against an address with no code there.
+///
 /// @dev A zero owner is rejected by the proxy's `initialize` call (OpenZeppelin's
 ///      `OwnableInvalidOwner`), so forge's pre-broadcast simulation fails before any transaction
 ///      is sent; a zero token never reaches `initialize` because it is not an `eXYZs` entry.
@@ -66,7 +76,7 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      environment or the committed file.
 ///
 /// @dev Usage: `SHIELD_TOKEN=0x... forge script script/DeployShieldVault.s.sol \
-///      --rpc-url $TN_RPC_URL --private-key $ADMIN_PK -vvvv --broadcast`
+///      --rpc-url $TN_RPC_URL --private-key $ADMIN_PK -vvvv --slow --broadcast`
 contract DeployShieldVault is Script {
     /// @notice The run configuration; see `_config` for the environment variables behind it.
     struct Config {
@@ -198,14 +208,24 @@ contract DeployShieldVault is Script {
         address precompile = vault.PRECOMPILE();
         precompileLive = precompile.code.length > 0;
 
-        // asserts
-        assert(address(vault.token()) == address(token));
-        assert(vault.owner() == owner);
-        assert(!vault.paused());
-        assert(token.hasRole(minterRole, address(vault)) == rolesGranted);
-        assert(token.hasRole(burnerRole, address(vault)) == rolesGranted);
-        assert(!rolesRevoked || !token.hasRole(minterRole, previousVault));
-        assert(!rolesRevoked || !token.hasRole(burnerRole, previousVault));
+        // verify what is on the chain, not the inputs that produced it
+        require(address(vaultImpl).code.length > 0, "DeployShieldVault: the implementation has no code");
+        require(address(vault).code.length > 0, "DeployShieldVault: the proxy has no code");
+        require(address(vault.token()) == address(token), "DeployShieldVault: the vault is bound to another token");
+        require(vault.owner() == owner, "DeployShieldVault: the vault has another owner");
+        require(!vault.paused(), "DeployShieldVault: the fresh vault is paused");
+        if (rolesGranted) {
+            require(
+                token.hasRole(minterRole, address(vault)) && token.hasRole(burnerRole, address(vault)),
+                "DeployShieldVault: the vault does not hold MINTER_ROLE and BURNER_ROLE after the grant"
+            );
+        }
+        if (rolesRevoked) {
+            require(
+                !token.hasRole(minterRole, previousVault) && !token.hasRole(burnerRole, previousVault),
+                "DeployShieldVault: the superseded vault still holds a role after the revoke"
+            );
+        }
 
         // record the proxy under the token's symbol so the hand-offs below read the address book
         vm.writeJson(
@@ -220,15 +240,25 @@ contract DeployShieldVault is Script {
         console2.log("  token:", address(token), symbol);
         console2.log("  owner:", owner);
         console2.log(string.concat("  recorded under shieldVaults.", symbol, " in ", deploymentsPath));
+        console2.log("Confirm the broadcast against chain state (the lines above describe the simulation):");
+        console2.log(_vaultCheck("token()", address(token)));
+        console2.log(_vaultCheck("owner()", owner));
         if (rolesRevoked) {
             console2.log("Revoked MINTER_ROLE and BURNER_ROLE on the token from the superseded vault", previousVault);
+            console2.log(_roleCheck(minterRole, previousVault, false));
+            console2.log(_roleCheck(burnerRole, previousVault, false));
         }
         if (rolesGranted) {
             console2.log("Granted MINTER_ROLE and BURNER_ROLE on the token to the vault as", broadcaster);
+            console2.log(_roleCheck(minterRole, address(vault), true));
+            console2.log(_roleCheck(burnerRole, address(vault), true));
         } else {
             console2.log("Broadcaster", broadcaster, "does not administer the token's roles; the token admin must run:");
             console2.log(_roleCommand("grantRole", minterRole, address(vault)));
             console2.log(_roleCommand("grantRole", burnerRole, address(vault)));
+            console2.log("and confirm:");
+            console2.log(_roleCheck(minterRole, address(vault), true));
+            console2.log(_roleCheck(burnerRole, address(vault), true));
         }
         if (!precompileLive) {
             console2.log(
@@ -267,10 +297,13 @@ contract DeployShieldVault is Script {
         return "";
     }
 
-    /// @dev A copy-pasteable `cast send` calling `action(role, account)` on the token.
+    /// @dev A copy-pasteable `cast send` calling `action(role, account)` on the token, pinned to
+    ///      this chain by `--chain` (see the contract-level note).
     function _roleCommand(string memory action, bytes32 role, address account) internal view returns (string memory) {
         return string.concat(
-            "  cast send ",
+            "  cast send --rpc-url $TN_RPC_URL --chain ",
+            vm.toString(block.chainid),
+            " --private-key $ADMIN_PK ",
             vm.toString(address(token)),
             ' "',
             action,
@@ -278,6 +311,35 @@ contract DeployShieldVault is Script {
             vm.toString(role),
             " ",
             vm.toString(account)
+        );
+    }
+
+    /// @dev The `cast call` confirming `hasRole(role, account)` on the token reads `expected`.
+    ///      Against an address with no code the call returns nothing and fails to decode, which
+    ///      is the signal a bare `cast send` to the wrong network never gives.
+    function _roleCheck(bytes32 role, address account, bool expected) internal view returns (string memory) {
+        return string.concat(
+            "  cast call --rpc-url $TN_RPC_URL ",
+            vm.toString(address(token)),
+            ' "hasRole(bytes32,address)(bool)" ',
+            vm.toString(role),
+            " ",
+            vm.toString(account),
+            "   # must print ",
+            expected ? "true" : "false"
+        );
+    }
+
+    /// @dev The `cast call` confirming the vault's `getter` reads `expected`; a look-alike proxy
+    ///      over the same implementation fails the owner read.
+    function _vaultCheck(string memory getter, address expected) internal view returns (string memory) {
+        return string.concat(
+            "  cast call --rpc-url $TN_RPC_URL ",
+            vm.toString(address(vault)),
+            ' "',
+            getter,
+            '(address)"   # must print ',
+            vm.toString(expected)
         );
     }
 }

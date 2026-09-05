@@ -78,10 +78,11 @@ SHIELD_TOKEN=<stablecoin address> \
 forge script script/DeployShieldVault.s.sol \
   --rpc-url $TN_RPC_URL \
   --private-key $ADMIN_PK \
-  -vvvv
+  -vvvv --slow
 ```
 
 Append `--broadcast` to actually send transactions (without it, forge only simulates).
+Keep `--slow`: the role grants carry the proxy address computed in the simulation, and without it a reverted deployment would not stop them from being sent at their own nonces.
 
 ### After running
 
@@ -89,6 +90,10 @@ The vault is inert until two out-of-band steps complete, both printed by the scr
 
 1. If the broadcaster did not administer the token's roles, the token admin grants `MINTER_ROLE` and `BURNER_ROLE` on the token to the proxy.
 2. The governance safe registers the vault on the precompile with `setTokenConfig(token, vault, auditorKey)`; until then the precompile rejects the vault's `shield` and `unshield` calls.
+
+The script's checks and logs describe forge's simulation, not the receipts, so confirm the real chain state before handing the address on.
+The script prints the reads: `token()` and `owner()` on the proxy, and `hasRole` on the token for every role it granted, revoked, or left for the admin.
+Every `cast send` it prints carries `--rpc-url` and `--chain`; the chain id goes into the signed transaction, so a command copied to another network's RPC is rejected by that node instead of appearing to succeed against an address that has no code there.
 
 The proxy address is written to `shieldVaults.<symbol>` in the resolved deployments file; commit that change with the deployment so both hand-offs read the address book rather than the terminal.
 

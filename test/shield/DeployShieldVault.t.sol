@@ -205,6 +205,22 @@ contract DeployShieldVaultTest is Test {
         impl.initialize(address(token), address(this));
     }
 
+    /// @dev The post-broadcast checks read chain state back instead of the flags that drove the
+    ///      transactions: a grant that did not land fails by name.
+    function test_VerificationReadsTheGrantedRolesBack() public {
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+        // the proxy is the broadcaster's second CREATE of the run (the implementation is the first)
+        address expectedVault = vm.computeCreateAddress(broadcaster, vm.getNonce(broadcaster) + 1);
+        vm.mockCall(
+            address(token), abi.encodeCall(token.hasRole, (token.MINTER_ROLE(), expectedVault)), abi.encode(false)
+        );
+        DeployShieldVaultHarness script = _newScript("verification", _defaultConfig());
+        script.setUp();
+
+        vm.expectRevert(bytes("DeployShieldVault: the vault does not hold MINTER_ROLE and BURNER_ROLE after the grant"));
+        script.run();
+    }
+
     // -------------
     // address book
     // -------------
@@ -329,6 +345,7 @@ contract DeployShieldVaultTest is Test {
             assertTrue(
                 LibString.contains(reason, "revokeRole(bytes32,address)"), "the reason must carry the revoke calls"
             );
+            assertTrue(LibString.contains(reason, "--chain 2017"), "the revoke calls must be pinned to the chain");
             assertTrue(LibString.contains(reason, vm.toString(token.MINTER_ROLE())), "the reason must name MINTER_ROLE");
             assertTrue(LibString.contains(reason, vm.toString(token.BURNER_ROLE())), "the reason must name BURNER_ROLE");
         }
