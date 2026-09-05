@@ -58,7 +58,8 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///         - **Fuzz:** shield amount over (0, type(uint128).max] with allowance == amount - the
 ///           burn leg and the precompile calldata encoding are exact for every input
 ///           (`vm.expectCall` with computed calldata).
-///         `ShieldVault` declares no events of its own, so there are no vault event assertions.
+///         - **Events:** `shield` emits `Shielded(from, ownerAddr, amount)` once the precompile leg
+///           succeeded and `unshield` emits `Unshielded(recipient, amount)` after the mint.
 contract ShieldVaultTest is Test {
     ShieldVault vaultImpl;
     ShieldVault vault;
@@ -206,9 +207,11 @@ contract ShieldVaultTest is Test {
         bytes memory precompileCalldata = _shieldCalldata(amount, OWNER_ADDR, SALT);
         vm.mockCall(precompile, precompileCalldata, abi.encode());
 
-        // the burn leg, then the precompile leg with exact calldata
+        // the burn leg, then the precompile leg with exact calldata, then the vault's own event
         vm.expectCall(address(token), abi.encodeWithSelector(Stablecoin.burnFrom.selector, user, uint256(amount)));
         vm.expectCall(precompile, precompileCalldata);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit ShieldVault.Shielded(user, OWNER_ADDR, amount);
 
         vm.prank(user);
         vault.shield(amount, OWNER_ADDR, SALT);
@@ -228,6 +231,8 @@ contract ShieldVaultTest is Test {
         bytes memory precompileCalldata = _unshieldCalldata(proof, publicValues);
         vm.mockCall(precompile, precompileCalldata, abi.encode(recipient, amount));
         vm.expectCall(precompile, precompileCalldata);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit ShieldVault.Unshielded(recipient, amount);
 
         // relayable: any caller may submit the proof
         vm.prank(user);

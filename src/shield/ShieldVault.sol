@@ -42,6 +42,12 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
     ///         any call bypassing precompile dispatch reverts instead of hitting an empty account.
     address public constant PRECOMPILE = 0x0000000000000000000000000000000123456789;
 
+    /// @notice Emitted when `from` shields `amount` of the vault's token into a note owned by
+    ///         `ownerAddr`; the precompile emits the tree-side `Shielded(token, cm, index, amount)`.
+    event Shielded(address indexed from, bytes32 indexed ownerAddr, uint128 amount);
+    /// @notice Emitted when a proof unshields `amount` of the vault's token to `recipient`.
+    event Unshielded(address indexed recipient, uint128 amount);
+
     /// @notice A low-level precompile call failed. `returnData` is EMPTY for precompile-side
     ///         failures (frame halts carry no returndata; see the contract-level error-idiom note).
     error LowLevelCallFailure(bytes returnData);
@@ -139,6 +145,8 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
         (bool ok, bytes memory ret) =
             PRECOMPILE.call(abi.encodeCall(IShieldedStablecoin.shield, (address(token_), ownerAddr, salt, amount)));
         if (!ok) revert LowLevelCallFailure(ret);
+
+        emit Shielded(msg.sender, ownerAddr, amount);
     }
 
     /// @notice Unshields tokens: submits `(proof, publicValues)` to the precompile, which verifies
@@ -179,6 +187,8 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
 
         (address recipient, uint128 amount) = abi.decode(ret, (address, uint128));
         token_.mintTo(recipient, amount);
+
+        emit Unshielded(recipient, amount);
     }
 
     /// @notice Pauses `shield` and `unshield`. Only the owner (governance safe) may pause.
