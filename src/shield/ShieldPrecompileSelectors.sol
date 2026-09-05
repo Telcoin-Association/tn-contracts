@@ -6,11 +6,13 @@ pragma solidity 0.8.35;
 /// @notice Hardcoded 4-byte function selectors for the TN-SHIELD v1 shielded-stablecoin precompile
 ///         at `ShieldVault.PRECOMPILE` (0x0000000000000000000000000000000123456789).
 /// @dev The precompile's `sol!` block in the Telcoin-Network node (tn-reth `shielded_precompile`)
-///      is the v1 interface source of truth; a public `IShieldedStablecoin.sol` interface is an
-///      explicit follow-up, so callers encode calldata against these selectors instead of a typed
-///      interface (which would also trip Solidity's EXTCODESIZE guard - see `ShieldVault`).
+///      is the v1 interface source of truth and `IShieldedStablecoin` is its typed Solidity mirror.
+///      These constants pin the selectors that mirror produces, so an interface edit that drifted
+///      from the node fails the parity test instead of silently re-targeting calldata; callers
+///      that want no interface dependency can encode against them directly.
 /// @dev Every constant must equal `bytes4(keccak256(signature))` for the exact v1 signature noted
-///      on it; `test/shield/ShieldVault.t.sol` asserts this parity for all thirteen selectors.
+///      on it AND `IShieldedStablecoin.<fn>.selector`; `test/shield/ShieldVault.t.sol` asserts
+///      both parities for all thirteen selectors.
 library ShieldPrecompileSelectors {
     // ---------------------------------------------------------------------
     // state-mutating selectors (the precompile rejects nonzero call value on

@@ -10,6 +10,7 @@ import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { Blacklist } from "../../src/testnet/Blacklist.sol";
+import { IShieldedStablecoin } from "../../src/shield/IShieldedStablecoin.sol";
 import { ShieldPrecompileSelectors } from "../../src/shield/ShieldPrecompileSelectors.sol";
 import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 
@@ -19,7 +20,9 @@ import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 ///         `vm.mockCallRevert`, StablecoinManager.t.sol pattern).
 /// @notice Coverage areas:
 ///         - **Selector parity:** every hardcoded `ShieldPrecompileSelectors` constant equals
-///           `bytes4(keccak256(signature))` recomputed here from the exact TN-SHIELD v1 signatures.
+///           `bytes4(keccak256(signature))` recomputed here from the exact TN-SHIELD v1 signatures,
+///           and equals the selector the typed `IShieldedStablecoin` mirror produces; the vault's
+///           `abi.encodeCall` calldata is byte-identical to the selector-library encoding.
 ///         - **shield/unshield happy paths:** burn leg + exact precompile calldata; mint to the
 ///           precompile-returned recipient.
 ///         - **Compliance:** a blacklisted user's `shield` reverts atomically in `burnFrom`'s
@@ -123,6 +126,44 @@ contract ShieldVaultTest is Test {
         assertEq(ShieldPrecompileSelectors.NEXT_INDEX, bytes4(keccak256("nextIndex()")));
         assertEq(ShieldPrecompileSelectors.TOTAL_SHIELDED, bytes4(keccak256("totalShielded(address)")));
         assertEq(ShieldPrecompileSelectors.TOKEN_CONFIG, bytes4(keccak256("tokenConfig(address)")));
+    }
+
+    /// @dev The typed `IShieldedStablecoin` mirror must produce exactly the selectors the library
+    ///      pins: a parameter type or order drift in the interface changes the selector and fails
+    ///      here, so the interface cannot silently diverge from the node's `sol!` block.
+    function testInterfaceSelectorParity() public pure {
+        assertEq(IShieldedStablecoin.shield.selector, ShieldPrecompileSelectors.SHIELD);
+        assertEq(IShieldedStablecoin.unshield.selector, ShieldPrecompileSelectors.UNSHIELD);
+        assertEq(IShieldedStablecoin.transfer.selector, ShieldPrecompileSelectors.TRANSFER);
+        assertEq(IShieldedStablecoin.approve.selector, ShieldPrecompileSelectors.APPROVE);
+        assertEq(IShieldedStablecoin.transferFrom.selector, ShieldPrecompileSelectors.TRANSFER_FROM);
+        assertEq(IShieldedStablecoin.reclaim.selector, ShieldPrecompileSelectors.RECLAIM);
+        assertEq(IShieldedStablecoin.setTokenConfig.selector, ShieldPrecompileSelectors.SET_TOKEN_CONFIG);
+        assertEq(IShieldedStablecoin.root.selector, ShieldPrecompileSelectors.ROOT);
+        assertEq(IShieldedStablecoin.isKnownRoot.selector, ShieldPrecompileSelectors.IS_KNOWN_ROOT);
+        assertEq(IShieldedStablecoin.isSpent.selector, ShieldPrecompileSelectors.IS_SPENT);
+        assertEq(IShieldedStablecoin.nextIndex.selector, ShieldPrecompileSelectors.NEXT_INDEX);
+        assertEq(IShieldedStablecoin.totalShielded.selector, ShieldPrecompileSelectors.TOTAL_SHIELDED);
+        assertEq(IShieldedStablecoin.tokenConfig.selector, ShieldPrecompileSelectors.TOKEN_CONFIG);
+    }
+
+    /// @dev The vault encodes with `abi.encodeCall` against the typed interface; the expected
+    ///      calldata in this suite is built with `abi.encodeWithSelector` against the selector
+    ///      library. The two must be byte-identical or every `vm.expectCall` below would miss.
+    function testEncodeCallMatchesSelectorEncoding() public view {
+        uint128 amount = 1_000_000;
+        assertEq(
+            abi.encodeCall(IShieldedStablecoin.shield, (address(token), OWNER_ADDR, SALT, amount)),
+            _shieldCalldata(amount, OWNER_ADDR, SALT),
+            "shield calldata must be byte-identical across encoders"
+        );
+        bytes memory proof = hex"1234";
+        bytes memory publicValues = hex"5678";
+        assertEq(
+            abi.encodeCall(IShieldedStablecoin.unshield, (proof, publicValues)),
+            _unshieldCalldata(proof, publicValues),
+            "unshield calldata must be byte-identical across encoders"
+        );
     }
 
     // -------------

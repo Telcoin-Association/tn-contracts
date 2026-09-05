@@ -5,7 +5,7 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts/proxy/utils/UUPSUpgrade
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { PausableUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import { IStablecoin } from "../testnet/IStablecoin.sol";
-import { ShieldPrecompileSelectors } from "./ShieldPrecompileSelectors.sol";
+import { IShieldedStablecoin } from "./IShieldedStablecoin.sol";
 
 /// @title ShieldVault
 /// @author Telcoin Association
@@ -22,14 +22,15 @@ import { ShieldPrecompileSelectors } from "./ShieldPrecompileSelectors.sol";
 ///      `IBlsG1`): the precompile account carries a single `0xfe` code byte at genesis and is
 ///      dispatched by revm at runtime, so low-level calls sidestep Solidity's typed-interface
 ///      EXTCODESIZE guard (which reverts outright in pre-genesis/test contexts where the account
-///      has no code at all).
+///      has no code at all). Calldata is still typed: it is built with `abi.encodeCall` against
+///      `IShieldedStablecoin`, which only encodes and never emits the guard.
 /// @dev ERROR IDIOM: precompile failures are `PrecompileError`-style frame halts with EMPTY
 ///      returndata (the tel/bls precompile idiom); distinct failure reasons exist only in node
 ///      traces/logs, never on-chain. `LowLevelCallFailure.returnData` is therefore empty for
 ///      precompile-side failures - callers must not expect decodable revert reasons.
-/// @dev The precompile's `sol!` block in the node is the v1 interface source of truth; calldata is
-///      encoded against `ShieldPrecompileSelectors` (a public `IShieldedStablecoin.sol` interface
-///      is an explicit follow-up).
+/// @dev The precompile's `sol!` block in the node is the v1 interface source of truth;
+///      `IShieldedStablecoin` mirrors it and `ShieldPrecompileSelectors` pins the selectors it
+///      produces, with a parity test tying the two together.
 /// @dev UUPS-upgradeable and pausable; the owner (intended: the governance safe) gates
 ///      `pause`/`unpause` and upgrades.
 contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable {
@@ -106,9 +107,8 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
         IStablecoin token_ = _shieldVaultStorage()._token;
         token_.burnFrom(msg.sender, amount);
 
-        (bool ok, bytes memory ret) = PRECOMPILE.call(
-            abi.encodeWithSelector(ShieldPrecompileSelectors.SHIELD, address(token_), ownerAddr, salt, amount)
-        );
+        (bool ok, bytes memory ret) =
+            PRECOMPILE.call(abi.encodeCall(IShieldedStablecoin.shield, (address(token_), ownerAddr, salt, amount)));
         if (!ok) revert LowLevelCallFailure(ret);
     }
 
@@ -128,7 +128,7 @@ contract ShieldVault is OwnableUpgradeable, PausableUpgradeable, UUPSUpgradeable
     /// @param publicValues The TN-SHIELD v1 public-values blob (op = unshield; opaque to the vault).
     function unshield(bytes calldata proof, bytes calldata publicValues) external whenNotPaused {
         (bool ok, bytes memory ret) =
-            PRECOMPILE.call(abi.encodeWithSelector(ShieldPrecompileSelectors.UNSHIELD, proof, publicValues));
+            PRECOMPILE.call(abi.encodeCall(IShieldedStablecoin.unshield, (proof, publicValues)));
         if (!ok) revert LowLevelCallFailure(ret);
 
         (address recipient, uint128 amount) = abi.decode(ret, (address, uint128));
