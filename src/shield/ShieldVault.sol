@@ -90,7 +90,7 @@ contract ShieldVault is Ownable2StepUpgradeable, PausableUpgradeable, UUPSUpgrad
 
     /// @dev Locks the bare implementation: `initialize` can only ever run through a proxy's
     ///      delegatecall, so nobody can claim the implementation's owner slot.
-    /// @dev ETCHING IS NOT DEPLOYING: the node's e2e harness etches the artifact's
+    ///      ETCHING IS NOT DEPLOYING: the node's e2e harness etches the artifact's
     ///      `deployedBytecode` instead of running this constructor, and that bytecode is not the
     ///      code a deployment leaves behind. The lock above never runs, so anyone can initialize
     ///      the etched implementation directly; and UUPS's `__self` immutable, which the
