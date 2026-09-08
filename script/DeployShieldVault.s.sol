@@ -7,6 +7,7 @@ import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import { IStablecoin } from "../src/testnet/IStablecoin.sol";
 import { Stablecoin } from "../src/testnet/Stablecoin.sol";
 import { ShieldVault } from "../src/shield/ShieldVault.sol";
 import { Deployments } from "../deployments/Deployments.sol";
@@ -57,7 +58,11 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///         therefore revokes both roles from the superseded vault when it manages the roles
 ///         inline and otherwise stops before deploying anything, with the exact `revokeRole`
 ///         commands in the failure message; it never leaves two vaults with mint authority
-///         silently.
+///         silently. Before it touches the recorded vault at all it checks that the address has
+///         code and answers `token()` with this token: the same file records `StablecoinManager`,
+///         a live `MINTER_ROLE` holder on every eXYZ, and an entry that a hand edit or a bad merge
+///         pointed elsewhere fails by name instead of turning the revoke into the removal of a
+///         legitimate holder.
 ///
 /// @dev The vault stays inert until the governance safe registers it on the precompile with
 ///      `setTokenConfig(token, vault, auditorKey)`; the script prints that call as the final
@@ -249,6 +254,11 @@ contract DeployShieldVault is Script {
             console2.log("         Roll new code with a UUPS upgrade, or zero ShieldVaultImpl in the address book.");
         }
 
+        // a redeploy supersedes the recorded vault (a re-run for the same vault supersedes
+        // nothing); the record must be this token's vault before anything is done about it
+        bool supersedes = previousVault != address(0) && previousVault != predictedVault;
+        if (supersedes) _requireVaultForToken(previousVault);
+
         vm.startBroadcast();
         (, address broadcaster,) = vm.readCallers();
 
@@ -259,12 +269,11 @@ contract DeployShieldVault is Script {
         bool canManageRoles = grantInline && token.hasRole(token.getRoleAdmin(minterRole), broadcaster)
             && token.hasRole(token.getRoleAdmin(burnerRole), broadcaster);
 
-        // a redeploy supersedes the recorded vault, whose roles nobody else is told to revoke:
-        // revoke them here or stop before anything is deployed (a re-run for the same vault
-        // supersedes nothing)
-        bool supersedes = previousVault != address(0) && previousVault != predictedVault
-            && (token.hasRole(minterRole, previousVault) || token.hasRole(burnerRole, previousVault));
-        if (supersedes && !canManageRoles) {
+        // the superseded vault's roles, which nobody else is told to revoke: revoke them here or
+        // stop before anything is deployed
+        bool staleRoles =
+            supersedes && (token.hasRole(minterRole, previousVault) || token.hasRole(burnerRole, previousVault));
+        if (staleRoles && !canManageRoles) {
             revert(
                 string.concat(
                     "DeployShieldVault: the vault recorded for ",
@@ -282,7 +291,7 @@ contract DeployShieldVault is Script {
         // the revoke goes first: the address book already names the new vault (written in this
         // run's simulation), so a stop after the revoke leaves nothing stranded and a stop before
         // it is the one case the operator must restore the file for
-        if (supersedes && canManageRoles) {
+        if (staleRoles && canManageRoles) {
             token.revokeRole(minterRole, previousVault);
             token.revokeRole(burnerRole, previousVault);
             rolesRevoked = true;
@@ -425,6 +434,28 @@ contract DeployShieldVault is Script {
     /// @dev Whether this run writes the address book: only a `--broadcast` or `--resume` run does.
     function _recording() internal view virtual returns (bool) {
         return vm.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vm.isContext(VmSafe.ForgeContext.ScriptResume);
+    }
+
+    /// @dev Fails by name unless `recorded` has code and is a `ShieldVault` whose token is this
+    ///      token; the code check comes first because the typed call's own size check would
+    ///      revert without a reason.
+    function _requireVaultForToken(address recorded) internal view {
+        string memory prefix =
+            string.concat("DeployShieldVault: the vault recorded for ", symbol, " at ", vm.toString(recorded));
+        require(
+            recorded.code.length > 0,
+            string.concat(prefix, " has no code on this chain; restore the address book before running again")
+        );
+        try ShieldVault(recorded).token() returns (IStablecoin recordedToken) {
+            require(
+                address(recordedToken) == address(token),
+                string.concat(
+                    prefix, " is a ShieldVault for ", vm.toString(address(recordedToken)), ", not for ", symbol
+                )
+            );
+        } catch {
+            revert(string.concat(prefix, " is not a ShieldVault"));
+        }
     }
 
     /// @dev The `eXYZs` key whose address is `token_`, or the empty string when there is none.
