@@ -68,6 +68,7 @@ One vault is deployed per token, so run the script once per stablecoin.
 | `SHIELD_VAULT_OWNER`          | Optional. The vault owner, which gates pause/unpause and upgrades. Defaults to the governance safe (`Safe` in the deployments file, `0x...07a0` on every network) and must equal it unless `SHIELD_ALLOW_NON_SAFE_OWNER` is set                    |
 | `SHIELD_ALLOW_NON_SAFE_OWNER` | Optional, default `false`. Set to `true` to deploy with an owner other than the governance safe. Devnet only: a wrong owner is permanent, because ownership can never be renounced and only the owner can transfer it, and the owner's upgrade authority reaches the token's mint path |
 | `SHIELD_GRANT_INLINE`         | Optional, default `false`. Set to `true` to grant the token roles (and, on a redeploy, revoke the superseded vault's) inline; the broadcaster must then hold the token's `DEFAULT_ADMIN_ROLE`                                                                                      |
+| `SHIELD_SUPERSEDE`            | Required for a redeploy, refused otherwise. The vault recorded under `shieldVaults.<symbol>` that this run retires, exactly as the deployments file records it; any run whose vault address differs from the recorded one stops without it                                          |
 
 The owner is set directly at initialization, with no acceptance step.
 Later transfers are two-step (`transferOwnership`, then `acceptOwnership` by the new owner) and ownership can never be renounced.
@@ -113,7 +114,10 @@ Roll new code with a UUPS upgrade of the existing vaults; zero `ShieldVaultImpl`
 
 ### Redeploying
 
-A redeploy supersedes the vault recorded under `shieldVaults.<symbol>`, and that vault keeps its `MINTER_ROLE` and `BURNER_ROLE` on the token until someone revokes them.
+A redeploy is any run whose vault address differs from the one recorded under `shieldVaults.<symbol>`.
+The address is a function of the recorded implementation, the token, and the owner, so a run becomes a redeploy not only on purpose (a recorded vault with a wrong owner, which nobody else can change) but also by drift: `ShieldVaultImpl` edited after a UUPS upgrade, or `SHIELD_VAULT_OWNER` omitted after an opted-in run.
+Retiring the recorded vault is governance-visible, since the precompile registry points at it and `setTokenConfig` has to be redone, so the script refuses every redeploy unless `SHIELD_SUPERSEDE` names the recorded vault exactly; the refusal prints both vaults with their owners, and a `SHIELD_SUPERSEDE` that names nothing the run retires is refused too.
+A redeploy also supersedes the recorded vault, which keeps its `MINTER_ROLE` and `BURNER_ROLE` on the token until someone revokes them.
 Nothing else in the system points at it any more, so an unrevoked vault is mint authority that the precompile registry does not show.
 Step zero of any redeploy is therefore the revoke:
 

@@ -112,7 +112,11 @@ contract DeployShieldVaultTest is Test {
     /// @dev Safe owner, no inline role management: the privilege-free default.
     function _defaultConfig() internal view returns (DeployShieldVault.Config memory) {
         return DeployShieldVault.Config({
-            token: address(token), owner: address(0), allowNonSafeOwner: false, grantInline: false
+            token: address(token),
+            owner: address(0),
+            allowNonSafeOwner: false,
+            grantInline: false,
+            supersede: address(0)
         });
     }
 
@@ -120,6 +124,19 @@ contract DeployShieldVaultTest is Test {
     function _inlineConfig() internal view returns (DeployShieldVault.Config memory config) {
         config = _defaultConfig();
         config.grantInline = true;
+    }
+
+    /// @dev `config` plus the explicit confirmation that `stale` is being retired.
+    function _superseding(
+        DeployShieldVault.Config memory config,
+        address stale
+    )
+        internal
+        pure
+        returns (DeployShieldVault.Config memory)
+    {
+        config.supersede = stale;
+        return config;
     }
 
     function _newScript(
@@ -492,7 +509,7 @@ contract DeployShieldVaultTest is Test {
         (string memory path, address stale) = _staleBook("redeploy-revokes");
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
-        DeployShieldVaultHarness second = _scriptOn(path, _inlineConfig());
+        DeployShieldVaultHarness second = _scriptOn(path, _superseding(_inlineConfig(), stale));
         assertEq(second.previousVault(), stale, "the redeploy must find the recorded vault");
         second.run();
 
@@ -511,7 +528,7 @@ contract DeployShieldVaultTest is Test {
     function test_RedeployRefusesToStrandMintAuthorityWithoutTheAdmin() public {
         (string memory path, address stale) = _staleBook("redeploy-refuses");
 
-        _assertRevokeRefused(_scriptOn(path, _inlineConfig()), stale);
+        _assertRevokeRefused(_scriptOn(path, _superseding(_inlineConfig(), stale)), stale);
     }
 
     /// @dev Holding the admin role is not enough: the revoke rides on the same explicit request as
@@ -520,7 +537,7 @@ contract DeployShieldVaultTest is Test {
         (string memory path, address stale) = _staleBook("redeploy-refuses-default");
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
-        _assertRevokeRefused(_scriptOn(path, _defaultConfig()), stale);
+        _assertRevokeRefused(_scriptOn(path, _superseding(_defaultConfig(), stale)), stale);
     }
 
     function _assertRevokeRefused(DeployShieldVaultHarness second, address stale) internal {
@@ -549,7 +566,7 @@ contract DeployShieldVaultTest is Test {
         token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
 
         uint256 chainBeforeDryRun = vm.snapshotState();
-        DeployShieldVaultHarness dryRun = _scriptOn(path, _inlineConfig());
+        DeployShieldVaultHarness dryRun = _scriptOn(path, _superseding(_inlineConfig(), stale));
         dryRun.setRecording(false);
         dryRun.run();
         assertTrue(dryRun.rolesRevoked(), "the simulation itself revokes");
@@ -559,7 +576,7 @@ contract DeployShieldVaultTest is Test {
             vm.parseJsonAddress(vm.readFile(path), ".shieldVaults.eUSD"), stale, "a dry run must not rewrite the book"
         );
 
-        DeployShieldVaultHarness second = _scriptOn(path, _inlineConfig());
+        DeployShieldVaultHarness second = _scriptOn(path, _superseding(_inlineConfig(), stale));
         second.run();
 
         assertTrue(second.rolesRevoked(), "the broadcast must still find the superseded vault");
@@ -568,16 +585,91 @@ contract DeployShieldVaultTest is Test {
         assertEq(_recordedVault(second, "eUSD"), address(second.vault()), "the broadcast records the new vault");
     }
 
-    /// @dev A recorded vault without the roles strands nothing, so a redeploy needs no admin.
+    /// @dev A recorded vault without the roles strands nothing, so a redeploy needs no admin; it
+    ///      still needs the confirmation, since the record changes.
     function test_RedeployProceedsWhenTheRecordedVaultHoldsNoRoles() public {
-        string memory path = _bookRecording("redeploy-clean", _vaultFor(address(token), address(0xBEEF)));
+        address stale = _vaultFor(address(token), address(0xBEEF));
+        string memory path = _bookRecording("redeploy-clean", stale);
 
-        DeployShieldVaultHarness second = _scriptOn(path, _defaultConfig());
+        DeployShieldVaultHarness second = _scriptOn(path, _superseding(_defaultConfig(), stale));
         second.run();
 
         _assertDeployed(second);
         assertFalse(second.rolesRevoked(), "nothing to revoke");
         assertEq(_recordedVault(second, "eUSD"), address(second.vault()), "the book must record the new vault");
+    }
+
+    /// @dev Retiring the recorded vault is governance-visible, so it never happens on the strength
+    ///      of an address that merely differs: the operator names the recorded vault, exactly.
+    function test_RedeployRefusesWithoutTheSupersedeConfirmation() public {
+        (string memory path, address stale) = _staleBook("supersede-unconfirmed");
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+        address replacement = _predictedVault(_predictedImpl(), address(token), book.Safe);
+
+        DeployShieldVaultHarness second = _scriptOn(path, _inlineConfig());
+        _assertRunRefused(
+            second,
+            string.concat(
+                "records a vault for eUSD at ",
+                vm.toString(stale),
+                " (owner ",
+                vm.toString(address(0xBEEF)),
+                ") and this run would deploy another at ",
+                vm.toString(replacement)
+            )
+        );
+        _assertRunRefused(second, string.concat("set SHIELD_SUPERSEDE=", vm.toString(stale)));
+        assertTrue(token.hasRole(token.MINTER_ROLE(), stale), "the recorded vault keeps its roles");
+        assertEq(_recordedVault(second, "eUSD"), stale, "the book must not move");
+    }
+
+    function test_RedeployRefusesAMismatchedSupersedeAddress() public {
+        (string memory path, address stale) = _staleBook("supersede-mismatch");
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        _assertRunRefused(
+            _scriptOn(path, _superseding(_inlineConfig(), address(0xBAD))),
+            string.concat("set SHIELD_SUPERSEDE=", vm.toString(stale))
+        );
+        assertTrue(token.hasRole(token.MINTER_ROLE(), stale), "the recorded vault keeps its roles");
+    }
+
+    /// @dev A confirmation that names nothing this run retires is a mistaken belief about what
+    ///      the run does, so it is refused rather than ignored.
+    function test_RefusesASupersedeThatRetiresNothing() public {
+        DeployShieldVaultHarness fresh =
+            _newScript("supersede-nothing", _superseding(_defaultConfig(), address(0x1234)));
+        fresh.setUp();
+        _assertRunRefused(fresh, "but this run retires nothing; the address book records no vault for eUSD");
+
+        DeployShieldVaultHarness first = _runScript("supersede-rerun");
+        DeployShieldVaultHarness rerun =
+            _scriptOn(first.deploymentsPath(), _superseding(_defaultConfig(), address(first.vault())));
+        _assertRunRefused(rerun, "but this run retires nothing");
+    }
+
+    /// @dev The README's way to roll code is a UUPS upgrade; an operator who then edits
+    ///      ShieldVaultImpl in the book moves every token's predicted address, so the next re-run
+    ///      is a redeploy of the registered vault and must say so instead of proceeding.
+    function test_EditedImplementationRecordIsARedeployThatNeedsConfirmation() public {
+        DeployShieldVaultHarness first = _runScript("impl-record-drift");
+        address registered = address(first.vault());
+        address upgraded = address(new ShieldVault());
+        vm.writeJson(LibString.toHexString(uint256(uint160(upgraded)), 20), first.deploymentsPath(), ".ShieldVaultImpl");
+
+        DeployShieldVaultHarness rerun = _scriptOn(first.deploymentsPath(), _defaultConfig());
+        _assertRunRefused(
+            rerun,
+            string.concat(
+                "records a vault for eUSD at ",
+                vm.toString(registered),
+                " (owner ",
+                vm.toString(book.Safe),
+                ") and this run would deploy another at ",
+                vm.toString(_predictedVault(upgraded, address(token), book.Safe))
+            )
+        );
+        assertEq(_recordedVault(rerun, "eUSD"), registered, "the registered vault stays recorded");
     }
 
     /// @dev The book records StablecoinManager, a live MINTER_ROLE holder on every eXYZ, a few

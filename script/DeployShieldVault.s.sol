@@ -51,6 +51,16 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///         and only completes what is missing (the record, the roles); and 23 vaults share one
 ///         implementation to verify, audit, and upgrade instead of 23.
 ///
+/// @notice A redeploy is any run whose vault address differs from the one the address book records
+///         for the token, and the address moves with every input (the recorded implementation,
+///         the owner), so an edited `ShieldVaultImpl` after a UUPS upgrade or an omitted
+///         `SHIELD_VAULT_OWNER` after an opted-in run would turn a re-run into one. Retiring the
+///         recorded vault is governance-visible (the precompile registry points at it, and
+///         `setTokenConfig` must be redone), so the script refuses every such run unless
+///         `SHIELD_SUPERSEDE` names the recorded vault exactly, and the refusal prints both vaults
+///         with their owners so the operator sees whether it is the wrong-owner case the redeploy
+///         path exists for or an input that drifted.
+///
 /// @notice A redeploy supersedes the vault the address book records for the token, and that vault
 ///         keeps its `MINTER_ROLE`/`BURNER_ROLE` on the token until someone revokes them: through
 ///         its owner's upgrade authority that is a way to mint without any proof, and it is
@@ -100,6 +110,8 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///        owner check
 ///      - `SHIELD_GRANT_INLINE` (optional, default `false`): grant (and on a redeploy revoke) the
 ///        token roles inline; requires broadcasting with the token admin key
+///      - `SHIELD_SUPERSEDE` (required for a redeploy, refused otherwise): the recorded vault this
+///        run retires, exactly as the address book records it
 ///
 /// @dev The address book is written only by a `--broadcast` (or `--resume`) run: forge executes
 ///      the script in a plain `forge script` too, and a dry run that recorded its predicted
@@ -128,6 +140,8 @@ contract DeployShieldVault is Script {
         bool allowNonSafeOwner;
         /// @dev `SHIELD_GRANT_INLINE`.
         bool grantInline;
+        /// @dev `SHIELD_SUPERSEDE`; zero means "this run retires nothing".
+        address supersede;
     }
 
     /// @dev CREATE2 salt of the implementation. `ShieldVault` compiles from source, so its initcode
@@ -150,6 +164,8 @@ contract DeployShieldVault is Script {
     address public previousVault;
     /// @notice Whether the run was asked to manage the token roles inline.
     bool public grantInline;
+    /// @notice The recorded vault the run was told it may retire, or zero.
+    address public supersede;
 
     /// @notice Populated by run(). Public so tests can read the deployed addresses back.
     ShieldVault public vaultImpl;
@@ -206,6 +222,7 @@ contract DeployShieldVault is Script {
         );
         previousVault = vm.parseJsonAddress(json, string.concat(".shieldVaults.", symbol));
         grantInline = config.grantInline;
+        supersede = config.supersede;
 
         // the owner holds the vault's upgrade authority, which reaches the token's mint path, so
         // it is the governance safe unless the operator says otherwise in so many words
@@ -247,6 +264,9 @@ contract DeployShieldVault is Script {
         console2.log(
             vaultReused ? "ShieldVault proxy already deployed:" : "ShieldVault proxy to deploy:", predictedVault
         );
+        if (previousVault != address(0) && previousVault != predictedVault && previousVault.code.length > 0) {
+            console2.log(string.concat("ShieldVault recorded for ", symbol, ":"), previousVault);
+        }
         if (implReused && impl != currentImpl) {
             console2.log(
                 "WARNING: the implementation in use was not built from the current source; new vaults reuse it."
@@ -255,9 +275,44 @@ contract DeployShieldVault is Script {
         }
 
         // a redeploy supersedes the recorded vault (a re-run for the same vault supersedes
-        // nothing); the record must be this token's vault before anything is done about it
+        // nothing); the record must be this token's vault, and the operator must have named it,
+        // before anything is done about it
         bool supersedes = previousVault != address(0) && previousVault != predictedVault;
-        if (supersedes) _requireVaultForToken(previousVault);
+        if (supersedes) {
+            _requireVaultForToken(previousVault);
+            require(
+                supersede == previousVault,
+                string.concat(
+                    "DeployShieldVault: the address book records a vault for ",
+                    symbol,
+                    " at ",
+                    vm.toString(previousVault),
+                    " (owner ",
+                    vm.toString(ShieldVault(previousVault).owner()),
+                    ") and this run would deploy another at ",
+                    vm.toString(predictedVault),
+                    " (owner ",
+                    vm.toString(owner),
+                    ", implementation ",
+                    vm.toString(impl),
+                    "); set SHIELD_SUPERSEDE=",
+                    vm.toString(previousVault),
+                    " to retire the recorded vault, or restore the inputs that produced it"
+                )
+            );
+        } else {
+            require(
+                supersede == address(0),
+                string.concat(
+                    "DeployShieldVault: SHIELD_SUPERSEDE names ",
+                    vm.toString(supersede),
+                    " but this run retires nothing; the address book records ",
+                    previousVault == address(0) ? "no vault" : vm.toString(previousVault),
+                    " for ",
+                    symbol
+                )
+            );
+        }
 
         vm.startBroadcast();
         (, address broadcaster,) = vm.readCallers();
@@ -422,7 +477,8 @@ contract DeployShieldVault is Script {
             token: vm.envOr("SHIELD_TOKEN", address(0)),
             owner: vm.envOr("SHIELD_VAULT_OWNER", address(0)),
             allowNonSafeOwner: vm.envOr("SHIELD_ALLOW_NON_SAFE_OWNER", false),
-            grantInline: vm.envOr("SHIELD_GRANT_INLINE", false)
+            grantInline: vm.envOr("SHIELD_GRANT_INLINE", false),
+            supersede: vm.envOr("SHIELD_SUPERSEDE", address(0))
         });
     }
 
