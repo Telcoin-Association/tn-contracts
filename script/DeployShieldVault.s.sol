@@ -149,7 +149,7 @@ contract DeployShieldVault is Script {
     ///      addresses follow the implementation's because their initcode embeds it. Redeploying
     ///      identical bytecode on a chain that already holds it lands on the same address and is
     ///      skipped rather than needing a bumped salt.
-    bytes32 internal constant IMPL_SALT = bytes32(bytes("ShieldVault"));
+    bytes32 internal constant IMPL_SALT = "ShieldVault";
 
     Deployments deployments;
     /// @notice The address book this run reads and writes back to.

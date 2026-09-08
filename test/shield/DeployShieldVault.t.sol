@@ -66,6 +66,8 @@ contract DeployShieldVaultTest is Test {
     /// @dev Mirrors `ShieldVault.PRECOMPILE` (asserted against it after a run).
     address constant PRECOMPILE = 0x0000000000000000000000000000000123456789;
     string constant SCRATCH_DIR = "/cache/deploy-shield-vault/";
+    /// @dev Mirrors the script's implementation salt (asserted through the address it produces).
+    bytes32 constant IMPL_SALT = "ShieldVault";
 
     Deployments book;
     /// @dev A `Stablecoin` at the book's `eUSD` address; this test contract holds its admin role.
@@ -175,7 +177,7 @@ contract DeployShieldVaultTest is Test {
 
     /// @dev Where the script's CREATE2 recipe puts the implementation built from the current source.
     function _predictedImpl() internal pure returns (address) {
-        return vm.computeCreate2Address(bytes32(bytes("ShieldVault")), keccak256(type(ShieldVault).creationCode));
+        return vm.computeCreate2Address(IMPL_SALT, keccak256(type(ShieldVault).creationCode));
     }
 
     /// @dev Where the script's CREATE2 recipe puts the proxy over `impl` for `token_` and `owner_`.
