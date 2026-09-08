@@ -717,7 +717,9 @@ contract DeployShieldVaultTest is Test {
         script.setUp();
     }
 
-    function test_AcceptsAnotherOwnerOnlyWithTheOptOut() public {
+    /// @dev The opt-out is honoured on devnet, the chain that is reset to validate changes.
+    function test_AcceptsAnotherOwnerOnDevnetWithTheOptOut() public {
+        vm.chainId(DeploymentsResolver.DEVNET_CHAIN_ID);
         DeployShieldVault.Config memory config = _defaultConfig();
         config.owner = address(0xBEEF);
         config.allowNonSafeOwner = true;
@@ -726,6 +728,20 @@ contract DeployShieldVaultTest is Test {
 
         assertEq(script.vault().owner(), address(0xBEEF), "the opted-in owner must be set");
         assertEq(script.owner(), address(0xBEEF), "the script must report the opted-in owner");
+    }
+
+    /// @dev The variable's name promises devnet, so on testnet it is refused by chain id rather
+    ///      than honoured.
+    function test_RefusesTheOwnerOptOutOffDevnet() public {
+        DeployShieldVault.Config memory config = _defaultConfig();
+        config.owner = address(0xBEEF);
+        config.allowNonSafeOwner = true;
+        DeployShieldVaultHarness script = _newScript("opt-out-testnet", config);
+
+        vm.expectRevert(
+            bytes("DeployShieldVault: SHIELD_ALLOW_NON_SAFE_OWNER is honoured on devnet only, not on chain 2017")
+        );
+        script.setUp();
     }
 
     /// @dev The safe is genesis-assigned on every TN chain; a chain without its code is not one

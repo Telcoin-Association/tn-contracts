@@ -35,9 +35,9 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///           symbol on-chain, which rules out the `StablecoinImpl` address (it answers the role
 ///           reads but administers nothing, so a vault bound to it would be inert for good);
 ///         - the owner defaults to the governance safe (`Safe`, 0x...07a0 on every network) and
-///           any other owner is refused unless `SHIELD_ALLOW_NON_SAFE_OWNER=true` asks for it,
-///           because a wrong owner is permanent: ownership can never be renounced and only the
-///           owner can transfer it;
+///           any other owner is refused unless `SHIELD_ALLOW_NON_SAFE_OWNER=true` asks for it on
+///           devnet, the one chain the opt-out is honoured on, because a wrong owner is
+///           permanent: ownership can never be renounced and only the owner can transfer it;
 ///         - the proxy is written back under `shieldVaults.<symbol>` so the role grant and the
 ///           precompile registration hand-offs never depend on terminal scrollback.
 ///
@@ -106,8 +106,8 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///        `eXYZs` in the resolved deployments file
 ///      - `SHIELD_VAULT_OWNER` (optional): the vault owner (gates pause/unpause and upgrades);
 ///        defaults to `Safe` and must equal it unless `SHIELD_ALLOW_NON_SAFE_OWNER=true`
-///      - `SHIELD_ALLOW_NON_SAFE_OWNER` (optional, default `false`): devnet-only opt-out from the
-///        owner check
+///      - `SHIELD_ALLOW_NON_SAFE_OWNER` (optional, default `false`): opt-out from the owner
+///        check, honoured on devnet only (enforced by chain id)
 ///      - `SHIELD_GRANT_INLINE` (optional, default `false`): grant (and on a redeploy revoke) the
 ///        token roles inline; requires broadcasting with the token admin key
 ///      - `SHIELD_SUPERSEDE` (required for a redeploy, refused otherwise): the recorded vault this
@@ -233,6 +233,13 @@ contract DeployShieldVault is Script {
             require(
                 config.allowNonSafeOwner,
                 "DeployShieldVault: SHIELD_VAULT_OWNER is not the governance safe; set SHIELD_ALLOW_NON_SAFE_OWNER=true to deploy with another owner (devnet only)"
+            );
+            require(
+                block.chainid == DeploymentsResolver.DEVNET_CHAIN_ID,
+                string.concat(
+                    "DeployShieldVault: SHIELD_ALLOW_NON_SAFE_OWNER is honoured on devnet only, not on chain ",
+                    vm.toString(block.chainid)
+                )
             );
         }
     }
