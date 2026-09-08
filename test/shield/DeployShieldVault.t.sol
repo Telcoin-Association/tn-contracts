@@ -294,6 +294,18 @@ contract DeployShieldVaultTest is Test {
         script.run();
     }
 
+    /// @dev The same for the revoke: a superseded vault that still answers hasRole after the
+    ///      revoke fails by name instead of being reported as retired.
+    function test_VerificationReadsTheRevokedRolesBack() public {
+        (string memory path, address stale) = _staleBook("verification-revoke");
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+        vm.mockCall(address(token), abi.encodeCall(token.hasRole, (token.MINTER_ROLE(), stale)), abi.encode(true));
+
+        DeployShieldVaultHarness script = _scriptOn(path, _superseding(_inlineConfig(), stale));
+        vm.expectRevert(bytes("DeployShieldVault: the superseded vault still holds a role after the revoke"));
+        script.run();
+    }
+
     // -------------
     // address book
     // -------------
@@ -442,6 +454,33 @@ contract DeployShieldVaultTest is Test {
         assertTrue(second.implReused(), "the implementation at the CREATE2 address must be reused");
         assertEq(address(second.vaultImpl()), address(first.vaultImpl()), "one implementation per chain");
         assertEq(_recordedImpl(second), address(first.vaultImpl()), "the fresh book must record it");
+    }
+
+    /// @dev The load-bearing claim of the shared implementation: a recorded implementation that
+    ///      was not built from the current source (an upgrade rolled by governance, say) is the
+    ///      one new vaults reuse, at a proxy address that follows it, and the proxy works.
+    function test_ReusesARecordedImplementationNotBuiltFromCurrentSource() public {
+        address recorded = address(new ShieldVault());
+        assertTrue(recorded != _predictedImpl(), "precondition: the record is not the current source's CREATE2 address");
+        DeployShieldVaultHarness script = _newScript("impl-record-other-source", _defaultConfig());
+        string memory path = string.concat(vm.projectRoot(), SCRATCH_DIR, "impl-record-other-source.json");
+        vm.writeJson(LibString.toHexString(uint256(uint160(recorded)), 20), path, ".ShieldVaultImpl");
+        script.setUp();
+        script.run();
+
+        assertTrue(script.implReused(), "the recorded implementation must be reused");
+        assertEq(address(script.vaultImpl()), recorded, "the vault runs the recorded implementation");
+        assertEq(_predictedImpl().code.length, 0, "the current source must not be deployed alongside it");
+        ShieldVault vault = script.vault();
+        assertEq(address(vault), _predictedVault(recorded, address(token), book.Safe), "the proxy address follows it");
+        assertEq(
+            vm.load(address(vault), ERC1967Utils.IMPLEMENTATION_SLOT),
+            bytes32(uint256(uint160(recorded))),
+            "the proxy points at the recorded implementation"
+        );
+        assertEq(address(vault.token()), address(token), "the proxy over it works");
+        assertEq(vault.owner(), book.Safe, "the proxy over it is owned by the safe");
+        assertEq(_recordedImpl(script), recorded, "the record must be kept");
     }
 
     /// @dev A recorded implementation with no code is a stale record, not an implementation.
