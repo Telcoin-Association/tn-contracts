@@ -82,7 +82,9 @@ forge script script/DeployShieldVault.s.sol \
   -vvvv --slow
 ```
 
-Append `--broadcast` to actually send transactions (without it, forge only simulates).
+Append `--broadcast` to send the transactions.
+Without it forge only simulates, and the script then writes nothing, not even the address book, so a dry run before the broadcast is safe.
+The address book is written during the simulation of a `--broadcast` (or `--resume`) run, before its transactions land; if a redeploy broadcast stops before its revoke has landed, restore the deployments file (`git checkout`) before running again, or the next run finds nothing to supersede.
 The deployment needs no privilege, so use a plain deployer key.
 The token's `DEFAULT_ADMIN_ROLE` key mints without limit and administers itself, and one vault is deployed per token, so exposing it for every run is a window that recurs 23 times; broadcast with it only when `SHIELD_GRANT_INLINE=true` is set on purpose, and otherwise hand the printed grants to whoever holds it.
 Keep `--slow`: the role grants carry the proxy address computed in the simulation, and without it a reverted deployment would not stop them from being sent at their own nonces.
@@ -115,7 +117,7 @@ A redeploy supersedes the vault recorded under `shieldVaults.<symbol>`, and that
 Nothing else in the system points at it any more, so an unrevoked vault is mint authority that the precompile registry does not show.
 Step zero of any redeploy is therefore the revoke:
 
-- with `SHIELD_GRANT_INLINE=true` and the token admin broadcasting, the script revokes both roles from the recorded vault itself, before granting them to the new one;
+- with `SHIELD_GRANT_INLINE=true` and the token admin broadcasting, the script revokes both roles from the recorded vault itself, as the first transaction of the run, before deploying and granting to the new one;
 - otherwise it stops before deploying anything and prints the two `revokeRole` commands for the token admin; run them, then run the script again.
 
 Only a recorded vault that still holds a role triggers this; one whose roles were already revoked is superseded silently.

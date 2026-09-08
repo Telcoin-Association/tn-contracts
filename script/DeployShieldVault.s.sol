@@ -2,6 +2,7 @@
 pragma solidity 0.8.35;
 
 import { Script } from "forge-std/Script.sol";
+import { VmSafe } from "forge-std/Vm.sol";
 import { console2 } from "forge-std/console2.sol";
 import { LibString } from "solady/utils/LibString.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -95,10 +96,19 @@ import { DeploymentsResolver } from "../deployments/DeploymentsResolver.sol";
 ///      - `SHIELD_GRANT_INLINE` (optional, default `false`): grant (and on a redeploy revoke) the
 ///        token roles inline; requires broadcasting with the token admin key
 ///
-/// @dev The environment and the address-book path are read through `_config` and
-///      `_deploymentsPath`, which are virtual so the test suite can pin a configuration per test
-///      and write to a scratch copy of the address book instead of touching the process-wide
-///      environment or the committed file.
+/// @dev The address book is written only by a `--broadcast` (or `--resume`) run: forge executes
+///      the script in a plain `forge script` too, and a dry run that recorded its predicted
+///      addresses would leave the next run nothing to supersede, so the vault that holds the
+///      roles would keep them with no message. The write still happens in the broadcast run's
+///      simulation, before its transactions land, which is why the revoke is the first
+///      transaction of a redeploy: a `--slow` stop after it leaves the superseded vault without
+///      roles and a re-run completes the rest, while a stop before it means the deployments
+///      file must be restored (`git checkout`) before running again.
+///
+/// @dev The environment, the address-book path, and whether to write the book back are read
+///      through `_config`, `_deploymentsPath`, and `_recording`, which are virtual so the test
+///      suite can pin a configuration per test and write to a scratch copy of the address book
+///      instead of touching the process-wide environment or the committed file.
 ///
 /// @dev Usage: `SHIELD_TOKEN=0x... forge script script/DeployShieldVault.s.sol \
 ///      --rpc-url $TN_RPC_URL --private-key $DEPLOYER_PK -vvvv --slow --broadcast`
@@ -269,6 +279,15 @@ contract DeployShieldVault is Script {
             );
         }
 
+        // the revoke goes first: the address book already names the new vault (written in this
+        // run's simulation), so a stop after the revoke leaves nothing stranded and a stop before
+        // it is the one case the operator must restore the file for
+        if (supersedes && canManageRoles) {
+            token.revokeRole(minterRole, previousVault);
+            token.revokeRole(burnerRole, previousVault);
+            rolesRevoked = true;
+        }
+
         if (!implReused) {
             vaultImpl = new ShieldVault{ salt: IMPL_SALT }();
             require(
@@ -283,11 +302,6 @@ contract DeployShieldVault is Script {
         }
 
         if (canManageRoles) {
-            if (supersedes) {
-                token.revokeRole(minterRole, previousVault);
-                token.revokeRole(burnerRole, previousVault);
-                rolesRevoked = true;
-            }
             if (!token.hasRole(minterRole, address(vault))) token.grantRole(minterRole, address(vault));
             if (!token.hasRole(burnerRole, address(vault))) token.grantRole(burnerRole, address(vault));
             rolesGranted = true;
@@ -323,15 +337,19 @@ contract DeployShieldVault is Script {
         }
 
         // record the implementation and the proxy (under the token's symbol) so the hand-offs
-        // below read the address book
-        vm.writeJson(
-            LibString.toHexString(uint256(uint160(address(vaultImpl))), 20), deploymentsPath, ".ShieldVaultImpl"
-        );
-        vm.writeJson(
-            LibString.toHexString(uint256(uint160(address(vault))), 20),
-            deploymentsPath,
-            string.concat(".shieldVaults.", symbol)
-        );
+        // below read the address book; a dry run records nothing, so it cannot hide a
+        // superseded vault from the broadcast that follows it
+        bool recorded = _recording();
+        if (recorded) {
+            vm.writeJson(
+                LibString.toHexString(uint256(uint160(address(vaultImpl))), 20), deploymentsPath, ".ShieldVaultImpl"
+            );
+            vm.writeJson(
+                LibString.toHexString(uint256(uint160(address(vault))), 20),
+                deploymentsPath,
+                string.concat(".shieldVaults.", symbol)
+            );
+        }
 
         // logs
         console2.log(
@@ -340,9 +358,13 @@ contract DeployShieldVault is Script {
         console2.log(vaultReused ? "ShieldVault proxy found at:" : "ShieldVault proxy deployed at:", address(vault));
         console2.log("  token:", address(token), symbol);
         console2.log("  owner:", owner);
-        console2.log(
-            string.concat("  recorded under ShieldVaultImpl and shieldVaults.", symbol, " in ", deploymentsPath)
-        );
+        if (recorded) {
+            console2.log(
+                string.concat("  recorded under ShieldVaultImpl and shieldVaults.", symbol, " in ", deploymentsPath)
+            );
+        } else {
+            console2.log("  dry run: the address book is written only by a --broadcast run");
+        }
         console2.log("Confirm the broadcast against chain state (the lines above describe the simulation):");
         console2.log(_vaultCheck("token()", address(token)));
         console2.log(_vaultCheck("owner()", owner));
@@ -398,6 +420,11 @@ contract DeployShieldVault is Script {
     /// @dev The chain's address book, resolved by chain id.
     function _deploymentsPath() internal view virtual returns (string memory) {
         return string.concat(vm.projectRoot(), DeploymentsResolver.relativePath());
+    }
+
+    /// @dev Whether this run writes the address book: only a `--broadcast` or `--resume` run does.
+    function _recording() internal view virtual returns (bool) {
+        return vm.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vm.isContext(VmSafe.ForgeContext.ScriptResume);
     }
 
     /// @dev The `eXYZs` key whose address is `token_`, or the empty string when there is none.

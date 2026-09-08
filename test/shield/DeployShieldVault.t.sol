@@ -13,14 +13,21 @@ import { Stablecoin } from "../../src/testnet/Stablecoin.sol";
 import { ShieldVault } from "../../src/shield/ShieldVault.sol";
 
 /// @dev The deploy script with its configuration and address-book path pinned per instance, so a
-///      test never touches the process-wide environment or the committed deployments files.
+///      test never touches the process-wide environment or the committed deployments files, and
+///      the broadcast context pinned to "recording" (a test is neither a broadcast nor a dry run)
+///      unless a test turns it off to play a dry run.
 contract DeployShieldVaultHarness is DeployShieldVault {
     Config internal config;
     string internal path;
+    bool internal recording = true;
 
     constructor(Config memory config_, string memory path_) {
         config = config_;
         path = path_;
+    }
+
+    function setRecording(bool recording_) external {
+        recording = recording_;
     }
 
     function _config() internal view override returns (Config memory) {
@@ -29,6 +36,10 @@ contract DeployShieldVaultHarness is DeployShieldVault {
 
     function _deploymentsPath() internal view override returns (string memory) {
         return path;
+    }
+
+    function _recording() internal view override returns (bool) {
+        return recording;
     }
 }
 
@@ -509,6 +520,33 @@ contract DeployShieldVaultTest is Test {
         assertEq(address(second.vault()), address(0), "nothing must be deployed");
         assertTrue(token.hasRole(token.MINTER_ROLE(), stale), "the recorded vault is left for the admin to revoke");
         assertEq(_recordedVault(second, "eUSD"), stale, "the book must still record the superseded vault");
+    }
+
+    /// @dev The README's flow is a dry run, then the same command with `--broadcast`. The dry run
+    ///      must not record the vault it only simulated, or the broadcast finds nothing to
+    ///      supersede and the vault that holds the roles keeps them with no message. Forge
+    ///      discards the dry run's chain state; the snapshot plays that part, the file stays.
+    function test_DryRunBeforeBroadcastKeepsTheRedeployRevoke() public {
+        DeployShieldVaultHarness first = _staleRun("dry-run-then-broadcast");
+        address stale = address(first.vault());
+        token.grantRole(token.DEFAULT_ADMIN_ROLE(), broadcaster);
+
+        uint256 chainBeforeDryRun = vm.snapshotState();
+        DeployShieldVaultHarness dryRun = _redeploy(first, _inlineConfig());
+        dryRun.setRecording(false);
+        dryRun.run();
+        assertTrue(dryRun.rolesRevoked(), "the simulation itself revokes");
+        assertTrue(vm.revertToState(chainBeforeDryRun), "the dry run's chain state is discarded");
+        assertTrue(token.hasRole(token.MINTER_ROLE(), stale), "the chain never saw the dry run");
+        assertEq(_recordedVault(first, "eUSD"), stale, "a dry run must not rewrite the address book");
+
+        DeployShieldVaultHarness second = _redeploy(first, _inlineConfig());
+        second.run();
+
+        assertTrue(second.rolesRevoked(), "the broadcast must still find the superseded vault");
+        assertFalse(token.hasRole(token.MINTER_ROLE(), stale), "superseded vault must lose MINTER_ROLE");
+        assertFalse(token.hasRole(token.BURNER_ROLE(), stale), "superseded vault must lose BURNER_ROLE");
+        assertEq(_recordedVault(second, "eUSD"), address(second.vault()), "the broadcast records the new vault");
     }
 
     /// @dev A recorded vault without the roles strands nothing, so a redeploy needs no admin.
