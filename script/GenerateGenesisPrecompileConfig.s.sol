@@ -47,6 +47,8 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
     address constant SAFE_SIMULATE_TX_ACCESSOR = 0x3d4BA2E0884aa488718476ca2FB8Efc291A46199;
     address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
+    address constant SAFE_MIGRATION = 0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6;
+    address constant SAFE_TO_L2_MIGRATION = 0xfF83F6335d8930cBad1c0D439A841f01888D9f69;
 
     /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
     bytes32 constant SAFE_CODEHASH = 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4;
@@ -69,6 +71,10 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d;
     bytes32 constant SAFE_SINGLETON_FACTORY_CODEHASH =
         0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989;
+    bytes32 constant SAFE_MIGRATION_CODEHASH =
+        0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99;
+    bytes32 constant SAFE_TO_L2_MIGRATION_CODEHASH =
+        0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0;
 
     /// @dev Safe/SafeL2 `threshold` storage slot; constructors set it to 1 so the
     /// singleton itself can never be `setup()`-hijacked — replicated here since
@@ -88,11 +94,8 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
     uint256 sharedBalance = 0;
 
-    uint256 public constant telTotalSupply = 100_000_000_000e18;
     /// @dev TEL genesis allocation to the governance safe for gas
     uint256 public constant governanceInitialBalance = 10e18;
-    // will be further decremented at genesis by protocol, based on initial validators stake
-    uint256 telSupplyBalance = telTotalSupply - governanceInitialBalance;
 
     // Safe infrastructure
     Safe safeImpl;
@@ -265,7 +268,32 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         vm.writeLine(dest, "  nonce: 1");
         vm.writeLine(dest, "  balance: 0");
 
-        // governance safe (has storage)
+        // migration helpers (no storage) — delegatecall libraries a Safe uses to move
+        // between singletons. SafeMigration bakes `address(this)`, the Safe singleton,
+        // the SafeL2 singleton and the fallback handler into its runtime bytes as
+        // immutables; SafeToL2Migration bakes only `address(this)`. All referenced
+        // addresses are canonical predeploys above, so the mainnet-captured bytes stay
+        // valid here
+        address simulatedSafeMigration = instantiateSafeMigration();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedSafeMigration, SAFE_MIGRATION, PREDEPLOY_NONCE, sharedBalance, "safe migration"
+            )
+        );
+        address simulatedSafeToL2Migration = instantiateSafeToL2Migration();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedSafeToL2Migration,
+                SAFE_TO_L2_MIGRATION,
+                PREDEPLOY_NONCE,
+                sharedBalance,
+                "safe to l2 migration"
+            )
+        );
+
+        // governance safe (has storage); SafeL2 must already be etched above — its
+        // `setup` delegatecalls the singleton, which must have code at this point
         address simulatedSafe = address(instantiateGovernanceSafe());
         assertTrue(
             yamlAppendGenesisAccount(
@@ -384,11 +412,28 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         return SAFE_SINGLETON_FACTORY;
     }
 
+    function instantiateSafeMigration() public returns (address) {
+        _etchCanonical("SafeMigration", SAFE_MIGRATION, SAFE_MIGRATION_CODEHASH);
+        return SAFE_MIGRATION;
+    }
+
+    function instantiateSafeToL2Migration() public returns (address) {
+        _etchCanonical("SafeToL2Migration", SAFE_TO_L2_MIGRATION, SAFE_TO_L2_MIGRATION_CODEHASH);
+        return SAFE_TO_L2_MIGRATION;
+    }
+
     function instantiateWTEL() public returns (WTEL simulatedDeployment) {
         simulatedDeployment = new WTEL();
         copyContractState(address(simulatedDeployment), address(wTEL), new bytes32[](0));
     }
 
+    /// @dev The governance Safe is built on the `SafeL2` singleton, not the L1 `Safe`.
+    /// Every counterfactual Safe created on TN lands on SafeL2 anyway (`SafeToL2Setup`
+    /// switches the singleton whenever `block.chainid != 1`), and SafeL2's
+    /// `SafeMultiSigTransaction`/`SafeModuleTransaction` events are what the Safe
+    /// Transaction Service indexes — governance must not be the one Safe on the
+    /// network that tooling cannot index. `deployments.SafeImpl` stays the L1
+    /// singleton: it is still a predeploy and still the factory-default implementation.
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
 
@@ -410,7 +455,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             paymentReceiver
         );
         simulatedDeployment =
-            Safe(payable(address(safeProxyFactory.createProxyWithNonce(address(safeImpl), setupData, 0x0))));
+            Safe(payable(address(safeProxyFactory.createProxyWithNonce(SAFE_L2_SINGLETON, setupData, 0x0))));
 
         Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
         bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);

@@ -52,3 +52,15 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      # precompile-config.yaml is mainnet block-0 state and cannot be patched
+      # after genesis. Its consumer is the telcoin-network node repo (which
+      # embeds it via its tn-contracts submodule); nothing in THIS repo reads
+      # the committed file — tests replay the generator in memory — so this is
+      # the only gate proving the committed yaml matches what the generator
+      # produces.
+      - name: Check genesis precompile-config.yaml drift
+        run: |
+          forge script script/GenerateGenesisPrecompileConfig.s.sol
+          git diff --exit-code -- deployments/genesis/precompile-config.yaml
+        id: genesis-drift

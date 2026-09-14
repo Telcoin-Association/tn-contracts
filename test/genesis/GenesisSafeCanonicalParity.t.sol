@@ -27,6 +27,8 @@ contract GenesisSafeCanonicalParityTest is Test {
     address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
     address constant SAFE_SIMULATE_TX_ACCESSOR = 0x3d4BA2E0884aa488718476ca2FB8Efc291A46199;
     address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
+    address constant SAFE_MIGRATION = 0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6;
+    address constant SAFE_TO_L2_MIGRATION = 0xfF83F6335d8930cBad1c0D439A841f01888D9f69;
 
     /// @dev Real-world cross-chain test vector: the Telcoin governance/deployer Safe
     /// created via Safe{Wallet} with identical calldata on Ethereum mainnet
@@ -46,6 +48,9 @@ contract GenesisSafeCanonicalParityTest is Test {
     /// @dev Mirrors `FallbackManager.FALLBACK_HANDLER_STORAGE_SLOT`
     bytes32 constant FALLBACK_HANDLER_STORAGE_SLOT = keccak256("fallback_manager.handler.address");
 
+    /// @dev Emitted by both migration helpers when they swap a Safe's singleton
+    event ChangedMasterCopy(address singleton);
+
     function setUp() public {
         // replay the genesis simulation; etches canonical code + storage at the canonical addresses
         GenerateGenesisPrecompileConfig genesis = new GenerateGenesisPrecompileConfig();
@@ -61,6 +66,8 @@ contract GenesisSafeCanonicalParityTest is Test {
         genesis.instantiateCreateCall();
         genesis.instantiateSimulateTxAccessor();
         genesis.instantiateSafeSingletonFactory();
+        genesis.instantiateSafeMigration();
+        genesis.instantiateSafeToL2Migration();
     }
 
     /// @notice Every genesis Safe contract is byte-exact with the canonical Ethereum
@@ -84,6 +91,8 @@ contract GenesisSafeCanonicalParityTest is Test {
         assertEq(
             SAFE_SINGLETON_FACTORY.codehash, 0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989
         );
+        assertEq(SAFE_MIGRATION.codehash, 0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99);
+        assertEq(SAFE_TO_L2_MIGRATION.codehash, 0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0);
     }
 
     /// @notice The end-to-end parity property: replaying a real multichain Safe
@@ -152,6 +161,60 @@ contract GenesisSafeCanonicalParityTest is Test {
         assertEq(address(0xF00D).balance, 2 ether);
     }
 
+    /// @notice SafeMigration moves an L1-singleton Safe onto SafeL2 via a governance
+    /// transaction — the etched bytes are functional, and its baked-in immutables
+    /// (Safe, SafeL2, fallback handler) resolve to the canonical predeploys
+    function test_safeMigrationMigratesL1SafeToL2() public {
+        (Safe safe, uint256 ownerKey) = _createOneOfOneSafe(42);
+
+        vm.expectEmit(address(safe));
+        emit ChangedMasterCopy(SAFE_L2_SINGLETON);
+        assertTrue(
+            _execDelegatecallViaSafe(safe, ownerKey, SAFE_MIGRATION, abi.encodeWithSignature("migrateL2Singleton()"))
+        );
+
+        assertEq(address(uint160(uint256(vm.load(address(safe), bytes32(0))))), SAFE_L2_SINGLETON);
+    }
+
+    /// @notice SafeToL2Migration works only as a Safe's very first transaction: its
+    /// `onlyNonceZero` modifier requires the storage nonce to be exactly 1 (incremented
+    /// by `execTransaction` before the delegatecall). A Safe that has already executed
+    /// any transaction can never use it — which is why migrating the live adiri
+    /// governance Safe (nonce 2) needs a protocol fork instead
+    function test_safeToL2MigrationAsFirstTx() public {
+        // first tx ever: migration succeeds
+        (Safe safe, uint256 ownerKey) = _createOneOfOneSafe(43);
+        vm.expectEmit(address(safe));
+        emit ChangedMasterCopy(SAFE_L2_SINGLETON);
+        assertTrue(
+            _execDelegatecallViaSafe(
+                safe, ownerKey, SAFE_TO_L2_MIGRATION, abi.encodeWithSignature("migrateToL2(address)", SAFE_L2_SINGLETON)
+            )
+        );
+        assertEq(address(uint160(uint256(vm.load(address(safe), bytes32(0))))), SAFE_L2_SINGLETON);
+
+        // a used Safe (storage nonce 2 — live adiri governance's exact state) is
+        // rejected by the nonce guard; the mock replays the delegatecall context so
+        // the inner revert string is observable (execTransaction would mask it as GS013)
+        SafeStorageMock usedSafe = new SafeStorageMock();
+        vm.store(address(usedSafe), bytes32(0), bytes32(uint256(uint160(SAFE_SINGLETON))));
+        vm.store(address(usedSafe), bytes32(uint256(5)), bytes32(uint256(2))); // SafeStorage nonce slot
+        vm.expectRevert(bytes("Safe must have not executed any tx"));
+        usedSafe.delegate(SAFE_TO_L2_MIGRATION, abi.encodeWithSignature("migrateToL2(address)", SAFE_L2_SINGLETON));
+    }
+
+    function _createOneOfOneSafe(uint256 saltNonce) internal returns (Safe safe, uint256 ownerKey) {
+        ownerKey = 0xA11CE;
+        address[] memory owners = new address[](1);
+        owners[0] = vm.addr(ownerKey);
+        bytes memory setupData = abi.encodeCall(
+            Safe.setup, (owners, 1, address(0), "", address(0), address(0), 0, payable(address(0)))
+        );
+        safe = Safe(
+            payable(address(SafeProxyFactory(SAFE_PROXY_FACTORY).createProxyWithNonce(SAFE_SINGLETON, setupData, saltNonce)))
+        );
+    }
+
     function _execDelegatecallViaSafe(Safe safe, uint256 ownerKey, address to, bytes memory data)
         internal
         returns (bool)
@@ -162,5 +225,18 @@ contract GenesisSafeCanonicalParityTest is Test {
         return safe.execTransaction(
             to, 0, data, Enum.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), abi.encodePacked(r, s, v)
         );
+    }
+}
+
+/// @dev Delegatecall harness whose storage mirrors `SafeStorage` enough for the
+/// migration guards (slot 0 singleton, slot 5 nonce); bubbles the inner revert
+contract SafeStorageMock {
+    function delegate(address target, bytes memory data) external {
+        (bool ok, bytes memory ret) = target.delegatecall(data);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
     }
 }
