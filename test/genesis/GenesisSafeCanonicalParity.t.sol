@@ -1,0 +1,242 @@
+// SPDX-License-Identifier: MIT or Apache-2.0
+pragma solidity 0.8.35;
+
+import "forge-std/Test.sol";
+import { GenerateGenesisPrecompileConfig } from "../../script/GenerateGenesisPrecompileConfig.s.sol";
+import { Safe } from "safe-contracts/contracts/Safe.sol";
+import { SafeProxyFactory } from "safe-contracts/contracts/proxies/SafeProxyFactory.sol";
+import { Enum } from "safe-contracts/contracts/common/Enum.sol";
+
+/// @title Genesis Safe Canonical Parity Test
+/// @notice Proves the genesis Safe suite is byte-exact canonical Safe v1.4.1 and that
+/// counterfactual (multichain) Safe creations land at the SAME address on TN as on
+/// Ethereum/Sepolia/Base. This is the property the previous compile-from-source genesis
+/// broke: `createProxyWithNonce` derives the proxy address via CREATE2 over the
+/// factory's embedded proxy creation code, so only the canonical factory bytes
+/// reproduce canonical addresses.
+contract GenesisSafeCanonicalParityTest is Test {
+    // canonical Safe v1.4.1 suite addresses (identical on all EVM chains)
+    address constant SAFE_SINGLETON = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    address constant SAFE_L2_SINGLETON = 0x29fcB43b46531BcA003ddC8FCB67FFE91900C762;
+    address constant SAFE_PROXY_FACTORY = 0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67;
+    address constant SAFE_FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
+    address constant SAFE_TO_L2_SETUP = 0xBD89A1CE4DDe368FFAB0eC35506eEcE0b1fFdc54;
+    address constant SAFE_MULTI_SEND = 0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526;
+    address constant SAFE_MULTI_SEND_CALL_ONLY = 0x9641d764fc13c8B624c04430C7356C1C7C8102e2;
+    address constant SAFE_SIGN_MESSAGE_LIB = 0xd53cd0aB83D845Ac265BE939c57F53AD838012c9;
+    address constant SAFE_CREATE_CALL = 0x9b35Af71d77eaf8d7e40252370304687390A1A52;
+    address constant SAFE_SIMULATE_TX_ACCESSOR = 0x3d4BA2E0884aa488718476ca2FB8Efc291A46199;
+    address constant SAFE_SINGLETON_FACTORY = 0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7;
+    address constant SAFE_MIGRATION = 0x526643F69b81B008F46d95CD5ced5eC0edFFDaC6;
+    address constant SAFE_TO_L2_MIGRATION = 0xfF83F6335d8930cBad1c0D439A841f01888D9f69;
+
+    /// @dev Real-world cross-chain test vector: the Telcoin governance/deployer Safe
+    /// created via Safe{Wallet} with identical calldata on Ethereum mainnet
+    /// (tx 0x966371ac8db7315b5b60b322e0aadaa708f065246c950576287c8cfe81a52b1f) and
+    /// Sepolia (tx 0x4bb8bc16bd5e8763511b902495ebbf1a0664c0ef530043f9b5b5aa7e719e42e0),
+    /// landing at the same counterfactual address on both. A canonical genesis must
+    /// reproduce it; the previous recompiled factory yielded
+    /// 0xd778877AfA8A2E67312ECc80F7804Df91d9b9852 and reverted GS002.
+    address constant EXPECTED_MULTICHAIN_SAFE = 0x6012dBcb4350Ab297FeB7f96D4d86258062aeB03;
+
+    /// @dev setup(owners[8], threshold=2, to=SafeToL2Setup, data=setupToL2(SafeL2),
+    /// fallbackHandler=CompatibilityFallbackHandler, 0, 0, 0x5afe...) — byte-exact
+    /// initializer from the mainnet/Sepolia creations above
+    bytes constant MULTICHAIN_SAFE_INITIALIZER =
+        hex"b63e800d00000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000bd89a1ce4dde368ffab0ec35506eece0b1ffdc540000000000000000000000000000000000000000000000000000000000000220000000000000000000000000fd0732dc9e303f09fcef3a7388ad10a83459ec99000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005afe7a11e70000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000eb75f4e9f27b6075889fb57f00e70d462ea21c6f000000000000000000000000b5dfe3a88c77a885362a9616405eaabb5e0db2800000000000000000000000003329025a40607910695ee5ea2dff1ca492ced7d2000000000000000000000000f4bf633596879bb4cb75a83ed02e77ec502a30530000000000000000000000004e7a820d4528f7a0d16085d4b89dd5bb8b2500ff000000000000000000000000a8868d99fad907b6daa637783c84456b92111b39000000000000000000000000dc96ea6f55b52112bc4f4a0db0518690d2d0001e000000000000000000000000ca5d258b2337999a064ec541aa23ed9abe1527e50000000000000000000000000000000000000000000000000000000000000024fe51f64300000000000000000000000029fcb43b46531bca003ddc8fcb67ffe91900c76200000000000000000000000000000000000000000000000000000000";
+
+    /// @dev Mirrors `FallbackManager.FALLBACK_HANDLER_STORAGE_SLOT`
+    bytes32 constant FALLBACK_HANDLER_STORAGE_SLOT = keccak256("fallback_manager.handler.address");
+
+    /// @dev Emitted by both migration helpers when they swap a Safe's singleton
+    event ChangedMasterCopy(address singleton);
+
+    function setUp() public {
+        // replay the genesis simulation; etches canonical code + storage at the canonical addresses
+        GenerateGenesisPrecompileConfig genesis = new GenerateGenesisPrecompileConfig();
+        genesis.setUp();
+        genesis.instantiateSafeImpl();
+        genesis.instantiateSafeL2();
+        genesis.instantiateSafeProxyFactory();
+        genesis.instantiateCompatibilityFallbackHandler();
+        genesis.instantiateSafeToL2Setup();
+        genesis.instantiateMultiSend();
+        genesis.instantiateMultiSendCallOnly();
+        genesis.instantiateSignMessageLib();
+        genesis.instantiateCreateCall();
+        genesis.instantiateSimulateTxAccessor();
+        genesis.instantiateSafeSingletonFactory();
+        genesis.instantiateSafeMigration();
+        genesis.instantiateSafeToL2Migration();
+    }
+
+    /// @notice Every genesis Safe contract is byte-exact with the canonical Ethereum
+    /// mainnet deployment (hashes cross-verified against Sepolia and Base; see
+    /// deployments/genesis/canonical-bytecode/README.md)
+    function test_canonicalCodehashes() public view {
+        assertEq(SAFE_SINGLETON.codehash, 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4);
+        assertEq(SAFE_L2_SINGLETON.codehash, 0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff);
+        assertEq(SAFE_PROXY_FACTORY.codehash, 0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317);
+        assertEq(SAFE_FALLBACK_HANDLER.codehash, 0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9);
+        assertEq(SAFE_TO_L2_SETUP.codehash, 0x2f25df28caf984366ee584e13241707e85dcd5a6ea0c14267928dafc1fd6274b);
+        assertEq(SAFE_MULTI_SEND.codehash, 0x0e4f7fc66550a322d1e7688e181b75e217e662a4f3f4d6a29b22bc61217c4b77);
+        assertEq(
+            SAFE_MULTI_SEND_CALL_ONLY.codehash, 0xecd5bd14a08c5d2122379900b2f272bdf107a7e92423c10dd5fe3254386c9939
+        );
+        assertEq(SAFE_SIGN_MESSAGE_LIB.codehash, 0x525c754a46b79e05543a59bb61e8de3c9eee0d955a59352409cbe67ea1077528);
+        assertEq(SAFE_CREATE_CALL.codehash, 0x2b3060c55fcb8275653e99ad511a71f67ba76934ed66a7d74d6e68b52afff889);
+        assertEq(
+            SAFE_SIMULATE_TX_ACCESSOR.codehash, 0x91f82615581fc73b190b83d72e883608b25e392f72322035df1b13d51766cf8d
+        );
+        assertEq(
+            SAFE_SINGLETON_FACTORY.codehash, 0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989
+        );
+        assertEq(SAFE_MIGRATION.codehash, 0xc00d7921460cd5a05393e7772e634bd7d212f356356aa3a77f0120a9b8e25e99);
+        assertEq(SAFE_TO_L2_MIGRATION.codehash, 0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0);
+    }
+
+    /// @notice The end-to-end parity property: replaying a real multichain Safe
+    /// creation against the genesis state reproduces its Ethereum/Sepolia address
+    /// exactly, and the resulting Safe is fully configured
+    function test_counterfactualSafeAddressParity() public {
+        address proxy = address(
+            SafeProxyFactory(SAFE_PROXY_FACTORY).createProxyWithNonce(SAFE_SINGLETON, MULTICHAIN_SAFE_INITIALIZER, 0)
+        );
+        assertEq(proxy, EXPECTED_MULTICHAIN_SAFE);
+
+        Safe safe = Safe(payable(proxy));
+        assertEq(safe.getThreshold(), 2);
+        assertEq(safe.getOwners().length, 8);
+        // SafeToL2Setup switched the singleton to SafeL2 (block.chainid != 1),
+        // matching the created Safe's state on every non-mainnet canonical chain
+        assertEq(address(uint160(uint256(vm.load(proxy, bytes32(0))))), SAFE_L2_SINGLETON);
+        // fallback handler wired
+        assertEq(
+            address(uint160(uint256(vm.load(proxy, FALLBACK_HANDLER_STORAGE_SLOT)))), SAFE_FALLBACK_HANDLER
+        );
+    }
+
+    /// @notice The etched singletons replicate their constructors' `threshold = 1`
+    /// storage, so nobody can hijack a singleton by calling `setup` on it directly
+    function test_singletonsCannotBeSetup() public {
+        address[] memory owners = new address[](1);
+        owners[0] = address(0xBAD);
+
+        vm.expectRevert(bytes("GS200"));
+        Safe(payable(SAFE_SINGLETON)).setup(
+            owners, 1, address(0), "", address(0), address(0), 0, payable(address(0))
+        );
+
+        vm.expectRevert(bytes("GS200"));
+        Safe(payable(SAFE_L2_SINGLETON)).setup(
+            owners, 1, address(0), "", address(0), address(0), 0, payable(address(0))
+        );
+    }
+
+    /// @notice MultiSendCallOnly executes batched calls when delegatecalled from a Safe
+    /// context — smoke test that the etched library bytecode is functional
+    function test_multiSendCallOnlyFunctional() public {
+        // deploy a quick 1-of-1 safe via the canonical factory
+        address[] memory owners = new address[](1);
+        uint256 ownerKey = 0xA11CE;
+        owners[0] = vm.addr(ownerKey);
+        bytes memory setupData = abi.encodeCall(
+            Safe.setup, (owners, 1, address(0), "", address(0), address(0), 0, payable(address(0)))
+        );
+        Safe safe =
+            Safe(payable(address(SafeProxyFactory(SAFE_PROXY_FACTORY).createProxyWithNonce(SAFE_SINGLETON, setupData, 1))));
+
+        // batch: two value transfers via MultiSendCallOnly delegatecall
+        vm.deal(address(safe), 3 ether);
+        bytes memory multiSendData = abi.encodeWithSignature(
+            "multiSend(bytes)",
+            abi.encodePacked(
+                abi.encodePacked(uint8(0), address(0xD00D), uint256(1 ether), uint256(0), ""),
+                abi.encodePacked(uint8(0), address(0xF00D), uint256(2 ether), uint256(0), "")
+            )
+        );
+
+        assertTrue(_execDelegatecallViaSafe(safe, ownerKey, SAFE_MULTI_SEND_CALL_ONLY, multiSendData));
+        assertEq(address(0xD00D).balance, 1 ether);
+        assertEq(address(0xF00D).balance, 2 ether);
+    }
+
+    /// @notice SafeMigration moves an L1-singleton Safe onto SafeL2 via a governance
+    /// transaction — the etched bytes are functional, and its baked-in immutables
+    /// (Safe, SafeL2, fallback handler) resolve to the canonical predeploys
+    function test_safeMigrationMigratesL1SafeToL2() public {
+        (Safe safe, uint256 ownerKey) = _createOneOfOneSafe(42);
+
+        vm.expectEmit(address(safe));
+        emit ChangedMasterCopy(SAFE_L2_SINGLETON);
+        assertTrue(
+            _execDelegatecallViaSafe(safe, ownerKey, SAFE_MIGRATION, abi.encodeWithSignature("migrateL2Singleton()"))
+        );
+
+        assertEq(address(uint160(uint256(vm.load(address(safe), bytes32(0))))), SAFE_L2_SINGLETON);
+    }
+
+    /// @notice SafeToL2Migration works only as a Safe's very first transaction: its
+    /// `onlyNonceZero` modifier requires the storage nonce to be exactly 1 (incremented
+    /// by `execTransaction` before the delegatecall). A Safe that has already executed
+    /// any transaction can never use it — which is why migrating the live adiri
+    /// governance Safe (nonce 2) needs a protocol fork instead
+    function test_safeToL2MigrationAsFirstTx() public {
+        // first tx ever: migration succeeds
+        (Safe safe, uint256 ownerKey) = _createOneOfOneSafe(43);
+        vm.expectEmit(address(safe));
+        emit ChangedMasterCopy(SAFE_L2_SINGLETON);
+        assertTrue(
+            _execDelegatecallViaSafe(
+                safe, ownerKey, SAFE_TO_L2_MIGRATION, abi.encodeWithSignature("migrateToL2(address)", SAFE_L2_SINGLETON)
+            )
+        );
+        assertEq(address(uint160(uint256(vm.load(address(safe), bytes32(0))))), SAFE_L2_SINGLETON);
+
+        // a used Safe (storage nonce 2 — live adiri governance's exact state) is
+        // rejected by the nonce guard; the mock replays the delegatecall context so
+        // the inner revert string is observable (execTransaction would mask it as GS013)
+        SafeStorageMock usedSafe = new SafeStorageMock();
+        vm.store(address(usedSafe), bytes32(0), bytes32(uint256(uint160(SAFE_SINGLETON))));
+        vm.store(address(usedSafe), bytes32(uint256(5)), bytes32(uint256(2))); // SafeStorage nonce slot
+        vm.expectRevert(bytes("Safe must have not executed any tx"));
+        usedSafe.delegate(SAFE_TO_L2_MIGRATION, abi.encodeWithSignature("migrateToL2(address)", SAFE_L2_SINGLETON));
+    }
+
+    function _createOneOfOneSafe(uint256 saltNonce) internal returns (Safe safe, uint256 ownerKey) {
+        ownerKey = 0xA11CE;
+        address[] memory owners = new address[](1);
+        owners[0] = vm.addr(ownerKey);
+        bytes memory setupData = abi.encodeCall(
+            Safe.setup, (owners, 1, address(0), "", address(0), address(0), 0, payable(address(0)))
+        );
+        safe = Safe(
+            payable(address(SafeProxyFactory(SAFE_PROXY_FACTORY).createProxyWithNonce(SAFE_SINGLETON, setupData, saltNonce)))
+        );
+    }
+
+    function _execDelegatecallViaSafe(Safe safe, uint256 ownerKey, address to, bytes memory data)
+        internal
+        returns (bool)
+    {
+        bytes32 txHash =
+            safe.getTransactionHash(to, 0, data, Enum.Operation.DelegateCall, 0, 0, 0, address(0), address(0), 0);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, txHash);
+        return safe.execTransaction(
+            to, 0, data, Enum.Operation.DelegateCall, 0, 0, 0, address(0), payable(address(0)), abi.encodePacked(r, s, v)
+        );
+    }
+}
+
+/// @dev Delegatecall harness whose storage mirrors `SafeStorage` enough for the
+/// migration guards (slot 0 singleton, slot 5 nonce); bubbles the inner revert
+contract SafeStorageMock {
+    function delegate(address target, bytes memory data) external {
+        (bool ok, bytes memory ret) = target.delegatecall(data);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
+    }
+}

@@ -18,6 +18,7 @@ fs_permissions = [
     { access = "read-write", path = "./deployments/deployments-testnet.json" },
     { access = "read-write", path = "./deployments/deployments-devnet.json" },
     { access = "read", path = "./deployments/deployments-mainnet.json" },
+    { access = "read", path = "./deployments/genesis/canonical-bytecode" },
     { access = "read", path = "./external/uniswap/precompiles" },
     { access = "read", path = "./cache/seed-testnet-lps-fx.json" },
 ]
