@@ -90,6 +90,81 @@ file fails loudly.
   though note this one is not a Nick's-method keyless address: Safe holds the
   key and signs one deployment tx per chain.
 
+## Safe passkey module (safe-modules `modules/passkey` v0.2.1)
+
+Five more byte-exact runtimes, captured 2026-10-14 with `cast code <address>`
+from Ethereum mainnet and verified byte-identical on Polygon and Base. They
+give a Safe passkey (WebAuthn / P-256) owners at the same addresses as every
+other EVM chain, so a counterfactual passkey signer address computed
+off-chain is valid on Telcoin Network too.
+
+| File | Canonical address | keccak256(runtime) | Deployer factory | Captured |
+|---|---|---|---|---|
+| `SafeWebAuthnSignerFactory.hex` | `0x1d31F259eE307358a26dFb23EB365939E8641195` | `0x655b1f71eedf5aa223c8a7f5fc70f140a6475259a030829bc731642e181e4853` | Safe Singleton Factory (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`) | 2026-10-14 |
+| `SafeWebAuthnSignerSingleton.hex` | `0x4E27b51350e6c2083EE19011120F50DAfEc5CA50` | `0x2f10c1deb6dc4c1756da418188d9a5c46ebb9c63080bc7906512f5e8539b2aff` | `SafeWebAuthnSignerFactory` (its constructor `CREATE`s it) | 2026-10-14 |
+| `DaimoP256Verifier.hex` | `0xc2b78104907F722DABAc4C69f826a522B2754De4` | `0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc` | Arachnid deterministic deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) | 2026-10-14 |
+| `FCLP256Verifier.hex` | `0xA86e0054C51E4894D88762a017ECc5E5235f5DBA` | `0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80` | Safe Singleton Factory (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`) | 2026-10-14 |
+| `SafeWebAuthnSharedSigner.hex` | `0x94a4F6affBd8975951142c3999aEAB7ecee555c2` | `0xeaa32d0280053e2feea48a7c3fa15a535cd07c23ff60c9469cfa1999533e9332` | Safe Singleton Factory (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`) | 2026-10-14 |
+
+Runtime sizes are 2143, 2246, 3537, 5770 and 2954 bytes, in table order. The
+deployer column comes from the explorer's creator field and was re-derived
+independently: for each CREATE2 child, `keccak256(0xff ‖ deployer ‖ salt ‖
+keccak256(initcode))` over the creation transaction's calldata reproduces the
+canonical address (salt is `bytes32(0)` for all four), and the singleton equals
+`CREATE(factory, nonce 1)`. The creation transactions on Ethereum mainnet:
+
+| File | Creation transaction | Block / date |
+|---|---|---|
+| `SafeWebAuthnSignerFactory.hex`, `SafeWebAuthnSignerSingleton.hex` | `0x68afa7f01ed9d70c4cb26eeb852e3df3ba743a7865b1e02ff529cea786c5a274` | 20564015 / 2024-08-19 |
+| `DaimoP256Verifier.hex` | `0xbc5be668ab62069f5ac227c23a8b8fd85dd95c3754f7faddb8330048192adf88` | 18308790 / 2023-10-08 |
+| `FCLP256Verifier.hex` | `0xb0072084687a2b98288e92985c6bb8ef441c2e23ef0b87bd6a92d0b21ef785bd` | 20564013 / 2024-08-19 |
+| `SafeWebAuthnSharedSigner.hex` | `0x6cfb47cf888a9a3a0f356df1b42ad8e1674a9d125e9b33c750c8818fa82fbb6f` | 20564017 / 2024-08-19 |
+
+The generator asserts these hashes before etching, like the Safe suite above.
+
+### Passkey module notes
+
+- **The factory is etched with nonce 2; every other contract with nonce 1.**
+  `SafeWebAuthnSignerFactory`'s constructor `CREATE`s the singleton, which on
+  chain leaves the factory at nonce 2 and puts the singleton at
+  `CREATE(factory, nonce 1)`. A contract account's EIP-161 initial nonce is 1; etch
+  the factory at that nonce and any later `CREATE` from it would derive the
+  singleton's address again and collide with it. Nonce 2 is the post-constructor state, so
+  the next `CREATE` address is fresh. The factory's runtime contains no
+  `CREATE`, only one `CREATE2` (proxy deployment in `createSigner`), and
+  `CREATE2` ignores the nonce, so the value is for fidelity and collision
+  safety, not behavior. Every `CREATE2` child bumps the creator's nonce on
+  Ethereum (the factory is at nonce 429 today); Telcoin Network starts from 2
+  and diverges from there, which is harmless for the same reason. The
+  singleton, `DaimoP256Verifier`, `FCLP256Verifier` and
+  `SafeWebAuthnSharedSigner` are at nonce 1 on mainnet and in genesis.
+- **No new EOA nonce burn.** All five are `CREATE2` children, or (the
+  singleton) a `CREATE` child, of contracts already in genesis: the factory
+  and singleton, `FCLP256Verifier` and `SafeWebAuthnSharedSigner` come from the
+  Safe Singleton Factory, `DaimoP256Verifier` from the Arachnid deployer. Both
+  deployers are already predeploys, so nothing about the original sender EOAs
+  needs marking as spent, unlike the Safe Singleton Factory's own deployer
+  above.
+- **Embedded addresses.** `SafeWebAuthnSharedSigner` bakes `address(this)`
+  into its runtime exactly once, as an immutable compared against `ADDRESS` to
+  force delegatecall-only use, so it is valid only at
+  `0x94a4F6af…55c2`, the same constraint as `MultiSend` above. The factory
+  embeds the singleton's address four times (its `SINGLETON` immutable), so the
+  singleton must sit at exactly `0x4E27b513…CA50`. The singleton and both
+  verifiers contain no address of any of the five.
+- **The two verifiers are pure.** `DaimoP256Verifier` and `FCLP256Verifier`
+  have no `SLOAD`/`SSTORE` in their code and no `CALL`, `DELEGATECALL` or
+  `CREATE`; their only external interaction is `STATICCALL` to the MODEXP
+  precompile (`0x05`), which the chain must keep enabled.
+- **Which contracts the wallet uses.** The wallet's passkey owners are
+  `SafeWebAuthnSignerFactory` proxies of `SafeWebAuthnSignerSingleton`, with
+  `verifiers` set precompile-first: `uint176((0x0100 << 160) |
+  DaimoP256Verifier)`. The signer calls the P-256 precompile at `0x…0100` when
+  the chain has one and falls back to `DaimoP256Verifier` otherwise (Telcoin
+  Network has no P-256 precompile today). `FCLP256Verifier` and
+  `SafeWebAuthnSharedSigner` are vendored for Safe-ecosystem address parity
+  only; the wallet never calls either.
+
 ## Re-verifying
 
 ```bash
@@ -102,3 +177,13 @@ ADDR=0x41675C099F32341bf84BFc5382aF534df5C7461a
 Compare with `$(...)` rather than piping into `diff`: `cast code` terminates its
 output with a newline and these files do not, so `cast code … | diff - Safe.hex`
 reports a difference even when the bytes are identical.
+
+The recipe is the same for the passkey-module files; for example, the factory:
+
+```bash
+ADDR=0x1d31F259eE307358a26dFb23EB365939E8641195
+[ "$(cast code $ADDR --rpc-url $ETHEREUM_RPC_URL)" = "$(cat SafeWebAuthnSignerFactory.hex)" ] \
+  && echo "byte-exact"
+```
+
+Those five were also captured on Polygon and Base and are identical there.
