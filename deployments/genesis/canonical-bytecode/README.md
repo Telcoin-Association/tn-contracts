@@ -121,6 +121,9 @@ canonical address (salt is `bytes32(0)` for all four), and the singleton equals
 | `SafeWebAuthnSharedSigner.hex` | `0x6cfb47cf888a9a3a0f356df1b42ad8e1674a9d125e9b33c750c8818fa82fbb6f` | 20564017 / 2024-08-19 |
 
 The generator asserts these hashes before etching, like the Safe suite above.
+`test/genesis/GenesisPasskeyParity.t.sol` replays that genesis and proves the
+signer-address parity: `getSigner` returns the address the Ethereum mainnet
+factory returns for the same key and `verifiers`.
 
 ### Passkey module notes
 

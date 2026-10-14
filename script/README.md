@@ -6,7 +6,7 @@
 
 ### What it does
 
-Writes every genesis account — 25 in total — to the YAML: addresses, nonces, balances, bytecode, and storage slots.
+Writes every genesis account — 30 in total — to the YAML: addresses, nonces, balances, bytecode, and storage slots.
 
 **Canonical Safe v1.4.1 suite** (13 contracts, byte-exact runtime bytes vendored under `deployments/genesis/canonical-bytecode/` — see its README for provenance and hashes), etched at the canonical cross-chain addresses:
 
@@ -17,6 +17,8 @@ Writes every genesis account — 25 in total — to the YAML: addresses, nonces,
 - **MultiSend / MultiSendCallOnly / SignMessageLib / CreateCall / SimulateTxAccessor** - the delegatecall libraries of the v1.4.1 registry
 - **SafeMigration / SafeToL2Migration** - singleton migration helpers, completing the full 12-contract v1.4.1 [safe-deployments](https://github.com/safe-global/safe-deployments/tree/main/src/assets/v1.4.1) registry
 - **SafeSingletonFactory** - Safe's deterministic CREATE2 factory, so future canonical Safe contracts can be deployed permissionlessly at parity addresses; its deployer EOA (`0xE1CB04A0…3cBC37`) is included at nonce 1 to mark the presigned deployment tx as spent
+
+**Safe passkey module** (safe-modules `modules/passkey` v0.2.1, 5 contracts, byte-exact runtime bytes vendored in the same directory) - `SafeWebAuthnSignerFactory`, `SafeWebAuthnSignerSingleton`, `SafeWebAuthnSharedSigner` and the P-256 fallback verifiers `DaimoP256Verifier` and `FCLP256Verifier`, etched at their canonical addresses so a passkey (WebAuthn) Safe owner's counterfactual signer address is the same on TN as on Ethereum/Polygon/Base. None has storage. The factory is written at nonce 2, because its constructor `CREATE`d the singleton at nonce 1; the other four use nonce 1. Their deployers (the Safe Singleton Factory, the Arachnid proxy, and the passkey factory itself) are already in genesis, so no deployer EOA is added. `test/genesis/GenesisPasskeyParity.t.sol` proves the signer-address parity and runs WebAuthn verification through the Daimo fallback, since TN has no P-256 precompile.
 
 **Governance and TEL**:
 

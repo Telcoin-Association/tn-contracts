@@ -76,6 +76,27 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     bytes32 constant SAFE_TO_L2_MIGRATION_CODEHASH =
         0xa83e7be2fa20c96dc9575e3937239d552f3831ea437d7c96397eec8736f0cba0;
 
+    // ---------------------------------------------------------------------
+    // Safe passkey module (safe-modules `modules/passkey` v0.2.1) and its
+    // P-256 verifiers — addresses identical on all EVM chains
+    // ---------------------------------------------------------------------
+
+    address constant SAFE_WEBAUTHN_SIGNER_FACTORY = 0x1d31F259eE307358a26dFb23EB365939E8641195;
+    address constant SAFE_WEBAUTHN_SIGNER_SINGLETON = 0x4E27b51350e6c2083EE19011120F50DAfEc5CA50;
+    address constant DAIMO_P256_VERIFIER = 0xc2b78104907F722DABAc4C69f826a522B2754De4;
+    address constant FCL_P256_VERIFIER = 0xA86e0054C51E4894D88762a017ECc5E5235f5DBA;
+    address constant SAFE_WEBAUTHN_SHARED_SIGNER = 0x94a4F6affBd8975951142c3999aEAB7ecee555c2;
+
+    /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
+    bytes32 constant SAFE_WEBAUTHN_SIGNER_FACTORY_CODEHASH =
+        0x655b1f71eedf5aa223c8a7f5fc70f140a6475259a030829bc731642e181e4853;
+    bytes32 constant SAFE_WEBAUTHN_SIGNER_SINGLETON_CODEHASH =
+        0x2f10c1deb6dc4c1756da418188d9a5c46ebb9c63080bc7906512f5e8539b2aff;
+    bytes32 constant DAIMO_P256_VERIFIER_CODEHASH = 0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc;
+    bytes32 constant FCL_P256_VERIFIER_CODEHASH = 0xa493dea44e0b8e3b88da6da9fe4447abeefef94ab58ae0b2e001504a38203e80;
+    bytes32 constant SAFE_WEBAUTHN_SHARED_SIGNER_CODEHASH =
+        0xeaa32d0280053e2feea48a7c3fa15a535cd07c23ff60c9469cfa1999533e9332;
+
     /// @dev Safe/SafeL2 `threshold` storage slot; constructors set it to 1 so the
     /// singleton itself can never be `setup()`-hijacked — replicated here since
     /// etched code never runs a constructor
@@ -91,6 +112,14 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     /// any other chain. CREATE2 deployers (`SafeProxyFactory`, `SafeSingletonFactory`) do not read
     /// the nonce, but carry the same value for consistency.
     uint64 constant PREDEPLOY_NONCE = 1;
+
+    /// @dev `SafeWebAuthnSignerFactory`'s constructor CREATEs `SafeWebAuthnSignerSingleton` at
+    /// `CREATE(factory, nonce 1)`, so on every chain the factory leaves its constructor at nonce 2.
+    /// Genesis mirrors that post-constructor state: at `PREDEPLOY_NONCE`, a later CREATE from the
+    /// factory would derive the singleton's address again and collide with it. The factory's
+    /// runtime only CREATE2s (`createSigner`), which ignores the nonce, so the value is for
+    /// fidelity and collision safety rather than behavior
+    uint64 constant SAFE_WEBAUTHN_SIGNER_FACTORY_NONCE = 2;
 
     uint256 sharedBalance = 0;
 
@@ -292,6 +321,71 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
+        // safe passkey module (no storage) — WebAuthn/P-256 Safe owners. A passkey signer
+        // is a CREATE2 proxy of the singleton whose address (`getSigner`) depends only on
+        // the factory's bytes, the singleton address, the key and the `verifiers` word, so
+        // byte-exact bytes at the canonical addresses make a signer address computed
+        // off-chain valid on TN too. The factory is written at nonce 2, not
+        // PREDEPLOY_NONCE: its constructor CREATEd the singleton at nonce 1
+        address simulatedWebAuthnSignerFactory = instantiateSafeWebAuthnSignerFactory();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedWebAuthnSignerFactory,
+                SAFE_WEBAUTHN_SIGNER_FACTORY,
+                SAFE_WEBAUTHN_SIGNER_FACTORY_NONCE,
+                sharedBalance,
+                "safe webauthn signer factory (nonce 2: its constructor CREATEd the singleton at nonce 1)"
+            )
+        );
+        address simulatedWebAuthnSignerSingleton = instantiateSafeWebAuthnSignerSingleton();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedWebAuthnSignerSingleton,
+                SAFE_WEBAUTHN_SIGNER_SINGLETON,
+                PREDEPLOY_NONCE,
+                sharedBalance,
+                "safe webauthn signer singleton"
+            )
+        );
+
+        // P-256 verifiers (no storage) — pure contracts a passkey signer falls back to
+        // when the chain has no P-256 precompile at 0x100 (TN has none today). Daimo is
+        // the fallback Safe tooling configures; FCL is carried for address parity
+        address simulatedDaimoP256Verifier = instantiateDaimoP256Verifier();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedDaimoP256Verifier,
+                DAIMO_P256_VERIFIER,
+                PREDEPLOY_NONCE,
+                sharedBalance,
+                "daimo p256 verifier"
+            )
+        );
+        address simulatedFCLP256Verifier = instantiateFCLP256Verifier();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest, simulatedFCLP256Verifier, FCL_P256_VERIFIER, PREDEPLOY_NONCE, sharedBalance, "fcl p256 verifier"
+            )
+        );
+
+        // safe webauthn shared signer (no storage of its own) — delegatecall-only variant
+        // that keeps a Safe's passkey in the Safe's storage. Bakes `address(this)`, so it
+        // is valid only at its canonical address
+        address simulatedWebAuthnSharedSigner = instantiateSafeWebAuthnSharedSigner();
+        assertFalse(
+            yamlAppendGenesisAccount(
+                dest,
+                simulatedWebAuthnSharedSigner,
+                SAFE_WEBAUTHN_SHARED_SIGNER,
+                PREDEPLOY_NONCE,
+                sharedBalance,
+                "safe webauthn shared signer"
+            )
+        );
+
         // governance safe (has storage); SafeL2 must already be etched above — its
         // `setup` delegatecalls the singleton, which must have code at this point
         address simulatedSafe = address(instantiateGovernanceSafe());
@@ -420,6 +514,39 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateSafeToL2Migration() public returns (address) {
         _etchCanonical("SafeToL2Migration", SAFE_TO_L2_MIGRATION, SAFE_TO_L2_MIGRATION_CODEHASH);
         return SAFE_TO_L2_MIGRATION;
+    }
+
+    /// @dev Embeds the singleton's address as its `SINGLETON` immutable (and in every
+    /// signer proxy it creates), which is why the singleton must sit at its canonical
+    /// address. Its yaml nonce is `SAFE_WEBAUTHN_SIGNER_FACTORY_NONCE`
+    function instantiateSafeWebAuthnSignerFactory() public returns (address) {
+        _etchCanonical("SafeWebAuthnSignerFactory", SAFE_WEBAUTHN_SIGNER_FACTORY, SAFE_WEBAUTHN_SIGNER_FACTORY_CODEHASH);
+        return SAFE_WEBAUTHN_SIGNER_FACTORY;
+    }
+
+    function instantiateSafeWebAuthnSignerSingleton() public returns (address) {
+        _etchCanonical(
+            "SafeWebAuthnSignerSingleton", SAFE_WEBAUTHN_SIGNER_SINGLETON, SAFE_WEBAUTHN_SIGNER_SINGLETON_CODEHASH
+        );
+        return SAFE_WEBAUTHN_SIGNER_SINGLETON;
+    }
+
+    function instantiateDaimoP256Verifier() public returns (address) {
+        _etchCanonical("DaimoP256Verifier", DAIMO_P256_VERIFIER, DAIMO_P256_VERIFIER_CODEHASH);
+        return DAIMO_P256_VERIFIER;
+    }
+
+    function instantiateFCLP256Verifier() public returns (address) {
+        _etchCanonical("FCLP256Verifier", FCL_P256_VERIFIER, FCL_P256_VERIFIER_CODEHASH);
+        return FCL_P256_VERIFIER;
+    }
+
+    /// @dev Bakes `address(this)` into its runtime as an immutable compared against
+    /// `ADDRESS` (delegatecall-only guard), so like `MultiSend` it is valid only at
+    /// the canonical address it was captured from
+    function instantiateSafeWebAuthnSharedSigner() public returns (address) {
+        _etchCanonical("SafeWebAuthnSharedSigner", SAFE_WEBAUTHN_SHARED_SIGNER, SAFE_WEBAUTHN_SHARED_SIGNER_CODEHASH);
+        return SAFE_WEBAUTHN_SHARED_SIGNER;
     }
 
     function instantiateWTEL() public returns (WTEL simulatedDeployment) {
