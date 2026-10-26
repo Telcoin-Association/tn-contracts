@@ -10,6 +10,10 @@ struct Deployments {
     ///         Safe{Wallet} UI) that defaults the fallback handler resolves it on TN too.
     address CompatibilityFallbackHandler;
     address ConsensusRegistry;
+    /// @notice CreateX deterministic deployment factory at its canonical cross-chain address
+    ///         0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed, landed by replaying CreateX's own
+    ///         presigned (pre-EIP-155) deployment transaction. Post-genesis.
+    address CreateX;
     address GitAttestationRegistry;
     address Issuance;
     address Safe;
@@ -30,10 +34,43 @@ struct Deployments {
     address WorkerConfigs;
     address admin;
     EXYZs eXYZs;
+    Erc4337 erc4337;
     MagicAddresses magicAddresses;
+    SafeV130 safeV130;
     UniswapV2 uniswapV2;
     UniswapV3 uniswapV3;
     UniswapV4 uniswapV4;
+}
+
+/// @notice ERC-4337 EntryPoint singletons at their canonical cross-chain addresses, deployed
+///         post-genesis through the Arachnid proxy with the canonical salts.
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+struct Erc4337 {
+    /// @notice EntryPoint v0.6, 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
+    address EntryPointV06;
+    /// @notice EntryPoint v0.7, 0x0000000071727De22E5E9d8BAf0edAc6f37da032
+    address EntryPointV07;
+    /// @notice EntryPoint v0.8, 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108 (EIP-7702 aware)
+    address EntryPointV08;
+}
+
+/// @notice Canonical Safe v1.3.0 suite (the `canonical` deployment type in the
+///         safe-deployments registry), deployed post-genesis through the Arachnid proxy with
+///         salt 0 so v1.3.0 counterfactual Safes created on other chains land at the same
+///         address on TN. The v1.4.1 suite is genesis-assigned; see the top-level Safe keys.
+/// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
+///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
+struct SafeV130 {
+    address CompatibilityFallbackHandler;
+    address CreateCall;
+    address GnosisSafe;
+    address GnosisSafeL2;
+    address GnosisSafeProxyFactory;
+    address MultiSend;
+    address MultiSendCallOnly;
+    address SignMessageLib;
+    address SimulateTxAccessor;
 }
 
 /// @notice Documents the magic / sentinel addresses used by Telcoin testnet contracts.

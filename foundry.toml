@@ -17,8 +17,9 @@ fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
     { access = "read-write", path = "./deployments/deployments-testnet.json" },
     { access = "read-write", path = "./deployments/deployments-devnet.json" },
-    { access = "read", path = "./deployments/deployments-mainnet.json" },
+    { access = "read-write", path = "./deployments/deployments-mainnet.json" },
     { access = "read", path = "./deployments/genesis/canonical-bytecode" },
+    { access = "read", path = "./deployments/canonical-initcode" },
     { access = "read", path = "./external/uniswap/precompiles" },
     { access = "read", path = "./cache/seed-testnet-lps-fx.json" },
 ]
@@ -46,9 +47,10 @@ verbosity = 2
 # Network shorthands for `--rpc-url <name>`. Scripts resolve the matching
 # deployments json by chain id (see deployments/DeploymentsResolver.sol):
 # testnet (0x7e1) uses deployments-testnet.json, devnet (0x7e1d) uses
-# deployments-devnet.json. deployments-mainnet.json holds only genesis-assigned
-# addresses and is consumed by GenerateGenesisPrecompileConfig; its chain id
-# mapping is added once mainnet's chain id is finalized.
+# deployments-devnet.json. deployments-mainnet.json is the genesis source of
+# truth consumed by GenerateGenesisPrecompileConfig, and the mainnet scripts under
+# script/mainnet/ fill its post-genesis keys; they address it explicitly and run
+# only once DeploymentsResolver.MAINNET_CHAIN_ID is set.
 [rpc_endpoints]
 testnet = "https://node1.telcoin.network"
 devnet = "https://node1.devnet.telcoin.network"

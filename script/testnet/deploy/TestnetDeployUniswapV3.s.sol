@@ -8,13 +8,14 @@ import { Deployments } from "../../../deployments/Deployments.sol";
 import { DeploymentsResolver } from "../../../deployments/DeploymentsResolver.sol";
 import { UniswapV3FactoryBytecode } from "external/uniswap/precompiles/v3/UniswapV3Factory.sol";
 import { NFTDescriptorBytecode } from "external/uniswap/precompiles/v3/NFTDescriptor.sol";
-import { NonfungibleTokenPositionDescriptorBytecode } from
-    "external/uniswap/precompiles/v3/NonfungibleTokenPositionDescriptor.sol";
-import { NonfungiblePositionManagerBytecode } from
-    "external/uniswap/precompiles/v3/NonfungiblePositionManager.sol";
+import {
+    NonfungibleTokenPositionDescriptorBytecode
+} from "external/uniswap/precompiles/v3/NonfungibleTokenPositionDescriptor.sol";
+import { NonfungiblePositionManagerBytecode } from "external/uniswap/precompiles/v3/NonfungiblePositionManager.sol";
 import { QuoterV2Bytecode } from "external/uniswap/precompiles/v3/QuoterV2.sol";
 import { TickLensBytecode } from "external/uniswap/precompiles/v3/TickLens.sol";
 import { SwapRouter02Bytecode } from "external/uniswap/precompiles/v3/SwapRouter02.sol";
+import { UniswapV3FactoryDeployer, IUniswapV3FactoryAdmin } from "../../utils/UniswapV3FactoryDeployer.sol";
 
 /// @title Deploy Uniswap V3 (factory + periphery) on Adiri Testnet
 ///
@@ -27,7 +28,7 @@ import { SwapRouter02Bytecode } from "external/uniswap/precompiles/v3/SwapRouter
 ///         with the V2 deploy script, which proactively creates 45 pairs.
 ///
 /// @dev Deploy order:
-///        1. UniswapV3Factory                          (CREATE2, no constructor args)
+///        1. UniswapV3Factory                          (via UniswapV3FactoryDeployer, owner: admin)
 ///        2. NFTDescriptor (library)                   (CREATE2, no constructor args)
 ///        3. NonfungibleTokenPositionDescriptor        (CREATE2, args: wTEL, nativeCurrencyLabel)
 ///                                                     library-linked to NFTDescriptor
@@ -41,6 +42,11 @@ import { SwapRouter02Bytecode } from "external/uniswap/precompiles/v3/SwapRouter
 ///        1681 (per the v3-periphery 1.4.4 published linkReferences). We splice the
 ///        deployed NFTDescriptor address into that exact offset before running the
 ///        CREATE2 deploy.
+///
+/// @dev UniswapV3Factory makes its deployer the owner, so deployed straight through
+///      Arachnid the proxy would own it forever. UniswapV3FactoryDeployer (deployed
+///      through Arachnid) creates the factory, enables the 0.01% tier and hands
+///      ownership to `admin` in one transaction, keeping the address deterministic.
 ///
 /// @dev Usage: `forge script script/testnet/deploy/TestnetDeployUniswapV3.s.sol -vvvv \
 ///      --rpc-url $TN_RPC_URL --private-key $ADMIN_PK --broadcast`
@@ -84,12 +90,13 @@ contract TestnetDeployUniswapV3 is
     // bytes32 derived from the contract name so re-runs land at the same address.
     // Plain contract-name salts, intended for a fresh chain. The V3 bytecode is
     // vendored at pinned compiler versions, so contracts with unchanged
-    // constructor args (factory / NFTDescriptor / TickLens) yield identical
-    // initcode across runs; CREATE2 reverts on an already-occupied address.
+    // constructor args (factory deployer for the same admin / NFTDescriptor /
+    // TickLens) yield identical initcode across runs; CREATE2 reverts on an
+    // already-occupied address.
     // Redeploying on a chain that already holds these contracts therefore
     // requires bumping the salts (the legacy Adiri stack used _v2/_v3 suffixes
     // for exactly that reason).
-    bytes32 factorySalt = bytes32(bytes("UniswapV3Factory"));
+    bytes32 factoryDeployerSalt = bytes32(bytes("UniswapV3FactoryDeployer"));
     bytes32 nftDescriptorSalt = bytes32(bytes("NFTDescriptor"));
     bytes32 descSalt = bytes32(bytes("NFTPositionDescriptor"));
     bytes32 npmSalt = bytes32(bytes("NonfungiblePositionManager"));
@@ -106,6 +113,7 @@ contract TestnetDeployUniswapV3 is
 
         wTEL = deployments.WTEL;
         admin = deployments.admin;
+        require(admin != address(0), "TestnetDeployUniswapV3: admin not set; it becomes the V3 factory owner");
 
         require(
             wTEL != address(0) && wTEL.code.length > 0,
@@ -137,8 +145,13 @@ contract TestnetDeployUniswapV3 is
 
         address arachnid = deployments.ArachnidDeterministicDeployFactory;
 
-        // 1. UniswapV3Factory - no constructor args.
-        uniswapV3Factory = _deployCreate2(arachnid, factorySalt, UNISWAPV3FACTORY_BYTECODE);
+        // 1. UniswapV3Factory - created, configured and handed to admin by the helper.
+        address factoryDeployer = _deployCreate2(
+            arachnid,
+            factoryDeployerSalt,
+            bytes.concat(type(UniswapV3FactoryDeployer).creationCode, abi.encode(UNISWAPV3FACTORY_BYTECODE, admin))
+        );
+        uniswapV3Factory = UniswapV3FactoryDeployer(factoryDeployer).factory();
 
         // 2. NFTDescriptor library - no constructor args. Must be deployed before the
         //    NonfungibleTokenPositionDescriptor that depends on it.
@@ -148,8 +161,7 @@ contract TestnetDeployUniswapV3 is
         //    Library-linked to NFTDescriptor; we splice the deployed NFTDescriptor
         //    address into the bytecode placeholder before deploying.
         bytes memory descLinked = _linkNFTDescriptor(NONFUNGIBLE_TOKEN_POSITION_DESCRIPTOR_BYTECODE, nftDescriptor);
-        bytes memory descInitcode =
-            bytes.concat(descLinked, abi.encode(wTEL, NATIVE_CURRENCY_LABEL));
+        bytes memory descInitcode = bytes.concat(descLinked, abi.encode(wTEL, NATIVE_CURRENCY_LABEL));
         nonfungibleTokenPositionDescriptor = _deployCreate2(arachnid, descSalt, descInitcode);
 
         // 4. NonfungiblePositionManager - constructor args: (factory, wTEL, descriptor).
@@ -162,18 +174,12 @@ contract TestnetDeployUniswapV3 is
         // 5. SwapRouter02 - constructor args: (factoryV2, factoryV3, positionManager, wTEL).
         bytes memory swapRouterInitcode = bytes.concat(
             SWAP_ROUTER_02_BYTECODE,
-            abi.encode(
-                deployments.uniswapV2.UniswapV2Factory,
-                uniswapV3Factory,
-                nonfungiblePositionManager,
-                wTEL
-            )
+            abi.encode(deployments.uniswapV2.UniswapV2Factory, uniswapV3Factory, nonfungiblePositionManager, wTEL)
         );
         swapRouter02 = _deployCreate2(arachnid, swapRouter02Salt, swapRouterInitcode);
 
         // 6. QuoterV2 - constructor args: (factory, wTEL).
-        bytes memory quoterInitcode =
-            bytes.concat(QUOTER_V2_BYTECODE, abi.encode(uniswapV3Factory, wTEL));
+        bytes memory quoterInitcode = bytes.concat(QUOTER_V2_BYTECODE, abi.encode(uniswapV3Factory, wTEL));
         quoterV2 = _deployCreate2(arachnid, quoterV2Salt, quoterInitcode);
 
         // 7. TickLens - no constructor args.
@@ -189,6 +195,8 @@ contract TestnetDeployUniswapV3 is
         assert(swapRouter02.code.length != 0);
         assert(quoterV2.code.length != 0);
         assert(tickLens.code.length != 0);
+        assert(IUniswapV3FactoryAdmin(uniswapV3Factory).owner() == admin);
+        assert(IUniswapV3FactoryAdmin(uniswapV3Factory).feeAmountTickSpacing(100) == 1);
 
         _writeDeployments();
     }
