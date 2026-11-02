@@ -39,7 +39,7 @@ contract TestnetDeployStablecoinManager is Script {
 
         admin = deployments.admin;
 
-        stablecoinManagerSalt = bytes32(bytes("StablecoinManager"));
+        stablecoinManagerSalt = bytes32(bytes("StablecoinManager_devnet1"));
         maxLimit = type(uint256).max;
         minLimit = 1000;
         dripAmount = 100e6; // 100 units of the stablecoin (decimals == 6)

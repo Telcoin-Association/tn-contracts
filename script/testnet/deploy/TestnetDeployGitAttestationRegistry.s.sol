@@ -50,8 +50,11 @@ contract TestnetDeployGitAttestationRegistry is Script {
 
         // add maintainer2's attestation wallet without affecting deploy address via constructor args
         address maintainer3 = 0x9D39C91A3f9058ee55AEb3869ce23ea6714A40cf;
+        address maintainer4 = 0xC20D15aBC36d37E7e06fb8E33F27fe9263C4904f;
         bytes32 maintainerRole = gitAttestationRegistry.MAINTAINER_ROLE();
         gitAttestationRegistry.grantRole(maintainerRole, maintainer3);
+        gitAttestationRegistry.grantRole(maintainerRole, maintainer4);
+        gitAttestationRegistry.revokeRole(maintainerRole, maintainer2);
 
         vm.stopBroadcast();
 
@@ -60,8 +63,11 @@ contract TestnetDeployGitAttestationRegistry is Script {
         assert(gitAttestationRegistry.hasRole(bytes32(0x0), admin)); // admin role
         assert(gitAttestationRegistry.hasRole(maintainerRole, admin));
         assert(gitAttestationRegistry.hasRole(maintainerRole, maintainer1));
-        assert(gitAttestationRegistry.hasRole(maintainerRole, maintainer2));
+        // maintainer2 is granted the role at construction (it is in the `maintainers` array) then
+        // revoked above, so it must no longer hold the role after this script runs
+        assert(!gitAttestationRegistry.hasRole(maintainerRole, maintainer2));
         assert(gitAttestationRegistry.hasRole(maintainerRole, maintainer3));
+        assert(gitAttestationRegistry.hasRole(maintainerRole, maintainer4));
 
         // logs
         string memory root = vm.projectRoot();
