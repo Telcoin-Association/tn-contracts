@@ -12,9 +12,13 @@ library DeploymentsResolver {
     uint256 internal constant TESTNET_CHAIN_ID = 0x7e1; // 2017
     /// @notice Devnet, reset frequently to validate changes against a fresh genesis
     uint256 internal constant DEVNET_CHAIN_ID = 0x7e1d; // 32285
-    // TODO: add MAINNET_CHAIN_ID and its mapping below once the mainnet chain id is
-    // finalized. Until then deployments-mainnet.json (genesis-assigned addresses only)
-    // serves as the genesis source of truth consumed by GenerateGenesisPrecompileConfig.
+    /// @notice Telcoin Network mainnet. Zero until the mainnet chain id is finalized; the
+    ///         mainnet deploy scripts (script/mainnet/) refuse to run while it is zero.
+    /// @dev Deliberately absent from `relativePath()`: mainnet scripts address
+    ///      deployments-mainnet.json explicitly, so no testnet-oriented script can ever
+    ///      resolve the mainnet address book by pointing at a mainnet RPC.
+    // TODO: set once the mainnet chain id is finalized
+    uint256 internal constant MAINNET_CHAIN_ID = 0;
 
     /// @notice Returns the deployments json path relative to the project root
     /// @dev Defaults to the testnet file for all other chain ids (testnet itself,
