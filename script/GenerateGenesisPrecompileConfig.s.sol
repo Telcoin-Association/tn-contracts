@@ -24,6 +24,11 @@ import {WTEL} from "../src/WTEL.sol";
 /// at the canonical addresses, mirroring how Multicall3 and the Arachnid factory are
 /// already handled below.
 
+/// @dev The other third-party contracts etched here (the Safe v1.3.0 suite, the Safe passkey
+/// and 4337 modules, CreateX, the ERC-4337 EntryPoints and Permit2) follow the same rule:
+/// wallets, SDKs and bundlers hardcode their addresses, so genesis carries the exact bytes those
+/// addresses hold on Ethereum mainnet, from the same vendored directory.
+
 /// @dev Usage: `forge script script/GenerateGenesisPrecompileConfig.s.sol -vvvv`
 contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     Deployments deployments;
@@ -97,6 +102,79 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     bytes32 constant SAFE_WEBAUTHN_SHARED_SIGNER_CODEHASH =
         0xeaa32d0280053e2feea48a7c3fa15a535cd07c23ff60c9469cfa1999533e9332;
 
+    // ---------------------------------------------------------------------
+    // Canonical Safe v1.3.0 suite. The singletons and MultiSendCallOnly also
+    // live at a second, "eip155" address (deployed through the Safe Singleton
+    // Factory instead of the Arachnid proxy) with identical bytes; MultiSend
+    // bakes its own address, so its eip155 copy has its own bytes
+    // ---------------------------------------------------------------------
+
+    address constant SAFE_V130_SINGLETON = 0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552;
+    address constant SAFE_V130_L2_SINGLETON = 0x3E5c63644E683549055b9Be8653de26E0B4CD36E;
+    address constant SAFE_V130_EIP155_SINGLETON = 0x69f4D1788e39c87893C980c06EdF4b7f686e2938;
+    address constant SAFE_V130_EIP155_L2_SINGLETON = 0xfb1bffC9d739B8D520DaF37dF666da4C687191EA;
+    address constant SAFE_V130_PROXY_FACTORY = 0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2;
+    address constant SAFE_V130_FALLBACK_HANDLER = 0xf48f2B2d2a534e402487b3ee7C18c33Aec0Fe5e4;
+    address constant SAFE_V130_MULTI_SEND = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
+    address constant SAFE_V130_EIP155_MULTI_SEND = 0x998739BFdAAdde7C933B942a68053933098f9EDa;
+    address constant SAFE_V130_MULTI_SEND_CALL_ONLY = 0x40A2aCCbd92BCA938b02010E17A5b8929b49130D;
+    address constant SAFE_V130_EIP155_MULTI_SEND_CALL_ONLY = 0xA1dabEF33b3B82c7814B6D82A79e50F4AC44102B;
+    address constant SAFE_V130_SIGN_MESSAGE_LIB = 0xA65387F16B013cf2Af4605Ad8aA5ec25a2cbA3a2;
+    address constant SAFE_V130_CREATE_CALL = 0x7cbB62EaA69F79e6873cD1ecB2392971036cFAa4;
+    address constant SAFE_V130_SIMULATE_TX_ACCESSOR = 0x59AD6735bCd8152B84860Cb256dD9e96b85F69Da;
+
+    /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
+    bytes32 constant SAFE_V130_CODEHASH = 0xbba688fbdb21ad2bb58bc320638b43d94e7d100f6f3ebaab0a4e4de6304b1c2e;
+    bytes32 constant SAFE_V130_L2_CODEHASH = 0x21842597390c4c6e3c1239e434a682b054bd9548eee5e9b1d6a4482731023c0f;
+    bytes32 constant SAFE_V130_PROXY_FACTORY_CODEHASH =
+        0x337d7f54be11b6ed55fef7b667ea5488db53db8320a05d1146aa4bd169a39a9b;
+    bytes32 constant SAFE_V130_FALLBACK_HANDLER_CODEHASH =
+        0x03e69f7ce809e81687c69b19a7d7cca45b6d551ffdec73d9bb87178476de1abf;
+    bytes32 constant SAFE_V130_MULTI_SEND_CODEHASH = 0x0208282bd262360d0320862c5ac70f375f5ed3b9d89a83a615b4d398415bdc83;
+    bytes32 constant SAFE_V130_EIP155_MULTI_SEND_CODEHASH =
+        0x81db0e4afdf5178583537b58c5ad403bd47a4ac7f9bde2442ef3e341d433126a;
+    bytes32 constant SAFE_V130_MULTI_SEND_CALL_ONLY_CODEHASH =
+        0xa9865ac2d9c7a1591619b188c4d88167b50df6cc0c5327fcbd1c8c75f7c066ad;
+    bytes32 constant SAFE_V130_SIGN_MESSAGE_LIB_CODEHASH =
+        0x3ac65dea3cc9dd0d7b7b800f834e3d73415b4e944bb94555c3e4a08fb137e918;
+    bytes32 constant SAFE_V130_CREATE_CALL_CODEHASH =
+        0x8155d988823a4f6f1bcbc76a64af8e510c4ce68819290d43cf24956bd24dee82;
+    bytes32 constant SAFE_V130_SIMULATE_TX_ACCESSOR_CODEHASH =
+        0xb3fb9763869f2c09a2ac5a425d2dd6060bf7ef46b3899049d71a711e71e00f04;
+
+    // ---------------------------------------------------------------------
+    // CreateX, ERC-4337 EntryPoints, Permit2 and the Safe 4337 module
+    // (safe-modules `modules/4337` v0.3.0), addresses identical on all EVM chains
+    // ---------------------------------------------------------------------
+
+    address constant CREATEX = 0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed;
+    /// @dev Signer of CreateX's presigned nonce-0 deployment transaction
+    address constant CREATEX_DEPLOYER = 0xeD456e05CaAb11d66C4c797dD6c1D6f9A7F352b5;
+
+    address constant ENTRY_POINT_V06 = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
+    address constant SENDER_CREATOR_V06 = 0x7fc98430eAEdbb6070B35B39D798725049088348;
+    address constant ENTRY_POINT_V07 = 0x0000000071727De22E5E9d8BAf0edAc6f37da032;
+    address constant SENDER_CREATOR_V07 = 0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C;
+    address constant ENTRY_POINT_V08 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+    address constant SENDER_CREATOR_V08 = 0x449ED7C3e6Fee6a97311d4b55475DF59C44AdD33;
+
+    address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    address constant SAFE_4337_MODULE = 0x75cf11467937ce3F2f357CE24ffc3DBF8fD5c226;
+    address constant SAFE_MODULE_SETUP = 0x2dd68b007B46fBe91B9A7c3EDa5A7a1063cB5b47;
+
+    /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
+    bytes32 constant CREATEX_CODEHASH = 0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f;
+    bytes32 constant ENTRY_POINT_V06_CODEHASH = 0xc93c806e738300b5357ecdc2e971d6438d34d8e4e17b99b758b1f9cac91c8e70;
+    bytes32 constant SENDER_CREATOR_V06_CODEHASH = 0xae818091eaaf1b6175ee41472359a689f3823d0908a41e2e5c4ad508f2fc04a3;
+    bytes32 constant ENTRY_POINT_V07_CODEHASH = 0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58;
+    bytes32 constant SENDER_CREATOR_V07_CODEHASH = 0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689;
+    bytes32 constant ENTRY_POINT_V08_CODEHASH = 0x44e632a24c6f2600cbd5b5b8b4c2d372359112c8b5774297f5fd0a9e64f11f86;
+    bytes32 constant SENDER_CREATOR_V08_CODEHASH = 0xc69a1b3a000d570bc86eb096ee63a9014a17951ad616d720882ec61432b00fcf;
+    bytes32 constant PERMIT2_CODEHASH = 0xc67d1657868aa5146eaf24fb879fb1fdec3d2d493b3683a61c9c2f4fb2851131;
+    bytes32 constant SAFE_4337_MODULE_CODEHASH = 0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0;
+    bytes32 constant SAFE_MODULE_SETUP_CODEHASH = 0xaf2d170bb766d2773c3fa88717f5b3599827478074d3767d1dee55e5c2f3fbcb;
+
     /// @dev Safe/SafeL2 `threshold` storage slot; constructors set it to 1 so the
     /// singleton itself can never be `setup()`-hijacked — replicated here since
     /// etched code never runs a constructor
@@ -120,6 +198,20 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     /// runtime only CREATE2s (`createSigner`), which ignores the nonce, so the value is for
     /// fidelity and collision safety rather than behavior
     uint64 constant SAFE_WEBAUTHN_SIGNER_FACTORY_NONCE = 2;
+
+    /// @dev Each EntryPoint's constructor CREATEs its `SenderCreator` at `CREATE(entryPoint, nonce 1)`
+    /// and keeps that address as an immutable, so every EntryPoint leaves its constructor at nonce 2.
+    /// Genesis mirrors that post-constructor state for the same reason as
+    /// `SAFE_WEBAUTHN_SIGNER_FACTORY_NONCE`: at nonce 1 a later CREATE from the EntryPoint would
+    /// derive its SenderCreator's address again. The runtimes never CREATE, so the value is for
+    /// fidelity and collision safety rather than behavior
+    uint64 constant ENTRY_POINT_NONCE = 2;
+
+    /// @dev OpenZeppelin `ReentrancyGuard._status` in EntryPoint v0.6 and v0.7 (after
+    /// `StakeManager.deposits` and `NonceManager.nonceSequenceNumber`). Their constructors set it to
+    /// `NOT_ENTERED = 1`, which etched code never runs. v0.8 uses the transient-storage guard and
+    /// stores nothing
+    bytes32 constant ENTRY_POINT_REENTRANCY_STATUS_SLOT = bytes32(uint256(2));
 
     uint256 sharedBalance = 0;
 
@@ -157,6 +249,20 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         assertEq(address(safeImpl), SAFE_SINGLETON);
         assertEq(address(safeProxyFactory), SAFE_PROXY_FACTORY);
         assertEq(address(compatibilityFallbackHandler), SAFE_FALLBACK_HANDLER);
+        assertEq(deployments.CreateX, CREATEX);
+        assertEq(deployments.uniswapV4.Permit2, PERMIT2);
+        assertEq(deployments.erc4337.EntryPointV06, ENTRY_POINT_V06);
+        assertEq(deployments.erc4337.EntryPointV07, ENTRY_POINT_V07);
+        assertEq(deployments.erc4337.EntryPointV08, ENTRY_POINT_V08);
+        assertEq(deployments.safeV130.GnosisSafe, SAFE_V130_SINGLETON);
+        assertEq(deployments.safeV130.GnosisSafeL2, SAFE_V130_L2_SINGLETON);
+        assertEq(deployments.safeV130.GnosisSafeProxyFactory, SAFE_V130_PROXY_FACTORY);
+        assertEq(deployments.safeV130.CompatibilityFallbackHandler, SAFE_V130_FALLBACK_HANDLER);
+        assertEq(deployments.safeV130.MultiSend, SAFE_V130_MULTI_SEND);
+        assertEq(deployments.safeV130.MultiSendCallOnly, SAFE_V130_MULTI_SEND_CALL_ONLY);
+        assertEq(deployments.safeV130.SignMessageLib, SAFE_V130_SIGN_MESSAGE_LIB);
+        assertEq(deployments.safeV130.CreateCall, SAFE_V130_CREATE_CALL);
+        assertEq(deployments.safeV130.SimulateTxAccessor, SAFE_V130_SIMULATE_TX_ACCESSOR);
 
         _setGovernanceSafeConfig();
     }
@@ -386,6 +492,82 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
+        // safe v1.3.0 suite. The v1.3.0 proxy factory, unlike v1.4.1's, does not require its
+        // singleton to have code, and anyone can put that factory at its canonical address
+        // through the Arachnid proxy (or its eip155 twin through the Safe Singleton Factory).
+        // A proxy created against an empty singleton is left unowned for whoever calls `setup`
+        // first once the singleton exists. With all four singletons in genesis that window
+        // never opens. The singletons carry their constructors' `threshold = 1`
+        instantiateSafeV130Suite();
+        _yamlAppendCanonical(SAFE_V130_SINGLETON, PREDEPLOY_NONCE, "safe v1.3.0 impl", true);
+        _yamlAppendCanonical(SAFE_V130_L2_SINGLETON, PREDEPLOY_NONCE, "safe v1.3.0 l2 impl", true);
+        _yamlAppendCanonical(SAFE_V130_EIP155_SINGLETON, PREDEPLOY_NONCE, "safe v1.3.0 impl (eip155 address)", true);
+        _yamlAppendCanonical(
+            SAFE_V130_EIP155_L2_SINGLETON, PREDEPLOY_NONCE, "safe v1.3.0 l2 impl (eip155 address)", true
+        );
+        _yamlAppendCanonical(SAFE_V130_PROXY_FACTORY, PREDEPLOY_NONCE, "safe v1.3.0 proxy factory", false);
+        _yamlAppendCanonical(
+            SAFE_V130_FALLBACK_HANDLER, PREDEPLOY_NONCE, "safe v1.3.0 compatibility fallback handler", false
+        );
+        _yamlAppendCanonical(SAFE_V130_MULTI_SEND, PREDEPLOY_NONCE, "safe v1.3.0 multisend", false);
+        _yamlAppendCanonical(
+            SAFE_V130_EIP155_MULTI_SEND, PREDEPLOY_NONCE, "safe v1.3.0 multisend (eip155 address)", false
+        );
+        _yamlAppendCanonical(SAFE_V130_MULTI_SEND_CALL_ONLY, PREDEPLOY_NONCE, "safe v1.3.0 multisend call only", false);
+        _yamlAppendCanonical(
+            SAFE_V130_EIP155_MULTI_SEND_CALL_ONLY,
+            PREDEPLOY_NONCE,
+            "safe v1.3.0 multisend call only (eip155 address)",
+            false
+        );
+        _yamlAppendCanonical(SAFE_V130_SIGN_MESSAGE_LIB, PREDEPLOY_NONCE, "safe v1.3.0 sign message lib", false);
+        _yamlAppendCanonical(SAFE_V130_CREATE_CALL, PREDEPLOY_NONCE, "safe v1.3.0 create call", false);
+        _yamlAppendCanonical(
+            SAFE_V130_SIMULATE_TX_ACCESSOR, PREDEPLOY_NONCE, "safe v1.3.0 simulate tx accessor", false
+        );
+
+        // createx (no storage). Its only route to the canonical address after genesis is the
+        // author's presigned nonce-0 transaction (100 gwei, a top-up to a third-party EOA), so
+        // it is etched instead, and the deployer's nonce 0 is marked spent
+        instantiateCreateX();
+        _yamlAppendCanonical(CREATEX, PREDEPLOY_NONCE, "createx", false);
+        _writeSpentDeployerNonce(CREATEX_DEPLOYER, CREATEX);
+
+        // erc-4337 entrypoints and the sender creators their constructors CREATE. v0.6 and
+        // v0.7 carry their reentrancy guard's initial value; v0.8 bakes a chain-1 EIP-712
+        // domain separator that it recomputes whenever `block.chainid` differs
+        instantiateEntryPoints();
+        _yamlAppendCanonical(
+            ENTRY_POINT_V06,
+            ENTRY_POINT_NONCE,
+            "erc-4337 entrypoint v0.6 (nonce 2: its constructor CREATEd the sender creator at nonce 1)",
+            true
+        );
+        _yamlAppendCanonical(SENDER_CREATOR_V06, PREDEPLOY_NONCE, "erc-4337 sender creator v0.6", false);
+        _yamlAppendCanonical(
+            ENTRY_POINT_V07,
+            ENTRY_POINT_NONCE,
+            "erc-4337 entrypoint v0.7 (nonce 2: its constructor CREATEd the sender creator at nonce 1)",
+            true
+        );
+        _yamlAppendCanonical(SENDER_CREATOR_V07, PREDEPLOY_NONCE, "erc-4337 sender creator v0.7", false);
+        _yamlAppendCanonical(
+            ENTRY_POINT_V08,
+            ENTRY_POINT_NONCE,
+            "erc-4337 entrypoint v0.8 (nonce 2: its constructor CREATEd the sender creator at nonce 1)",
+            false
+        );
+        _yamlAppendCanonical(SENDER_CREATOR_V08, PREDEPLOY_NONCE, "erc-4337 sender creator v0.8", false);
+
+        // permit2 (no storage); like entrypoint v0.8 it recomputes its chain-1 domain separator
+        instantiatePermit2();
+        _yamlAppendCanonical(PERMIT2, PREDEPLOY_NONCE, "permit2", false);
+
+        // safe 4337 module + safe module setup (no storage), bound to entrypoint v0.7
+        instantiateSafe4337Module();
+        _yamlAppendCanonical(SAFE_4337_MODULE, PREDEPLOY_NONCE, "safe 4337 module v0.3.0", false);
+        _yamlAppendCanonical(SAFE_MODULE_SETUP, PREDEPLOY_NONCE, "safe module setup v0.3.0", false);
+
         // governance safe (has storage); SafeL2 must already be etched above — its
         // `setup` delegatecalls the singleton, which must have code at this point
         address simulatedSafe = address(instantiateGovernanceSafe());
@@ -443,12 +625,42 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         vm.etch(target, runtimeCode);
     }
 
+    /// @dev Etches canonical bytecode and replicates one storage write its constructor made,
+    /// registering the slot for yaml emission
+    function _etchCanonicalWithSlot(
+        string memory name,
+        address target,
+        bytes32 expectedCodehash,
+        bytes32 slot,
+        bytes32 value
+    )
+        internal
+    {
+        _etchCanonical(name, target, expectedCodehash);
+        vm.store(target, slot, value);
+        writtenStorageSlots[target].push(slot);
+    }
+
     /// @dev Etches a canonical Safe singleton and replicates its constructor's only
     /// storage effect (`threshold = 1`), registering the slot for yaml emission
     function _etchCanonicalSingleton(string memory name, address target, bytes32 expectedCodehash) internal {
-        _etchCanonical(name, target, expectedCodehash);
-        vm.store(target, SAFE_THRESHOLD_SLOT, bytes32(uint256(1)));
-        writtenStorageSlots[target].push(SAFE_THRESHOLD_SLOT);
+        _etchCanonicalWithSlot(name, target, expectedCodehash, SAFE_THRESHOLD_SLOT, bytes32(uint256(1)));
+    }
+
+    /// @dev Appends a canonical contract that was etched in place at its genesis address and
+    /// asserts whether it carries storage
+    function _yamlAppendCanonical(address target, uint64 nonce, string memory comment, bool expectStorage) internal {
+        assertEq(yamlAppendGenesisAccount(dest, target, target, nonce, sharedBalance, comment), expectStorage, comment);
+    }
+
+    /// @dev Writes `deployer` at nonce 1, marking spent the nonce-0 transaction that created
+    /// `created` on other chains, as for the other deployer EOAs in this file
+    function _writeSpentDeployerNonce(address deployer, address created) internal {
+        vm.writeLine(
+            dest, string.concat('"', vm.toString(deployer), '": # use nonce 0 for creating ', vm.toString(created))
+        );
+        vm.writeLine(dest, "  nonce: 1");
+        vm.writeLine(dest, "  balance: 0");
     }
 
     function instantiateSafeImpl() public returns (Safe) {
@@ -547,6 +759,87 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateSafeWebAuthnSharedSigner() public returns (address) {
         _etchCanonical("SafeWebAuthnSharedSigner", SAFE_WEBAUTHN_SHARED_SIGNER, SAFE_WEBAUTHN_SHARED_SIGNER_CODEHASH);
         return SAFE_WEBAUTHN_SHARED_SIGNER;
+    }
+
+    /// @dev The full v1.3.0 suite at its canonical (Arachnid-deployed) addresses, plus the eip155
+    /// copies of both singletons, MultiSend and MultiSendCallOnly. The singletons have no
+    /// immutables, so one file serves both of each singleton's addresses, as it does for
+    /// MultiSendCallOnly. MultiSend and SimulateTxAccessor bake `address(this)`
+    function instantiateSafeV130Suite() public {
+        _etchCanonicalSingleton("safe-v1.3.0/GnosisSafe", SAFE_V130_SINGLETON, SAFE_V130_CODEHASH);
+        _etchCanonicalSingleton("safe-v1.3.0/GnosisSafeL2", SAFE_V130_L2_SINGLETON, SAFE_V130_L2_CODEHASH);
+        _etchCanonicalSingleton("safe-v1.3.0/GnosisSafe", SAFE_V130_EIP155_SINGLETON, SAFE_V130_CODEHASH);
+        _etchCanonicalSingleton("safe-v1.3.0/GnosisSafeL2", SAFE_V130_EIP155_L2_SINGLETON, SAFE_V130_L2_CODEHASH);
+        _etchCanonical(
+            "safe-v1.3.0/GnosisSafeProxyFactory", SAFE_V130_PROXY_FACTORY, SAFE_V130_PROXY_FACTORY_CODEHASH
+        );
+        _etchCanonical(
+            "safe-v1.3.0/CompatibilityFallbackHandler", SAFE_V130_FALLBACK_HANDLER, SAFE_V130_FALLBACK_HANDLER_CODEHASH
+        );
+        _etchCanonical("safe-v1.3.0/MultiSend", SAFE_V130_MULTI_SEND, SAFE_V130_MULTI_SEND_CODEHASH);
+        _etchCanonical(
+            "safe-v1.3.0/MultiSend.eip155", SAFE_V130_EIP155_MULTI_SEND, SAFE_V130_EIP155_MULTI_SEND_CODEHASH
+        );
+        _etchCanonical(
+            "safe-v1.3.0/MultiSendCallOnly", SAFE_V130_MULTI_SEND_CALL_ONLY, SAFE_V130_MULTI_SEND_CALL_ONLY_CODEHASH
+        );
+        _etchCanonical(
+            "safe-v1.3.0/MultiSendCallOnly",
+            SAFE_V130_EIP155_MULTI_SEND_CALL_ONLY,
+            SAFE_V130_MULTI_SEND_CALL_ONLY_CODEHASH
+        );
+        _etchCanonical("safe-v1.3.0/SignMessageLib", SAFE_V130_SIGN_MESSAGE_LIB, SAFE_V130_SIGN_MESSAGE_LIB_CODEHASH);
+        _etchCanonical("safe-v1.3.0/CreateCall", SAFE_V130_CREATE_CALL, SAFE_V130_CREATE_CALL_CODEHASH);
+        _etchCanonical(
+            "safe-v1.3.0/SimulateTxAccessor", SAFE_V130_SIMULATE_TX_ACCESSOR, SAFE_V130_SIMULATE_TX_ACCESSOR_CODEHASH
+        );
+    }
+
+    /// @dev CreateX bakes only `address(this)` (`_SELF`) and its constructor writes no storage
+    function instantiateCreateX() public returns (address) {
+        _etchCanonical("createx/CreateX", CREATEX, CREATEX_CODEHASH);
+        return CREATEX;
+    }
+
+    /// @dev EntryPoint v0.6, v0.7 and v0.8 with their SenderCreators. Each EntryPoint bakes its
+    /// SenderCreator's address as an immutable; v0.8's SenderCreator bakes the EntryPoint's.
+    /// v0.8 also bakes chain id 1 and its chain-1 EIP-712 domain separator, and rebuilds the
+    /// separator from `block.chainid` on any other chain
+    function instantiateEntryPoints() public {
+        bytes32 notEntered = bytes32(uint256(1));
+        _etchCanonicalWithSlot(
+            "erc4337/EntryPointV06",
+            ENTRY_POINT_V06,
+            ENTRY_POINT_V06_CODEHASH,
+            ENTRY_POINT_REENTRANCY_STATUS_SLOT,
+            notEntered
+        );
+        _etchCanonical("erc4337/SenderCreatorV06", SENDER_CREATOR_V06, SENDER_CREATOR_V06_CODEHASH);
+        _etchCanonicalWithSlot(
+            "erc4337/EntryPointV07",
+            ENTRY_POINT_V07,
+            ENTRY_POINT_V07_CODEHASH,
+            ENTRY_POINT_REENTRANCY_STATUS_SLOT,
+            notEntered
+        );
+        _etchCanonical("erc4337/SenderCreatorV07", SENDER_CREATOR_V07, SENDER_CREATOR_V07_CODEHASH);
+        _etchCanonical("erc4337/EntryPointV08", ENTRY_POINT_V08, ENTRY_POINT_V08_CODEHASH);
+        _etchCanonical("erc4337/SenderCreatorV08", SENDER_CREATOR_V08, SENDER_CREATOR_V08_CODEHASH);
+    }
+
+    /// @dev Bakes chain id 1 and its chain-1 EIP-712 domain separator; `DOMAIN_SEPARATOR()`
+    /// rebuilds the separator from `block.chainid` on any other chain
+    function instantiatePermit2() public returns (address) {
+        _etchCanonical("permit2/Permit2", PERMIT2, PERMIT2_CODEHASH);
+        return PERMIT2;
+    }
+
+    /// @dev Safe4337Module bakes `SUPPORTED_ENTRYPOINT` (EntryPoint v0.7, a predeploy above) and
+    /// computes its domain separator from `block.chainid` on every call; SafeModuleSetup bakes
+    /// nothing
+    function instantiateSafe4337Module() public {
+        _etchCanonical("safe-4337-v0.3.0/Safe4337Module", SAFE_4337_MODULE, SAFE_4337_MODULE_CODEHASH);
+        _etchCanonical("safe-4337-v0.3.0/SafeModuleSetup", SAFE_MODULE_SETUP, SAFE_MODULE_SETUP_CODEHASH);
     }
 
     function instantiateWTEL() public returns (WTEL simulatedDeployment) {

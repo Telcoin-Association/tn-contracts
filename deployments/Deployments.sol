@@ -11,8 +11,8 @@ struct Deployments {
     address CompatibilityFallbackHandler;
     address ConsensusRegistry;
     /// @notice CreateX deterministic deployment factory at its canonical cross-chain address
-    ///         0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed, landed by replaying CreateX's own
-    ///         presigned (pre-EIP-155) deployment transaction. Post-genesis.
+    ///         0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed. Genesis-assigned with Ethereum's
+    ///         runtime bytes; the live testnet carries it from CreateX's presigned deployment.
     address CreateX;
     address GitAttestationRegistry;
     address Issuance;
@@ -42,8 +42,9 @@ struct Deployments {
     UniswapV4 uniswapV4;
 }
 
-/// @notice ERC-4337 EntryPoint singletons at their canonical cross-chain addresses, deployed
-///         post-genesis through the Arachnid proxy with the canonical salts.
+/// @notice ERC-4337 EntryPoint singletons at their canonical cross-chain addresses.
+///         Genesis-assigned with Ethereum's runtime bytes, alongside their SenderCreators;
+///         the live testnet carries v0.7 from a post-genesis deployment.
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 ///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
 struct Erc4337 {
@@ -56,9 +57,11 @@ struct Erc4337 {
 }
 
 /// @notice Canonical Safe v1.3.0 suite (the `canonical` deployment type in the
-///         safe-deployments registry), deployed post-genesis through the Arachnid proxy with
-///         salt 0 so v1.3.0 counterfactual Safes created on other chains land at the same
-///         address on TN. The v1.4.1 suite is genesis-assigned; see the top-level Safe keys.
+///         safe-deployments registry), so v1.3.0 counterfactual Safes created on other chains
+///         land at the same address on TN. Genesis-assigned, like the v1.4.1 suite (the
+///         top-level Safe keys); genesis also carries the eip155 copies of the singletons,
+///         MultiSend and MultiSendCallOnly, which have no keys here. The live testnet carries
+///         the canonical suite from a post-genesis deployment.
 /// @notice Foundry decodes JSON data to Solidity structs using lexicographical ordering
 ///         therefore upper-case struct member names must come **BEFORE** lower-case ones!
 struct SafeV130 {

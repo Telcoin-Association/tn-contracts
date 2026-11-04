@@ -1,4 +1,10 @@
-# Canonical Safe v1.4.1 runtime bytecode
+# Canonical runtime bytecode
+
+Byte-exact runtime bytecode of the third-party contracts that genesis etches at
+their canonical cross-chain addresses: the Safe v1.4.1 suite and the Safe passkey
+module (files at the top level), and the Safe v1.3.0 suite, CreateX, the ERC-4337
+EntryPoints, Permit2 and the Safe 4337 module (one subdirectory per batch). The
+v1.4.1 suite comes first.
 
 Byte-exact runtime bytecode of the canonical Safe v1.4.1 suite, captured from
 the live Ethereum mainnet deployments with `cast code <address>` (2026-08-24)
@@ -168,6 +174,162 @@ factory returns for the same key and `verifiers`.
   `SafeWebAuthnSharedSigner` are vendored for Safe-ecosystem address parity
   only; the wallet never calls either.
 
+## Safe v1.3.0 suite (`safe-v1.3.0/`)
+
+The nine contracts of the safe-deployments v1.3.0 `canonical` registry, plus the
+"eip155" copies of both singletons, MultiSend and MultiSendCallOnly. Captured
+2026-11-04 with `eth_getCode` from Ethereum mainnet and verified byte-identical on
+Polygon and Base.
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `GnosisSafe.hex` | `0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552`, eip155 `0x69f4D1788e39c87893C980c06EdF4b7f686e2938` | `0xbba688fbdb21ad2bb58bc320638b43d94e7d100f6f3ebaab0a4e4de6304b1c2e` | 22958 |
+| `GnosisSafeL2.hex` | `0x3E5c63644E683549055b9Be8653de26E0B4CD36E`, eip155 `0xfb1bffC9d739B8D520DaF37dF666da4C687191EA` | `0x21842597390c4c6e3c1239e434a682b054bd9548eee5e9b1d6a4482731023c0f` | 23800 |
+| `GnosisSafeProxyFactory.hex` | `0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2` | `0x337d7f54be11b6ed55fef7b667ea5488db53db8320a05d1146aa4bd169a39a9b` | 3774 |
+| `CompatibilityFallbackHandler.hex` | `0xf48f2B2d2a534e402487b3ee7C18c33Aec0Fe5e4` | `0x03e69f7ce809e81687c69b19a7d7cca45b6d551ffdec73d9bb87178476de1abf` | 5492 |
+| `MultiSend.hex` | `0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761` | `0x0208282bd262360d0320862c5ac70f375f5ed3b9d89a83a615b4d398415bdc83` | 629 |
+| `MultiSend.eip155.hex` | `0x998739BFdAAdde7C933B942a68053933098f9EDa` | `0x81db0e4afdf5178583537b58c5ad403bd47a4ac7f9bde2442ef3e341d433126a` | 629 |
+| `MultiSendCallOnly.hex` | `0x40A2aCCbd92BCA938b02010E17A5b8929b49130D`, eip155 `0xA1dabEF33b3B82c7814B6D82A79e50F4AC44102B` | `0xa9865ac2d9c7a1591619b188c4d88167b50df6cc0c5327fcbd1c8c75f7c066ad` | 410 |
+| `SignMessageLib.hex` | `0xA65387F16B013cf2Af4605Ad8aA5ec25a2cbA3a2` | `0x3ac65dea3cc9dd0d7b7b800f834e3d73415b4e944bb94555c3e4a08fb137e918` | 966 |
+| `CreateCall.hex` | `0x7cbB62EaA69F79e6873cD1ecB2392971036cFAa4` | `0x8155d988823a4f6f1bcbc76a64af8e510c4ce68819290d43cf24956bd24dee82` | 1119 |
+| `SimulateTxAccessor.hex` | `0x59AD6735bCd8152B84860Cb256dD9e96b85F69Da` | `0xb3fb9763869f2c09a2ac5a425d2dd6060bf7ef46b3899049d71a711e71e00f04` | 850 |
+
+The canonical addresses were created through the Arachnid proxy with salt 0 in
+May 2021 (SignMessageLib in October 2021); the eip155 copies through the Safe
+Singleton Factory with salt 0, from the same creation code, in 2022 and 2023.
+`deployments/canonical-initcode/README.md` lists the canonical creation
+transactions and vendors their creation code; the eip155 ones are
+`0x25b182f34baa23c122b081b249fb9da27f032e663e0a0ab3833be1c1c9266c3e` (GnosisSafe),
+`0x4e763a9840ab3a6077ec93bd091164f058e83d4c4b5fe8dd36fbb65061e62240` (GnosisSafeL2),
+`0x5593187ca889fe8a59a61567910d32fd2c2d37c771398401715f4533fe3144f8` (MultiSend) and
+`0xb7e50e99238f867f51b3cb5a4ec4e6916bf5bbcb426995da5d45c6b2d41c7cce` (MultiSendCallOnly).
+
+### Safe v1.3.0 notes
+
+- **Why genesis.** The v1.3.0 proxy factories, unlike v1.4.1's, never check that
+  the singleton has code, and anyone can deploy them: the canonical one through the
+  Arachnid proxy, the eip155 one (`0xC22834581EbC8527d974F8a1c97E1bEA4EF910BC`)
+  through the Safe Singleton Factory. A proxy created against an empty singleton
+  runs its initializer against no code and sits at the victim's cross-chain address
+  with `threshold == 0`, for whoever calls `setup` first once the singleton exists.
+  With all four singletons in genesis that window never opens.
+  `test/genesis/GenesisSafeV130Parity.t.sol` shows both sides.
+- **One file per singleton, two addresses.** The singletons have no immutables, so
+  their bytes are identical at both addresses, as are MultiSendCallOnly's.
+  `MultiSend` (`multisendSingleton`) and `SimulateTxAccessor` (`accessorSingleton`)
+  bake `address(this)` to force delegatecall-only use, so MultiSend's eip155 copy
+  has its own file, differing only in that address. SimulateTxAccessor's eip155
+  copy is not in genesis.
+- **Storage.** Each of the four singletons gets `threshold = 1` (slot 4), the only
+  write its constructor makes; nothing else in the suite stores anything. The replay
+  test in `GenesisSafeV130Parity.t.sol` runs the original creation code and records
+  exactly those writes.
+- **Not in genesis.** The eip155 proxy factory, fallback handler
+  (`0x017062a1dE2FE6b99BE3d9d37841FeD19F573804`), SignMessageLib, CreateCall and
+  SimulateTxAccessor. With the singletons in place they can be deployed
+  permissionlessly through the Safe Singleton Factory without risk.
+- **Nonces.** Every account is at nonce 1. The canonical proxy factory is at a much
+  higher nonce on Ethereum because `createProxy` uses `CREATE`; those proxies'
+  addresses depend on each chain's history anyway, so Telcoin Network starts the
+  factory fresh.
+
+## CreateX (`createx/`)
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `CreateX.hex` | `0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed` | `0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f` | 11838 |
+
+Captured 2026-11-04 from Ethereum mainnet, identical on Polygon, Base and Arbitrum,
+and identical to the copy the Adiri testnet carries. Created on Ethereum by
+`0xceec66d7b71039b0de4ac870e23c10130d64db46911166a1b7a945c4576113e1` (block 18832552,
+2023-12-21), the presigned transaction from `0xeD456e05CaAb11d66C4c797dD6c1D6f9A7F352b5`
+at nonce 0.
+
+- **Why genesis.** After genesis, only that presigned pre-EIP-155 transaction can
+  reach the address. It needs the base fee at or under its 100 gwei gas price, a
+  top-up to an EOA we do not control, and that EOA's nonce 0 still unspent.
+- **Deployer EOA at nonce 1.** Genesis writes `0xeD456e05…F352b5` at nonce 1 to mark
+  the presigned transaction as spent, the treatment the Safe Singleton Factory's
+  deployer gets above. Like that one it is not a keyless address: CreateX's author
+  holds the key (its Ethereum nonce is 21 today).
+- **Immutables and storage.** The only immutable is `_SELF = address(this)`, valid
+  at the canonical address. The constructor writes no storage. CreateX's
+  `deployCreate` uses `CREATE` from its own nonce, which on Telcoin Network starts
+  at 1.
+
+## ERC-4337 EntryPoints (`erc4337/`)
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `EntryPointV06.hex` | `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789` | `0xc93c806e738300b5357ecdc2e971d6438d34d8e4e17b99b758b1f9cac91c8e70` | 23689 |
+| `SenderCreatorV06.hex` | `0x7fc98430eAEdbb6070B35B39D798725049088348` | `0xae818091eaaf1b6175ee41472359a689f3823d0908a41e2e5c4ad508f2fc04a3` | 528 |
+| `EntryPointV07.hex` | `0x0000000071727De22E5E9d8BAf0edAc6f37da032` | `0x8db5ff695839d655407cc8490bb7a5d82337a86a6b39c3f0258aa6c3b582fc58` | 16035 |
+| `SenderCreatorV07.hex` | `0xEFC2c1444eBCC4Db75e7613d20C6a62fF67A167C` | `0x283c9d14378f5f4c4e24045b87d621d48443fa5b4af7dd7180a599b3756a7689` | 451 |
+| `EntryPointV08.hex` | `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` | `0x44e632a24c6f2600cbd5b5b8b4c2d372359112c8b5774297f5fd0a9e64f11f86` | 21738 |
+| `SenderCreatorV08.hex` | `0x449ED7C3e6Fee6a97311d4b55475DF59C44AdD33` | `0xc69a1b3a000d570bc86eb096ee63a9014a17951ad616d720882ec61432b00fcf` | 1217 |
+
+Captured 2026-11-04 from Ethereum mainnet. All six except EntryPoint v0.8 are
+byte-identical on Polygon, Base and Arbitrum. Each EntryPoint came through the
+Arachnid proxy (creation transactions and creation code in
+`deployments/canonical-initcode/`), and its constructor created its SenderCreator in
+the same transaction.
+
+- **Nonce 2 for the EntryPoints.** Each constructor `CREATE`s its SenderCreator at
+  `CREATE(entryPoint, nonce 1)`, leaving the EntryPoint at nonce 2, which is what
+  Ethereum shows for all three. Genesis mirrors that so a later `CREATE` from an
+  EntryPoint could never derive its SenderCreator's address again. The runtimes
+  never `CREATE`, so this is fidelity rather than behavior. The SenderCreators are
+  at nonce 1.
+- **Baked addresses.** Each EntryPoint bakes its SenderCreator's address as an
+  immutable and calls it to deploy accounts from `initCode`. The v0.8 SenderCreator
+  bakes the EntryPoint's address and refuses any other caller.
+- **Storage.** v0.6 and v0.7 get slot 2 = 1, OpenZeppelin `ReentrancyGuard._status`
+  at `NOT_ENTERED` as their constructors leave it. v0.8 uses the transient-storage
+  guard and stores nothing.
+- **EntryPoint v0.8 and EIP-712.** v0.8 hashes user operations under EIP-712 and
+  caches chain id 1 and the chain-1 domain separator (`0x1cb06c86…dc16a`) as
+  immutables. Those two 32-byte words are the only difference between its Ethereum
+  bytes and its bytes on Polygon, Base and Arbitrum: putting each chain's id and
+  separator into the Ethereum bytes reproduces that chain's copy exactly. Genesis
+  uses the Ethereum bytes, so `cast code` on Telcoin Network matches Ethereum, and
+  the contract rebuilds its separator from `block.chainid` whenever it differs from
+  the cached one, at a few hundred gas per hash. Telcoin Network has EIP-7702 live
+  from genesis, which is what v0.8 adds over v0.7.
+
+## Permit2 (`permit2/`)
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `Permit2.hex` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | `0xc67d1657868aa5146eaf24fb879fb1fdec3d2d493b3683a61c9c2f4fb2851131` | 9152 |
+
+Captured 2026-11-04 from Ethereum mainnet. Created through the Arachnid proxy with
+the canonical salt by `0xf2f1fe96c16ee674bb7fcee166be52465a418927d124f5f1d231b36eae65d377`
+(block 15986406, 2022-11-17); the creation code is
+`external/uniswap/precompiles/v4/Permit2Bytecode.sol`. Permit2 caches chain id 1 and
+Ethereum's domain separator (`0x866a5aba…e3f28`) like EntryPoint v0.8, with the same
+two-word difference on every other chain, and `DOMAIN_SEPARATOR()` rebuilds from
+`block.chainid` when it differs. The constructor writes no storage.
+
+## Safe 4337 module (`safe-4337-v0.3.0/`)
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `Safe4337Module.hex` | `0x75cf11467937ce3F2f357CE24ffc3DBF8fD5c226` | `0x2aea997c4e3cf0e2f333025372e219abcfde81c21fc2f8fb066414a5685dd3e0` | 8373 |
+| `SafeModuleSetup.hex` | `0x2dd68b007B46fBe91B9A7c3EDa5A7a1063cB5b47` | `0xaf2d170bb766d2773c3fa88717f5b3599827478074d3767d1dee55e5c2f3fbcb` | 547 |
+
+safe-modules `modules/4337` v0.3.0, captured 2026-11-04 from Ethereum mainnet and
+byte-identical on Polygon and Base. Both came through the Arachnid proxy with salt 0:
+`0x2807658b0adb7f31df418beca951a9c358b8b3337dee2fbefb313423ad95ad32` (block 19704903,
+2024-04-21) and `0x1e0c8986cdf927586becb27df4b579b98875ec4a221ad901a537e9af0d49acec`
+(block 19565060, 2024-04-02). Together with the v1.4.1 suite and EntryPoint v0.7 they
+let a Safe act as an ERC-4337 account: SafeModuleSetup enables the module during
+`setup`, and the module serves as the Safe's fallback handler.
+
+- `Safe4337Module` bakes `SUPPORTED_ENTRYPOINT`, EntryPoint v0.7, also in genesis. It
+  computes its EIP-712 domain separator from `block.chainid` on every call, so its
+  Ethereum bytes need no caveat. SafeModuleSetup bakes nothing. Neither stores
+  anything.
+
 ## Re-verifying
 
 ```bash
@@ -190,3 +352,17 @@ ADDR=0x1d31F259eE307358a26dFb23EB365939E8641195
 ```
 
 Those five were also captured on Polygon and Base and are identical there.
+
+Files in subdirectories take their path; for example, EntryPoint v0.7:
+
+```bash
+ADDR=0x0000000071727De22E5E9d8BAf0edAc6f37da032
+[ "$(cast code $ADDR --rpc-url $ETHEREUM_RPC_URL)" = "$(cat erc4337/EntryPointV07.hex)" ] \
+  && echo "byte-exact"
+```
+
+On a second chain the same check holds for every file except
+`erc4337/EntryPointV08.hex` and `permit2/Permit2.hex`, which differ there only in the
+cached chain id and domain separator described above. Storage can be compared too:
+`cast storage $ADDR 4` on a Safe v1.3.0 singleton and `cast storage $ADDR 2` on
+EntryPoint v0.6 or v0.7 return the value genesis writes.

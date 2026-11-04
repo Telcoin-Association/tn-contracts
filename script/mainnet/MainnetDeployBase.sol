@@ -27,7 +27,6 @@ import { DeploymentsResolver } from "../../deployments/DeploymentsResolver.sol";
 ///      and never holds a privileged role, so any funded EOA can run these scripts.
 abstract contract MainnetDeployBase is Script {
     string internal constant DEPLOYMENTS_PATH = "/deployments/deployments-mainnet.json";
-    string internal constant INITCODE_DIR = "/deployments/canonical-initcode/";
 
     Deployments internal deployments;
     /// @notice Genesis governance Safe; owner of every owner-gated contract deployed here
@@ -88,16 +87,6 @@ abstract contract MainnetDeployBase is Script {
             string.concat("MainnetDeploy: CREATE2 deploy failed for ", label)
         );
         console2.log(string.concat(label, " deployed at"), deployed);
-    }
-
-    /// @notice Reads vendored canonical initcode and checks it against its pinned hash
-    /// @param relativeFile Path under `deployments/canonical-initcode/`
-    function _readInitcode(string memory relativeFile, bytes32 expectedHash) internal view returns (bytes memory code) {
-        code = vm.parseBytes(vm.readFile(string.concat(vm.projectRoot(), INITCODE_DIR, relativeFile)));
-        require(
-            keccak256(code) == expectedHash,
-            string.concat("MainnetDeploy: vendored initcode hash mismatch for ", relativeFile)
-        );
     }
 
     function _requireCode(address target, string memory label) internal view {

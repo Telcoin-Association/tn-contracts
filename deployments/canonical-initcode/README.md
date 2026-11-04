@@ -1,16 +1,19 @@
-# Canonical initcode for post-genesis deployments
+# Canonical initcode
 
-Byte-exact creation data for third-party contracts that the mainnet scripts under
-`script/mainnet/deploy/` land at their canonical cross-chain addresses after genesis.
-Each file was captured from the original Ethereum mainnet deployment, and every
-address below was re-derived from these bytes before they were committed. The
-scripts check each file's keccak256 before using it, so a corrupted or tampered file
-fails loudly.
+Byte-exact creation data for the Safe v1.3.0 suite and the ERC-4337 EntryPoints,
+captured from their original Ethereum mainnet deployments. Every address below was
+re-derived from these bytes before they were committed, and each user checks the
+file's keccak256 before using it, so a corrupted or tampered file fails loudly.
 
-The genesis counterpart, runtime bytecode etched at genesis, lives in
-`deployments/genesis/canonical-bytecode/`.
+Genesis etches these contracts' runtime bytes, vendored in
+`deployments/genesis/canonical-bytecode/`. The creation code here backs the proof that
+the etch is right: the genesis tests under `test/genesis/` replay each original
+deployment on a fresh chain that has only the deterministic deployers, and check that
+it produces the same runtime bytes at the same address and writes exactly the
+storage the generator writes, nothing more. The Safe v1.3.0 proxy factory's creation
+code also lets the tests deploy its eip155 copy, which genesis leaves to anyone.
 
-## Why replay the original deployments
+## Why the original creation code
 
 These contracts are deployed on every major chain at the same address, and wallets,
 SDKs, bundlers and indexers hardcode those addresses. The address is a function of
@@ -40,6 +43,12 @@ of those transactions is `salt ‖ initcode`; the files hold the initcode only.
 The same bytes were used to deploy the suite on the Adiri testnet, where the
 resulting runtime code matched Ethereum's byte for byte.
 
+Sent through the Safe Singleton Factory (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`)
+with salt 0 instead, the same files produce the suite's eip155 addresses, for example
+`GnosisSafe` at `0x69f4D1788e39c87893C980c06EdF4b7f686e2938`, `GnosisSafeL2` at
+`0xfb1bffC9d739B8D520DaF37dF666da4C687191EA` and `GnosisSafeProxyFactory` at
+`0xC22834581EbC8527d974F8a1c97E1bEA4EF910BC`.
+
 ## ERC-4337 EntryPoint (`erc4337/`)
 
 Initcode from the Ethereum deployment transactions to the Arachnid proxy. v0.6 uses the
@@ -55,26 +64,10 @@ EntryPoint v0.8 fixes its EIP-712 chain id and domain separator at construction,
 its runtime bytes differ on every chain; v0.6, v0.7 and every SenderCreator helper
 are byte-identical everywhere.
 
-## CreateX (`createx/`)
-
-`CreateX.presigned.hex` is CreateX's own presigned deployment transaction, the
-3,000,000 gas limit variant published in the CreateX repository under
-`scripts/presigned-createx-deployment-transactions/`. It is a pre-EIP-155 legacy
-transaction (no chain id, `v = 28`) signed by `0xeD456e05CaAb11d66C4c797dD6c1D6f9A7F352b5`
-at nonce 0, with a 100 gwei gas price, and creates
-`0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed`.
-
-| File | keccak256(raw signed transaction) |
-|---|---|
-| `CreateX.presigned.hex` | `0xb6274b80bc7cda162df89894c7748a5cb7ba2eaa6004183c41a1837c3b072f1e` |
-
-The Adiri testnet already carries CreateX from this transaction, which shows that
-Telcoin Network accepts unprotected legacy transactions.
-
 ## Refreshing
 
 These bytes never change: a different file would deploy to a different address and
 defeat the purpose. To re-verify a file, take the deployment transaction's input from
 an Ethereum archive node, strip the leading 32-byte salt, and compare keccak256 with
 the table. Then derive the address with
-`cast compute-address --salt <salt> --init-code-hash <hash> 0x4e59b44847b379578588920cA78FbF26c0B4956C`.
+`cast create2 --deployer 0x4e59b44847b379578588920cA78FbF26c0B4956C --salt <salt> --init-code-hash <hash>`.
