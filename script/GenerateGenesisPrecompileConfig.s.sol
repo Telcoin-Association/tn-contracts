@@ -24,7 +24,7 @@ import {WTEL} from "../src/WTEL.sol";
 /// at the canonical addresses, mirroring how Multicall3 and the Arachnid factory are
 /// already handled below.
 
-/// @dev The other third-party contracts etched here (the Safe v1.3.0 suite, the Safe passkey
+/// @dev The other third-party contracts etched here (the Safe v1.3.0 and v1.5.0 suites, the Safe passkey
 /// and 4337 modules, CreateX, the ERC-4337 EntryPoints and Permit2) follow the same rule:
 /// wallets, SDKs and bundlers hardcode their addresses, so genesis carries the exact bytes those
 /// addresses hold on Ethereum mainnet, from the same vendored directory.
@@ -141,6 +141,49 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         0x8155d988823a4f6f1bcbc76a64af8e510c4ce68819290d43cf24956bd24dee82;
     bytes32 constant SAFE_V130_SIMULATE_TX_ACCESSOR_CODEHASH =
         0xb3fb9763869f2c09a2ac5a425d2dd6060bf7ef46b3899049d71a711e71e00f04;
+
+    // ---------------------------------------------------------------------
+    // Canonical Safe v1.5.0 suite, deployed through the Safe Singleton Factory
+    // with salt 0 — addresses identical on all EVM chains
+    // ---------------------------------------------------------------------
+
+    address constant SAFE_V150_SINGLETON = 0xFf51A5898e281Db6DfC7855790607438dF2ca44b;
+    address constant SAFE_V150_L2_SINGLETON = 0xEdd160fEBBD92E350D4D398fb636302fccd67C7e;
+    address constant SAFE_V150_PROXY_FACTORY = 0x14F2982D601c9458F93bd70B218933A6f8165e7b;
+    address constant SAFE_V150_FALLBACK_HANDLER = 0x3EfCBb83A4A7AfcB4F68D501E2c2203a38be77f4;
+    address constant SAFE_V150_TOKEN_CALLBACK_HANDLER = 0x54e86d004d71a8D2112ec75FaCE57D730b0433F3;
+    address constant SAFE_V150_EXTENSIBLE_FALLBACK_HANDLER = 0x85a8ca358D388530ad0fB95D0cb89Dd44Fc242c3;
+    address constant SAFE_V150_TO_L2_SETUP = 0x900C7589200010D6C6eCaaE5B06EBe653bc2D82a;
+    address constant SAFE_V150_MULTI_SEND = 0x218543288004CD07832472D464648173c77D7eB7;
+    address constant SAFE_V150_MULTI_SEND_CALL_ONLY = 0xA83c336B20401Af773B6219BA5027174338D1836;
+    address constant SAFE_V150_SIGN_MESSAGE_LIB = 0x4FfeF8222648872B3dE295Ba1e49110E61f5b5aa;
+    address constant SAFE_V150_CREATE_CALL = 0x2Ef5ECfbea521449E4De05EDB1ce63B75eDA90B4;
+    address constant SAFE_V150_SIMULATE_TX_ACCESSOR = 0x07EfA797c55B5DdE3698d876b277aBb6B893654C;
+    address constant SAFE_V150_MIGRATION = 0x6439e7ABD8Bb915A5263094784C5CF561c4172AC;
+
+    /// @dev keccak256 of the vendored runtime bytecode; asserted before etching
+    bytes32 constant SAFE_V150_CODEHASH = 0xdda019cbd7c867a533a2a86e5c53434fdc50b13122b5a5ddb4a8df61b31c20f2;
+    bytes32 constant SAFE_V150_L2_CODEHASH = 0x180193227186ccb85316c94db1f0d156ed932b14712cfaac78901899178572dc;
+    bytes32 constant SAFE_V150_PROXY_FACTORY_CODEHASH =
+        0x967dae4cda22b0c9ef7f31b010bdc1ceb0af9904b0c3dc060b5302e4c18a4529;
+    bytes32 constant SAFE_V150_FALLBACK_HANDLER_CODEHASH =
+        0x3c6a85bcf7b563daa624b884b4e9a1b9fa5371edde7be945d998071a48f28bbc;
+    bytes32 constant SAFE_V150_TOKEN_CALLBACK_HANDLER_CODEHASH =
+        0xcbc723172700efa52cc33ee26c7fc7e284edc8097f9dc307857fe525fec98cd8;
+    bytes32 constant SAFE_V150_EXTENSIBLE_FALLBACK_HANDLER_CODEHASH =
+        0xba5bafdfba82e226b6dc8ae29bedf5026bd854ab4bee00128ca322717a5f2acf;
+    bytes32 constant SAFE_V150_TO_L2_SETUP_CODEHASH =
+        0xf6034d841bcbff8912aa55526b0f1609212536aaf60bb16f5e8a269a4ab38f18;
+    bytes32 constant SAFE_V150_MULTI_SEND_CODEHASH = 0xca1147a12963172a93910c5cb2bfa5ad0e941c7f03fc7eb017dd06a8ea4e5604;
+    bytes32 constant SAFE_V150_MULTI_SEND_CALL_ONLY_CODEHASH =
+        0xcdbdcec38d2f1c7d961b0029ff8416b7e86e9974d6f0e9c9580c7d17fcfb6663;
+    bytes32 constant SAFE_V150_SIGN_MESSAGE_LIB_CODEHASH =
+        0xd61840855da008da59a00fc03fb71455b4f70bdca1f56f9504f072ed8d90c50e;
+    bytes32 constant SAFE_V150_CREATE_CALL_CODEHASH =
+        0x6b7d8d29bdf7004c4617d95041923774f3f7e74b056bff55c1861c9ec92ce54f;
+    bytes32 constant SAFE_V150_SIMULATE_TX_ACCESSOR_CODEHASH =
+        0x706db4bb6151f75a5b3845724174e201c59046dfbe65b4e5909ad4b88f8f752d;
+    bytes32 constant SAFE_V150_MIGRATION_CODEHASH = 0x52d7472fa02c3a574544f9b5a4ed4c7777e4e3315217e368926b51e1cc6014ea;
 
     // ---------------------------------------------------------------------
     // CreateX, ERC-4337 EntryPoints, Permit2 and the Safe 4337 module
@@ -526,6 +569,34 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             SAFE_V130_SIMULATE_TX_ACCESSOR, PREDEPLOY_NONCE, "safe v1.3.0 simulate tx accessor", false
         );
 
+        // safe v1.5.0 suite, the latest Safe release. Other chains deployed it through the Safe
+        // Singleton Factory with salt 0, which genesis also carries, so anyone could deploy it
+        // later; etching it lets v1.5.0 Safes exist from block 0. Like v1.4.1's, the v1.5.0 proxy
+        // factory refuses a singleton without code. The singletons carry their constructors'
+        // `threshold = 1`
+        instantiateSafeV150Suite();
+        _yamlAppendCanonical(SAFE_V150_SINGLETON, PREDEPLOY_NONCE, "safe v1.5.0 impl", true);
+        _yamlAppendCanonical(SAFE_V150_L2_SINGLETON, PREDEPLOY_NONCE, "safe v1.5.0 l2 impl", true);
+        _yamlAppendCanonical(SAFE_V150_PROXY_FACTORY, PREDEPLOY_NONCE, "safe v1.5.0 proxy factory", false);
+        _yamlAppendCanonical(
+            SAFE_V150_FALLBACK_HANDLER, PREDEPLOY_NONCE, "safe v1.5.0 compatibility fallback handler", false
+        );
+        _yamlAppendCanonical(
+            SAFE_V150_TOKEN_CALLBACK_HANDLER, PREDEPLOY_NONCE, "safe v1.5.0 token callback handler", false
+        );
+        _yamlAppendCanonical(
+            SAFE_V150_EXTENSIBLE_FALLBACK_HANDLER, PREDEPLOY_NONCE, "safe v1.5.0 extensible fallback handler", false
+        );
+        _yamlAppendCanonical(SAFE_V150_TO_L2_SETUP, PREDEPLOY_NONCE, "safe v1.5.0 to l2 setup", false);
+        _yamlAppendCanonical(SAFE_V150_MULTI_SEND, PREDEPLOY_NONCE, "safe v1.5.0 multisend", false);
+        _yamlAppendCanonical(SAFE_V150_MULTI_SEND_CALL_ONLY, PREDEPLOY_NONCE, "safe v1.5.0 multisend call only", false);
+        _yamlAppendCanonical(SAFE_V150_SIGN_MESSAGE_LIB, PREDEPLOY_NONCE, "safe v1.5.0 sign message lib", false);
+        _yamlAppendCanonical(SAFE_V150_CREATE_CALL, PREDEPLOY_NONCE, "safe v1.5.0 create call", false);
+        _yamlAppendCanonical(
+            SAFE_V150_SIMULATE_TX_ACCESSOR, PREDEPLOY_NONCE, "safe v1.5.0 simulate tx accessor", false
+        );
+        _yamlAppendCanonical(SAFE_V150_MIGRATION, PREDEPLOY_NONCE, "safe v1.5.0 migration", false);
+
         // createx (no storage). Its only route to the canonical address after genesis is the
         // author's presigned nonce-0 transaction (100 gwei, a top-up to a third-party EOA), so
         // it is etched instead, and the deployer's nonce 0 is marked spent
@@ -793,6 +864,41 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         _etchCanonical(
             "safe-v1.3.0/SimulateTxAccessor", SAFE_V130_SIMULATE_TX_ACCESSOR, SAFE_V130_SIMULATE_TX_ACCESSOR_CODEHASH
         );
+    }
+
+    /// @dev The full v1.5.0 suite (all 13 contracts of its `canonical` registry) at its canonical
+    /// addresses. SafeToL2Setup, MultiSend and SimulateTxAccessor bake `address(this)`; SafeMigration
+    /// bakes it too, along with the v1.5.0 Safe, SafeL2 and fallback handler addresses. Every proxy
+    /// the factory creates carries the runtime in `safe-v1.5.0/SafeProxy.hex`, which is not an
+    /// account of its own
+    function instantiateSafeV150Suite() public {
+        _etchCanonicalSingleton("safe-v1.5.0/Safe", SAFE_V150_SINGLETON, SAFE_V150_CODEHASH);
+        _etchCanonicalSingleton("safe-v1.5.0/SafeL2", SAFE_V150_L2_SINGLETON, SAFE_V150_L2_CODEHASH);
+        _etchCanonical("safe-v1.5.0/SafeProxyFactory", SAFE_V150_PROXY_FACTORY, SAFE_V150_PROXY_FACTORY_CODEHASH);
+        _etchCanonical(
+            "safe-v1.5.0/CompatibilityFallbackHandler", SAFE_V150_FALLBACK_HANDLER, SAFE_V150_FALLBACK_HANDLER_CODEHASH
+        );
+        _etchCanonical(
+            "safe-v1.5.0/TokenCallbackHandler",
+            SAFE_V150_TOKEN_CALLBACK_HANDLER,
+            SAFE_V150_TOKEN_CALLBACK_HANDLER_CODEHASH
+        );
+        _etchCanonical(
+            "safe-v1.5.0/ExtensibleFallbackHandler",
+            SAFE_V150_EXTENSIBLE_FALLBACK_HANDLER,
+            SAFE_V150_EXTENSIBLE_FALLBACK_HANDLER_CODEHASH
+        );
+        _etchCanonical("safe-v1.5.0/SafeToL2Setup", SAFE_V150_TO_L2_SETUP, SAFE_V150_TO_L2_SETUP_CODEHASH);
+        _etchCanonical("safe-v1.5.0/MultiSend", SAFE_V150_MULTI_SEND, SAFE_V150_MULTI_SEND_CODEHASH);
+        _etchCanonical(
+            "safe-v1.5.0/MultiSendCallOnly", SAFE_V150_MULTI_SEND_CALL_ONLY, SAFE_V150_MULTI_SEND_CALL_ONLY_CODEHASH
+        );
+        _etchCanonical("safe-v1.5.0/SignMessageLib", SAFE_V150_SIGN_MESSAGE_LIB, SAFE_V150_SIGN_MESSAGE_LIB_CODEHASH);
+        _etchCanonical("safe-v1.5.0/CreateCall", SAFE_V150_CREATE_CALL, SAFE_V150_CREATE_CALL_CODEHASH);
+        _etchCanonical(
+            "safe-v1.5.0/SimulateTxAccessor", SAFE_V150_SIMULATE_TX_ACCESSOR, SAFE_V150_SIMULATE_TX_ACCESSOR_CODEHASH
+        );
+        _etchCanonical("safe-v1.5.0/SafeMigration", SAFE_V150_MIGRATION, SAFE_V150_MIGRATION_CODEHASH);
     }
 
     /// @dev CreateX bakes only `address(this)` (`_SELF`) and its constructor writes no storage
