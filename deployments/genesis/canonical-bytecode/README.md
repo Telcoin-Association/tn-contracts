@@ -2,9 +2,9 @@
 
 Byte-exact runtime bytecode of the third-party contracts that genesis etches at
 their canonical cross-chain addresses: the Safe v1.4.1 suite and the Safe passkey
-module (files at the top level), and the Safe v1.3.0 suite, CreateX, the ERC-4337
-EntryPoints, Permit2 and the Safe 4337 module (one subdirectory per batch). The
-v1.4.1 suite comes first.
+module (files at the top level), and the Safe v1.3.0 and v1.5.0 suites, CreateX, the
+ERC-4337 EntryPoints, Permit2 and the Safe 4337 module (one subdirectory per batch).
+The v1.4.1 suite comes first.
 
 Byte-exact runtime bytecode of the canonical Safe v1.4.1 suite, captured from
 the live Ethereum mainnet deployments with `cast code <address>` (2026-08-24)
@@ -232,6 +232,44 @@ transactions and vendors their creation code; the eip155 ones are
   higher nonce on Ethereum because `createProxy` uses `CREATE`; those proxies'
   addresses depend on each chain's history anyway, so Telcoin Network starts the
   factory fresh.
+
+## Safe v1.5.0 suite (`safe-v1.5.0/`)
+
+The 13 contracts of the safe-deployments v1.5.0 `canonical` registry, plus the runtime every v1.5.0 proxy carries.
+Captured 2026-11-21 with `cast code` from Ethereum mainnet and verified byte-identical on Base and Sepolia.
+The keccak256 of each registry contract's file equals the registry's `codeHash`.
+
+| File | Address | keccak256(runtime) | Bytes |
+|---|---|---|---|
+| `Safe.hex` | `0xFf51A5898e281Db6DfC7855790607438dF2ca44b` | `0xdda019cbd7c867a533a2a86e5c53434fdc50b13122b5a5ddb4a8df61b31c20f2` | 21451 |
+| `SafeL2.hex` | `0xEdd160fEBBD92E350D4D398fb636302fccd67C7e` | `0x180193227186ccb85316c94db1f0d156ed932b14712cfaac78901899178572dc` | 22231 |
+| `SafeProxyFactory.hex` | `0x14F2982D601c9458F93bd70B218933A6f8165e7b` | `0x967dae4cda22b0c9ef7f31b010bdc1ceb0af9904b0c3dc060b5302e4c18a4529` | 3321 |
+| `SafeProxy.hex` | none (runtime of every proxy the factory creates) | `0x4e381985ca68b3e5d27b4425fa581c19cf33146d3f887a3cfca96f55528ea46f` | 123 |
+| `CompatibilityFallbackHandler.hex` | `0x3EfCBb83A4A7AfcB4F68D501E2c2203a38be77f4` | `0x3c6a85bcf7b563daa624b884b4e9a1b9fa5371edde7be945d998071a48f28bbc` | 6294 |
+| `TokenCallbackHandler.hex` | `0x54e86d004d71a8D2112ec75FaCE57D730b0433F3` | `0xcbc723172700efa52cc33ee26c7fc7e284edc8097f9dc307857fe525fec98cd8` | 2467 |
+| `ExtensibleFallbackHandler.hex` | `0x85a8ca358D388530ad0fB95D0cb89Dd44Fc242c3` | `0xba5bafdfba82e226b6dc8ae29bedf5026bd854ab4bee00128ca322717a5f2acf` | 11659 |
+| `SafeToL2Setup.hex` | `0x900C7589200010D6C6eCaaE5B06EBe653bc2D82a` | `0xf6034d841bcbff8912aa55526b0f1609212536aaf60bb16f5e8a269a4ab38f18` | 820 |
+| `MultiSend.hex` | `0x218543288004CD07832472D464648173c77D7eB7` | `0xca1147a12963172a93910c5cb2bfa5ad0e941c7f03fc7eb017dd06a8ea4e5604` | 640 |
+| `MultiSendCallOnly.hex` | `0xA83c336B20401Af773B6219BA5027174338D1836` | `0xcdbdcec38d2f1c7d961b0029ff8416b7e86e9974d6f0e9c9580c7d17fcfb6663` | 421 |
+| `SignMessageLib.hex` | `0x4FfeF8222648872B3dE295Ba1e49110E61f5b5aa` | `0xd61840855da008da59a00fc03fb71455b4f70bdca1f56f9504f072ed8d90c50e` | 966 |
+| `CreateCall.hex` | `0x2Ef5ECfbea521449E4De05EDB1ce63B75eDA90B4` | `0x6b7d8d29bdf7004c4617d95041923774f3f7e74b056bff55c1861c9ec92ce54f` | 1099 |
+| `SimulateTxAccessor.hex` | `0x07EfA797c55B5DdE3698d876b277aBb6B893654C` | `0x706db4bb6151f75a5b3845724174e201c59046dfbe65b4e5909ad4b88f8f752d` | 850 |
+| `SafeMigration.hex` | `0x6439e7ABD8Bb915A5263094784C5CF561c4172AC` | `0x52d7472fa02c3a574544f9b5a4ed4c7777e4e3315217e368926b51e1cc6014ea` | 2051 |
+
+All 13 were created through the Safe Singleton Factory with salt 0, on Ethereum between 2025-06-24 and 2025-07-03.
+`deployments/canonical-initcode/README.md` lists the creation transactions and vendors their creation code.
+
+### Safe v1.5.0 notes
+
+- **The proxy runtime.** `SafeProxy.hex` is not a registry entry.
+  It is the code of every proxy `SafeProxyFactory` creates, whatever its singleton, which the proxy keeps in storage slot 0.
+  The v1.5.0 factory has no `proxyRuntimeCode()` getter, so the bytes come from real v1.5.0 proxies: `0xad90776d…9634` on Ethereum, `0xbb495783…0baa` on Base and `0x17b40135…737d` on Sepolia, identical on all three.
+  They are also exactly what the factory deploys: an `eth_call` creation of `proxyCreationCode() ‖ abi.encode(SafeL2)` returns the same 123 bytes on each chain.
+- **Immutables.** `SafeToL2Setup`, `MultiSend` and `SimulateTxAccessor` bake `address(this)` into their runtime once, and `SafeMigration` five times, so these bytes are valid only at their canonical addresses.
+  `SafeMigration` also bakes the v1.5.0 `Safe`, `SafeL2` and `CompatibilityFallbackHandler` addresses, three times each.
+  No other file in this directory contains the address of any contract in the suite.
+- **Storage.** Both singleton constructors set `threshold = 1` (slot 4), and `cast storage <singleton> 4` returns 1 on Ethereum, Base and Sepolia.
+- **Changes from v1.4.1.** The v1.5.0 registry has no `SafeToL2Migration`, which the release deprecated, and adds `ExtensibleFallbackHandler`.
 
 ## CreateX (`createx/`)
 
