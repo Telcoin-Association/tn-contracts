@@ -36,6 +36,8 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     string dest;
     string fileName = "/deployments/genesis/precompile-config.yaml";
     string bytecodeDir = "/deployments/genesis/canonical-bytecode/";
+    /// @dev The validator Safe addresses in validator order, read by the node's genesis tooling
+    string validatorSafesFileName = "/deployments/genesis/validator-safes.yaml";
 
     // ---------------------------------------------------------------------
     // Canonical Safe v1.4.1 suite — addresses identical on all EVM chains
@@ -260,6 +262,14 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
 
     /// @dev TEL genesis allocation to the governance safe for gas
     uint256 public constant governanceInitialBalance = 10e18;
+
+    /// @dev Each genesis validator is staked under its own Safe; validator `i` is assigned
+    /// `VALIDATOR_SAFE_BASE + i`, from `0x…07310005eed0` through `0x…07310005eed9`
+    uint256 constant VALIDATOR_SAFE_COUNT = 10;
+    address constant VALIDATOR_SAFE_BASE = 0x000000000000000000000000000007310005eED0;
+
+    /// @dev `FallbackManager.FALLBACK_HANDLER_STORAGE_SLOT`, the same in Safe v1.4.1 and v1.5.0
+    bytes32 constant SAFE_FALLBACK_HANDLER_SLOT = keccak256("fallback_manager.handler.address");
 
     // Safe infrastructure
     Safe safeImpl;
@@ -653,6 +663,24 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             )
         );
 
+        // validator safes (have storage), one per genesis validator, at their assigned addresses.
+        // The v1.5.0 suite must already be etched above: the v1.5.0 factory refuses a singleton
+        // without code, and `setup` delegatecalls it
+        address[] memory simulatedValidatorSafes = instantiateValidatorSafes();
+        for (uint256 i; i < VALIDATOR_SAFE_COUNT; ++i) {
+            assertTrue(
+                yamlAppendGenesisAccount(
+                    dest,
+                    simulatedValidatorSafes[i],
+                    _validatorSafe(i),
+                    PREDEPLOY_NONCE,
+                    sharedBalance,
+                    string.concat("validator safe ", vm.toString(i))
+                )
+            );
+        }
+        _writeValidatorSafeList();
+
         // wrapped TEL (no constructor, no storage; name/symbol/decimals are constants)
         address simulatedWTEL = address(instantiateWTEL());
         assertFalse(
@@ -963,13 +991,25 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     function instantiateGovernanceSafe() public returns (Safe simulatedDeployment) {
         vm.startStateDiffRecording();
 
+        bytes memory setupData = _safeSetupData(address(compatibilityFallbackHandler));
+        simulatedDeployment =
+            Safe(payable(address(safeProxyFactory.createProxyWithNonce(SAFE_L2_SINGLETON, setupData, 0x0))));
+
+        Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
+        bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
+        copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
+    }
+
+    /// @dev `Safe.setup` calldata for every Safe genesis carries: the governance owners and threshold
+    /// from `_setGovernanceSafeConfig`, no setup delegatecall, `fallbackHandler`, and no deployment
+    /// payment. The `setup` ABI is the same in Safe v1.4.1 and v1.5.0
+    function _safeSetupData(address fallbackHandler) internal view returns (bytes memory) {
         address to;
         bytes memory data;
-        address fallbackHandler = address(compatibilityFallbackHandler);
         address paymentToken;
         uint256 payment;
         address paymentReceiver;
-        bytes memory setupData = abi.encodeWithSelector(
+        return abi.encodeWithSelector(
             Safe.setup.selector,
             safeOwners,
             safeThreshold,
@@ -980,12 +1020,66 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
             payment,
             paymentReceiver
         );
-        simulatedDeployment =
-            Safe(payable(address(safeProxyFactory.createProxyWithNonce(SAFE_L2_SINGLETON, setupData, 0x0))));
+    }
 
-        Vm.AccountAccess[] memory safeRecords = vm.stopAndReturnStateDiff();
-        bytes32[] memory slots = saveWrittenSlots(address(simulatedDeployment), safeRecords);
-        copyContractState(address(simulatedDeployment), address(governanceSafe), slots);
+    /// @dev Builds the ten validator Safes the genesis validators are staked under. Each is a proxy
+    /// over the v1.5.0 SafeL2 singleton with the v1.5.0 CompatibilityFallbackHandler, no modules and
+    /// no guard, and its owners and threshold are the governance Safe's: `_safeSetupData` reads the
+    /// same `safeOwners` and `safeThreshold`. Like the governance Safe, each is created through the
+    /// real factory (the canonical v1.5.0 one, salt nonce = validator index) and its code and written
+    /// storage are then copied to its assigned address. The addresses are assigned rather than
+    /// derived, so a correction to the governance owners or threshold before genesis changes the
+    /// Safes' storage and never their addresses
+    function instantiateValidatorSafes() public returns (address[] memory simulatedDeployments) {
+        bytes memory setupData = _safeSetupData(SAFE_V150_FALLBACK_HANDLER);
+        simulatedDeployments = new address[](VALIDATOR_SAFE_COUNT);
+        for (uint256 i; i < VALIDATOR_SAFE_COUNT; ++i) {
+            vm.startStateDiffRecording();
+            // the v1.5.0 factory keeps the v1.4.1 `createProxyWithNonce` ABI
+            address simulated = address(
+                SafeProxyFactory(SAFE_V150_PROXY_FACTORY).createProxyWithNonce(SAFE_V150_L2_SINGLETON, setupData, i)
+            );
+            Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
+            bytes32[] memory slots = saveWrittenSlots(simulated, records);
+
+            address target = _validatorSafe(i);
+            copyContractState(simulated, target, slots);
+            _assertValidatorSafe(target);
+            simulatedDeployments[i] = simulated;
+        }
+    }
+
+    /// @dev The assigned address of validator `index`'s Safe
+    function _validatorSafe(uint256 index) internal pure returns (address) {
+        require(index < VALIDATOR_SAFE_COUNT, "validator safe index out of range");
+        return address(uint160(VALIDATOR_SAFE_BASE) + uint160(index));
+    }
+
+    /// @dev Asserts a copied validator Safe carries the governance owners and threshold, the v1.5.0
+    /// SafeL2 singleton and the v1.5.0 CompatibilityFallbackHandler
+    function _assertValidatorSafe(address safe) internal view {
+        assertEq(
+            address(uint160(uint256(vm.load(safe, bytes32(0))))), SAFE_V150_L2_SINGLETON, "validator safe: singleton"
+        );
+        assertEq(
+            address(uint160(uint256(vm.load(safe, SAFE_FALLBACK_HANDLER_SLOT)))),
+            SAFE_V150_FALLBACK_HANDLER,
+            "validator safe: fallback handler"
+        );
+        assertEq(Safe(payable(safe)).getOwners(), safeOwners, "validator safe: owners");
+        assertEq(Safe(payable(safe)).getThreshold(), safeThreshold, "validator safe: threshold");
+    }
+
+    /// @dev Writes `validator-safes.yaml`: a yaml sequence of the validator Safe addresses,
+    /// checksummed and quoted, in validator order
+    function _writeValidatorSafeList() internal {
+        string memory path = string.concat(root, validatorSafesFileName);
+        if (vm.exists(path)) vm.removeFile(path);
+        vm.writeLine(path, "# Generated by script/GenerateGenesisPrecompileConfig.s.sol; do not edit by hand.");
+        vm.writeLine(path, "# The genesis validator Safes in validator order: entry N is validator N's Safe.");
+        for (uint256 i; i < VALIDATOR_SAFE_COUNT; ++i) {
+            vm.writeLine(path, string.concat('- "', vm.toString(_validatorSafe(i)), '"'));
+        }
     }
 
     /// @dev Writes the `nonce`/`balance` pair shared by every predeploy whose entry is
