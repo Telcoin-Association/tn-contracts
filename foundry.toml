@@ -15,6 +15,7 @@ libs = ["lib"]
 fs_permissions = [
     { access = "read-write", path = "./deployments/genesis/consensus-registry-config.yaml" },
     { access = "read-write", path = "./deployments/genesis/precompile-config.yaml" },
+    { access = "read-write", path = "./deployments/genesis/validator-safes.yaml" },
     { access = "read-write", path = "./deployments/deployments-testnet.json" },
     { access = "read-write", path = "./deployments/deployments-devnet.json" },
     { access = "read-write", path = "./deployments/deployments-mainnet.json" },

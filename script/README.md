@@ -2,11 +2,11 @@
 
 ## Genesis Precompile Config Generation
 
-**`GenerateGenesisPrecompileConfig.s.sol`** generates `deployments/genesis/precompile-config.yaml`, which Telcoin Network protocol uses to instantiate contracts at genesis.
+**`GenerateGenesisPrecompileConfig.s.sol`** generates `deployments/genesis/precompile-config.yaml`, which Telcoin Network protocol uses to instantiate contracts at genesis, and `deployments/genesis/validator-safes.yaml`, the list of validator Safe addresses.
 
 ### What it does
 
-Writes every genesis account (54 in total) to the YAML: addresses, nonces, balances, bytecode, and storage slots.
+Writes every genesis account (77 in total) to the YAML: addresses, nonces, balances, bytecode, and storage slots.
 
 **Canonical Safe v1.4.1 suite** (13 contracts, byte-exact runtime bytes vendored under `deployments/genesis/canonical-bytecode/` — see its README for provenance and hashes), etched at the canonical cross-chain addresses:
 
@@ -23,6 +23,7 @@ Writes every genesis account (54 in total) to the YAML: addresses, nonces, balan
 **Other canonical infrastructure** (byte-exact Ethereum runtime bytes, one subdirectory of `deployments/genesis/canonical-bytecode/` per batch), etched so the addresses wallets, SDKs and bundlers hardcode work from block 0:
 
 - **Safe v1.3.0 suite** (13 accounts) - both singletons at their canonical and eip155 addresses, each with `threshold = 1`, plus the proxy factory, fallback handler, MultiSend and MultiSendCallOnly (canonical and eip155), SignMessageLib, CreateCall and SimulateTxAccessor. The v1.3.0 proxy factories do not check that the singleton has code and anyone can deploy them, so a counterfactual v1.3.0 Safe address could be claimed on a chain where the singletons arrive later; in genesis they never arrive late. Real v1.3.0 Safes created on other chains (for example the Polygon Safe `0x583D596b…90B2`) land at the same address on TN
+- **Safe v1.5.0 suite** (13 accounts) - all 13 contracts of the v1.5.0 `canonical` registry at the addresses the Safe Singleton Factory gives them with salt 0: both singletons, each with `threshold = 1`, the proxy factory, the compatibility, token callback and extensible fallback handlers, SafeToL2Setup, MultiSend, MultiSendCallOnly, SignMessageLib, CreateCall, SimulateTxAccessor and SafeMigration. SafeToL2Setup, MultiSend, SimulateTxAccessor and SafeMigration bake their own address into their bytes, so they work only at these addresses. Etching the suite lets v1.5.0 Safes exist from block 0
 - **CreateX** - at `0xba5Ed099…ba5Ed`. After genesis it could arrive only through its author's presigned nonce-0 transaction (100 gwei gas price, a top-up to a third-party EOA), so it is etched and that deployer EOA (`0xeD456e05…F352b5`) is included at nonce 1 to mark the transaction spent
 - **ERC-4337 EntryPoints v0.6, v0.7 and v0.8** with the SenderCreator each one's constructor creates. The EntryPoints are written at nonce 2 (their constructors `CREATE`d the SenderCreator at nonce 1); v0.6 and v0.7 carry their reentrancy guard's `NOT_ENTERED` in slot 2. v0.8 is the EIP-7702-aware version, and TN has EIP-7702 from genesis
 - **Permit2** - the token-approval layer routers and aggregators expect at `0x000000000022D473…8BA3`
@@ -33,6 +34,11 @@ EntryPoint v0.8 and Permit2 cache chain id 1 and Ethereum's EIP-712 domain separ
 **Governance and TEL**:
 
 - **Governance Safe** - a 3-of-7 multisig proxy on the **SafeL2** singleton (so Safe Transaction Service can index it) with hardcoded owner addresses and threshold, referencing the CompatibilityFallbackHandler, funded with 10 TEL for gas. The rest of the TEL genesis allocation (validator stakes, issuance) happens in the node's genesis ceremony, not in this yaml
+- **Validator Safes** (10 accounts) - one Safe per genesis validator, which the validator is staked under, at the assigned addresses `0x000000000000000000000000000007310005eed0` (validator 0) through `0x…07310005eed9` (validator 9).
+  Each is a proxy on the **SafeL2 v1.5.0** singleton with the v1.5.0 CompatibilityFallbackHandler, no modules, no guard and no TEL.
+  Its owners and threshold are the governance Safe's: the generator builds both from the same `_setGovernanceSafeConfig()` values, so a correction there changes the validator Safes too, and their addresses stay put.
+  Each is created through the v1.5.0 proxy factory and its code and storage are copied to its address, as for the governance Safe.
+  The generator also writes the ten addresses, in validator order, to `deployments/genesis/validator-safes.yaml` for the node's genesis tooling
 - **WTEL** - wrapped TEL (canonical WETH9 shape), genesis-assigned at the vanity address `0x00000000000000000000000000000000000037E1`. Live testnet and devnet predate this entry and keep their CREATE2 deployments until their next regenesis/reset
 - **TEL precompile** - `0x…07e1` gets one byte of code (`0xfe`) so EXTCODESIZE checks pass before the native Rust handler takes over
 
@@ -46,7 +52,7 @@ EntryPoint v0.8 and Permit2 cache chain id 1 and Ethereum's EIP-712 domain separ
 
 Re-run this script **any time you change**:
 
-- Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`)
+- Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`), which the validator Safes share
 - Vendored canonical bytecode under `deployments/genesis/canonical-bytecode/` (the generator asserts each file's keccak256 before etching)
 - Addresses in `deployments/deployments-mainnet.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`, `CompatibilityFallbackHandler`)
 - System contract bytecode (EIP-2935, EIP-4788)
@@ -58,16 +64,16 @@ Re-run this script **any time you change**:
 forge script script/GenerateGenesisPrecompileConfig.s.sol -vvvv
 ```
 
-No RPC URL or private key is needed - it runs entirely locally. The output is written to `deployments/genesis/precompile-config.yaml`.
+No RPC URL or private key is needed - it runs entirely locally. The output is written to `deployments/genesis/precompile-config.yaml` and `deployments/genesis/validator-safes.yaml`.
 
 After running, review the diff to verify the changes are correct:
 
 ```bash
-git diff deployments/genesis/precompile-config.yaml
+git diff deployments/genesis/
 ```
 
-CI regenerates the yaml and fails on any diff against the committed file
-(`Check genesis precompile-config.yaml drift` in `.github/workflows/test.yml`),
+CI regenerates both files and fails on any diff against the committed ones
+(`Check generated genesis yaml drift` in `.github/workflows/test.yml`),
 so a generator change merged without re-running the script — or a hand-edit to
 the yaml — cannot land silently.
 
@@ -84,7 +90,7 @@ specific to Telcoin Network. Each one does a single job and runs on its own:
 | `MainnetDeployUniswapV2.s.sol` | UniswapV2Factory and UniswapV2Router02 (no pairs) | genesis WTEL |
 | `MainnetDeployUniswapV3.s.sol` | UniswapV3Factory and the v3-periphery set (no pools) | genesis WTEL, Uniswap V2 |
 
-The canonical cross-chain contracts (Safe v1.3.0, CreateX, the ERC-4337 EntryPoints,
+The canonical cross-chain contracts (Safe v1.3.0 and v1.5.0, CreateX, the ERC-4337 EntryPoints,
 Permit2, the Safe 4337 module) are in genesis, described above, so they need no script.
 
 `MainnetDeployBase.sol` gives every script the same guarantees:
