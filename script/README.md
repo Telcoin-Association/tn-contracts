@@ -6,7 +6,7 @@
 
 ### What it does
 
-Writes every genesis account (77 in total) to the YAML: addresses, nonces, balances, bytecode, and storage slots.
+Writes every genesis account (87 in total) to the YAML: addresses, nonces, balances, bytecode, and storage slots.
 
 **Canonical Safe v1.4.1 suite** (13 contracts, byte-exact runtime bytes vendored under `deployments/genesis/canonical-bytecode/` — see its README for provenance and hashes), etched at the canonical cross-chain addresses:
 
@@ -33,12 +33,20 @@ EntryPoint v0.8 and Permit2 cache chain id 1 and Ethereum's EIP-712 domain separ
 
 **Governance and TEL**:
 
-- **Governance Safe** - a 3-of-7 multisig proxy on the **SafeL2** singleton (so Safe Transaction Service can index it) with hardcoded owner addresses and threshold, referencing the CompatibilityFallbackHandler, funded with 10 TEL for gas. The rest of the TEL genesis allocation (validator stakes, issuance) happens in the node's genesis ceremony, not in this yaml
+- **Governance Safe** - a 3-of-7 multisig proxy on the **SafeL2** singleton (so Safe Transaction Service can index it) with hardcoded owner addresses and threshold, referencing the CompatibilityFallbackHandler, funded with 10 TEL for gas.
+  Validator stakes and issuance are allocated in the node's genesis ceremony, not in this yaml
 - **Validator Safes** (10 accounts) - one Safe per genesis validator, which the validator is staked under, at the assigned addresses `0x000000000000000000000000000007310005eed0` (validator 0) through `0x…07310005eed9` (validator 9).
   Each is a proxy on the **SafeL2 v1.5.0** singleton with the v1.5.0 CompatibilityFallbackHandler, no modules, no guard and no TEL.
   Its owners and threshold are the governance Safe's: the generator builds both from the same `_setGovernanceSafeConfig()` values, so a correction there changes the validator Safes too, and their addresses stay put.
   Each is created through the v1.5.0 proxy factory and its code and storage are copied to its address, as for the governance Safe.
   The generator also writes the ten addresses, in validator order, to `deployments/genesis/validator-safes.yaml` for the node's genesis tooling
+- **Reserve Safes** (10 accounts) - Safes for the next ten validators to join mainnet, at the assigned addresses `0x000000000000000000000000000007a00005eed0` (reserve Safe 0) through `0x…07a00005eed9` (reserve Safe 9).
+  They are not staked at genesis.
+  Each holds 1,000,001 TEL, the 1,000,000 TEL stake plus 1 TEL for gas, so its owners can stake a new validator from it once governance mints that validator's ConsensusNFT.
+  Each is configured exactly like a validator Safe (same singleton, fallback handler, owners and threshold) and differs only in its address and balance.
+  The generator builds them with factory salt nonces 10 to 19, after the validator Safes' 0 to 9, because both use the same setup data.
+  Their 10,000,010 TEL in `precompile-config.yaml` is the first balance in the file other than the governance Safe's.
+  They are not listed in `validator-safes.yaml`, which keeps only the genesis validators' Safes
 - **WTEL** - wrapped TEL (canonical WETH9 shape), genesis-assigned at the vanity address `0x00000000000000000000000000000000000037E1`. Live testnet and devnet predate this entry and keep their CREATE2 deployments until their next regenesis/reset
 - **TEL precompile** - `0x…07e1` gets one byte of code (`0xfe`) so EXTCODESIZE checks pass before the native Rust handler takes over
 
@@ -52,11 +60,11 @@ EntryPoint v0.8 and Permit2 cache chain id 1 and Ethereum's EIP-712 domain separ
 
 Re-run this script **any time you change**:
 
-- Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`), which the validator Safes share
+- Governance safe owner addresses or threshold (`_setGovernanceSafeConfig()`), which the validator and reserve Safes share
 - Vendored canonical bytecode under `deployments/genesis/canonical-bytecode/` (the generator asserts each file's keccak256 before etching)
 - Addresses in `deployments/deployments-mainnet.json` that the script reads (e.g., `Safe`, `SafeImpl`, `SafeProxyFactory`, `CompatibilityFallbackHandler`)
 - System contract bytecode (EIP-2935, EIP-4788)
-- The governance Safe's genesis balance (`governanceInitialBalance`)
+- The governance Safe's genesis balance (`governanceInitialBalance`) or the reserve Safes' (`RESERVE_SAFE_BALANCE`)
 
 ### How to run
 

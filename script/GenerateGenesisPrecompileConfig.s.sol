@@ -268,6 +268,14 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
     uint256 constant VALIDATOR_SAFE_COUNT = 10;
     address constant VALIDATOR_SAFE_BASE = 0x000000000000000000000000000007310005eED0;
 
+    /// @dev Reserve Safes for the next ten validators that join after genesis. They are not staked at
+    /// genesis: each holds the 1,000,000 TEL stake plus 1 TEL for gas, so its owners can stake a new
+    /// validator from it. Reserve Safe `i` is assigned `RESERVE_SAFE_BASE + i`, from `0x…07a00005eed0`
+    /// through `0x…07a00005eed9`, and is configured exactly like a validator Safe
+    uint256 constant RESERVE_SAFE_COUNT = 10;
+    address constant RESERVE_SAFE_BASE = 0x000000000000000000000000000007A00005EED0;
+    uint256 constant RESERVE_SAFE_BALANCE = 1_000_001e18;
+
     /// @dev `FallbackManager.FALLBACK_HANDLER_STORAGE_SLOT`, the same in Safe v1.4.1 and v1.5.0
     bytes32 constant SAFE_FALLBACK_HANDLER_SLOT = keccak256("fallback_manager.handler.address");
 
@@ -681,6 +689,22 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         }
         _writeValidatorSafeList();
 
+        // reserve safes (have storage), built like the validator safes and prefunded so each can
+        // stake one of the next ten validators to join
+        address[] memory simulatedReserveSafes = instantiateReserveSafes();
+        for (uint256 i; i < RESERVE_SAFE_COUNT; ++i) {
+            assertTrue(
+                yamlAppendGenesisAccount(
+                    dest,
+                    simulatedReserveSafes[i],
+                    _reserveSafe(i),
+                    PREDEPLOY_NONCE,
+                    RESERVE_SAFE_BALANCE,
+                    string.concat("reserve safe ", vm.toString(i))
+                )
+            );
+        }
+
         // wrapped TEL (no constructor, no storage; name/symbol/decimals are constants)
         address simulatedWTEL = address(instantiateWTEL());
         assertFalse(
@@ -706,7 +730,7 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         safeOwners.push(0x2358CF87e62618663E781CE52EE7a7F777aC4e65); // l
         safeOwners.push(0x389C4bd707FAb237578A9603F55A02554CAa034b); // s
         safeOwners.push(0xDE5346d15Dc5e0D7b3bE7feFF5d96f548c321e88); // g
-        safeOwners.push(0xf5b3944629F9303fa94670B2a6611eE1b11Cd538); // p
+        safeOwners.push(0xB5DfE3a88c77a885362a9616405EAAbb5e0dB280); // p
         safeOwners.push(0xDCe4Ef7679E8A81EEE8c71917b21EbbCef45B5BA); // c
         safeOwners.push(0xa21B09Ff93A6ffc466F9d2D979fb2268fDaff248); // no
         safeOwners.push(0x5b9e70501a845FA8105B2f8228a0d243A98d97Fc); // ni
@@ -1022,29 +1046,53 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         );
     }
 
-    /// @dev Builds the ten validator Safes the genesis validators are staked under. Each is a proxy
-    /// over the v1.5.0 SafeL2 singleton with the v1.5.0 CompatibilityFallbackHandler, no modules and
-    /// no guard, and its owners and threshold are the governance Safe's: `_safeSetupData` reads the
-    /// same `safeOwners` and `safeThreshold`. Like the governance Safe, each is created through the
-    /// real factory (the canonical v1.5.0 one, salt nonce = validator index) and its code and written
-    /// storage are then copied to its assigned address. The addresses are assigned rather than
-    /// derived, so a correction to the governance owners or threshold before genesis changes the
-    /// Safes' storage and never their addresses
+    /// @dev Builds the ten validator Safes the genesis validators are staked under, with salt nonces
+    /// 0 to 9
     function instantiateValidatorSafes() public returns (address[] memory simulatedDeployments) {
+        return _instantiateV150Safes(VALIDATOR_SAFE_BASE, VALIDATOR_SAFE_COUNT, 0);
+    }
+
+    /// @dev Builds the ten reserve Safes and gives each `RESERVE_SAFE_BALANCE`. Their setup data is
+    /// the validator Safes', so they take the next salt nonces, 10 to 19, or the factory would derive
+    /// the validator Safes' simulated addresses again
+    function instantiateReserveSafes() public returns (address[] memory simulatedDeployments) {
+        simulatedDeployments = _instantiateV150Safes(RESERVE_SAFE_BASE, RESERVE_SAFE_COUNT, VALIDATOR_SAFE_COUNT);
+        for (uint256 i; i < RESERVE_SAFE_COUNT; ++i) {
+            vm.deal(_reserveSafe(i), RESERVE_SAFE_BALANCE);
+        }
+    }
+
+    /// @dev Builds `count` Safes at the assigned addresses `base + i`. Each is a proxy over the v1.5.0
+    /// SafeL2 singleton with the v1.5.0 CompatibilityFallbackHandler, no modules and no guard, and its
+    /// owners and threshold are the governance Safe's: `_safeSetupData` reads the same `safeOwners`
+    /// and `safeThreshold`. Like the governance Safe, each is created through the real factory (the
+    /// canonical v1.5.0 one, salt nonce `saltOffset + i`) and its code and written storage are then
+    /// copied to its assigned address. The addresses are assigned rather than derived, so a
+    /// correction to the governance owners or threshold before genesis changes the Safes' storage
+    /// and never their addresses
+    function _instantiateV150Safes(
+        address base,
+        uint256 count,
+        uint256 saltOffset
+    )
+        internal
+        returns (address[] memory simulatedDeployments)
+    {
         bytes memory setupData = _safeSetupData(SAFE_V150_FALLBACK_HANDLER);
-        simulatedDeployments = new address[](VALIDATOR_SAFE_COUNT);
-        for (uint256 i; i < VALIDATOR_SAFE_COUNT; ++i) {
+        simulatedDeployments = new address[](count);
+        for (uint256 i; i < count; ++i) {
             vm.startStateDiffRecording();
             // the v1.5.0 factory keeps the v1.4.1 `createProxyWithNonce` ABI
             address simulated = address(
-                SafeProxyFactory(SAFE_V150_PROXY_FACTORY).createProxyWithNonce(SAFE_V150_L2_SINGLETON, setupData, i)
+                SafeProxyFactory(SAFE_V150_PROXY_FACTORY)
+                    .createProxyWithNonce(SAFE_V150_L2_SINGLETON, setupData, saltOffset + i)
             );
             Vm.AccountAccess[] memory records = vm.stopAndReturnStateDiff();
             bytes32[] memory slots = saveWrittenSlots(simulated, records);
 
-            address target = _validatorSafe(i);
+            address target = address(uint160(base) + uint160(i));
             copyContractState(simulated, target, slots);
-            _assertValidatorSafe(target);
+            _assertV150Safe(target);
             simulatedDeployments[i] = simulated;
         }
     }
@@ -1055,19 +1103,23 @@ contract GenerateGenesisPrecompileConfig is GenesisPrecompiler, Script {
         return address(uint160(VALIDATOR_SAFE_BASE) + uint160(index));
     }
 
-    /// @dev Asserts a copied validator Safe carries the governance owners and threshold, the v1.5.0
-    /// SafeL2 singleton and the v1.5.0 CompatibilityFallbackHandler
-    function _assertValidatorSafe(address safe) internal view {
-        assertEq(
-            address(uint160(uint256(vm.load(safe, bytes32(0))))), SAFE_V150_L2_SINGLETON, "validator safe: singleton"
-        );
+    /// @dev The assigned address of reserve Safe `index`
+    function _reserveSafe(uint256 index) internal pure returns (address) {
+        require(index < RESERVE_SAFE_COUNT, "reserve safe index out of range");
+        return address(uint160(RESERVE_SAFE_BASE) + uint160(index));
+    }
+
+    /// @dev Asserts a copied validator or reserve Safe carries the governance owners and threshold,
+    /// the v1.5.0 SafeL2 singleton and the v1.5.0 CompatibilityFallbackHandler
+    function _assertV150Safe(address safe) internal view {
+        assertEq(address(uint160(uint256(vm.load(safe, bytes32(0))))), SAFE_V150_L2_SINGLETON, "v1.5.0 safe: singleton");
         assertEq(
             address(uint160(uint256(vm.load(safe, SAFE_FALLBACK_HANDLER_SLOT)))),
             SAFE_V150_FALLBACK_HANDLER,
-            "validator safe: fallback handler"
+            "v1.5.0 safe: fallback handler"
         );
-        assertEq(Safe(payable(safe)).getOwners(), safeOwners, "validator safe: owners");
-        assertEq(Safe(payable(safe)).getThreshold(), safeThreshold, "validator safe: threshold");
+        assertEq(Safe(payable(safe)).getOwners(), safeOwners, "v1.5.0 safe: owners");
+        assertEq(Safe(payable(safe)).getThreshold(), safeThreshold, "v1.5.0 safe: threshold");
     }
 
     /// @dev Writes `validator-safes.yaml`: a yaml sequence of the validator Safe addresses,
