@@ -74,7 +74,8 @@ interface ISafeProxy {
 /// Safe here is authorized with approved-hash signatures: each signing owner calls `approveHash` from
 /// its own address (`vm.prank`), and a non-owner relayer submits the transaction. No owner, threshold
 /// or storage slot is overridden. ECDSA signing is shown on fixture Safes built the same way but owned
-/// by test keys
+/// by test keys. It also verifies the ten reserve Safes, built like the validator Safes and funded so
+/// that each can stake one of the next ten validators to join
 contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler, BlsG1PrecompileMockDeployed {
     string constant VALIDATOR_SAFES_YAML = "/deployments/genesis/validator-safes.yaml";
 
@@ -85,6 +86,9 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
     address constant SAFE_V150_FALLBACK_HANDLER = 0x3EfCBb83A4A7AfcB4F68D501E2c2203a38be77f4;
     address constant SAFE_V150_PROXY_FACTORY = 0x14F2982D601c9458F93bd70B218933A6f8165e7b;
     address constant CONSENSUS_REGISTRY = 0x07E17e17E17e17E17e17E17E17E17e17e17E17e1;
+    address constant RESERVE_SAFE_BASE = 0x000000000000000000000000000007A00005EED0;
+    /// @dev The 1,000,000 TEL stake plus 1 TEL for gas
+    uint256 constant RESERVE_SAFE_BALANCE = 1_000_001e18;
 
     /// @dev keccak256 of `safe-v1.5.0/SafeProxy.hex`, the runtime of every v1.5.0 factory proxy
     bytes32 constant SAFE_V150_PROXY_CODEHASH = 0x4e381985ca68b3e5d27b4425fa581c19cf33146d3f887a3cfca96f55528ea46f;
@@ -120,7 +124,8 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
 
     function setUp() public {
         // replay the genesis simulation: the v1.4.1 suite and the governance Safe, then the v1.5.0
-        // suite and the validator Safes, copying code and storage onto the genesis addresses
+        // suite, the validator Safes and the reserve Safes, copying code and storage onto the genesis
+        // addresses
         GenerateGenesisPrecompileConfig genesis = new GenerateGenesisPrecompileConfig();
         genesis.setUp();
         genesis.instantiateSafeL2();
@@ -129,6 +134,7 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
         genesis.instantiateGovernanceSafe();
         genesis.instantiateSafeV150Suite();
         simulatedSafes = genesis.instantiateValidatorSafes();
+        genesis.instantiateReserveSafes();
     }
 
     /// @notice Validator N's Safe is `0x…07310005eedN`, in validator order
@@ -144,6 +150,22 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
             0x000000000000000000000000000007310005EEd7,
             0x000000000000000000000000000007310005eeD8,
             0x000000000000000000000000000007310005EEd9
+        ];
+    }
+
+    /// @notice Reserve Safe N is `0x…07a00005eedN`
+    function _reserveSafes() internal pure returns (address[10] memory) {
+        return [
+            0x000000000000000000000000000007A00005EED0,
+            0x000000000000000000000000000007a00005EeD1,
+            0x000000000000000000000000000007A00005Eed2,
+            0x000000000000000000000000000007a00005EED3,
+            0x000000000000000000000000000007a00005EEd4,
+            0x000000000000000000000000000007a00005eed5,
+            0x000000000000000000000000000007A00005Eed6,
+            0x000000000000000000000000000007A00005Eed7,
+            0x000000000000000000000000000007a00005Eed8,
+            0x000000000000000000000000000007A00005EeD9
         ];
     }
 
@@ -238,41 +260,108 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
     /// `setup` writes for the governance owners and threshold. The entries are matched as one block
     /// so the yaml is scanned a fixed number of times rather than once per account
     function test_yamlCarriesValidatorSafes() public view {
-        string memory body = string.concat(
-            "  nonce: 1\n  balance: 0\n  code: ",
-            vm.readFile(string.concat(vm.projectRoot(), CANONICAL_BYTECODE_DIR, "safe-v1.5.0/SafeProxy.hex")),
-            "\n  storage:\n"
+        _assertYamlSafeBlock(
+            _genesisYaml(),
+            _yamlSafeEntries(_validatorSafes(), "validator safe ", "0"),
+            '"0x000000000000000000000000000007310005eed',
+            "validator safes"
         );
-        (bytes32[] memory slots, bytes32[] memory values) = _expectedStorage();
-        for (uint256 j; j < slots.length; ++j) {
-            body = string.concat(
-                body,
-                '    "',
-                LibString.toHexString(uint256(slots[j]), 32),
-                '": "',
-                LibString.toHexString(uint256(values[j]), 32),
-                '"\n'
-            );
-        }
-        string memory entries;
-        address[10] memory safes = _validatorSafes();
-        for (uint256 i; i < safes.length; ++i) {
-            entries = string.concat(
-                entries, '"', LibString.toHexString(safes[i]), '": # validator safe ', vm.toString(i), "\n", body
-            );
-        }
+    }
 
+    /// @notice The committed yaml carries the ten reserve Safes right after the validator Safes and
+    /// before wrapped TEL, in order and nowhere else, each identical to a validator Safe's entry but
+    /// for its address, its comment and its balance of 1,000,001 TEL
+    function test_yamlCarriesReserveSafes() public view {
         string memory yaml = _genesisYaml();
-        uint256 blockAt = LibString.indexOf(yaml, entries);
-        assertTrue(blockAt != LibString.NOT_FOUND, "validator safes: entries missing or different");
-        assertTrue(blockAt == 0 || bytes(yaml)[blockAt - 1] == "\n", "validator safes: not at a line start");
-        uint256 blockEnd = blockAt + bytes(entries).length;
-        assertEq(bytes(yaml)[blockEnd], bytes1('"'), "validator safes: last entry continues");
+        (, uint256 validatorsEnd) = _assertYamlSafeBlock(
+            yaml,
+            _yamlSafeEntries(_validatorSafes(), "validator safe ", "0"),
+            '"0x000000000000000000000000000007310005eed',
+            "validator safes"
+        );
+        (uint256 blockAt, uint256 blockEnd) = _assertYamlSafeBlock(
+            yaml,
+            _yamlSafeEntries(_reserveSafes(), "reserve safe ", "1000001000000000000000000"),
+            '"0x000000000000000000000000000007a00005eed',
+            "reserve safes"
+        );
+        assertEq(blockAt, validatorsEnd, "reserve safes: not right after the validator safes");
+        string memory next = '"0x00000000000000000000000000000000000037e1": # wrapped TEL\n';
+        assertEq(LibString.slice(yaml, blockEnd, blockEnd + bytes(next).length), next, "reserve safes: next entry");
+    }
 
-        // the shared prefix of the ten keys appears nowhere outside the block
-        string memory keyPrefix = '"0x000000000000000000000000000007310005eed';
-        assertEq(LibString.indexOf(yaml, keyPrefix), blockAt, "validator safes: key before the block");
-        assertEq(LibString.indexOf(yaml, keyPrefix, blockEnd), LibString.NOT_FOUND, "validator safes: key after");
+    /// @notice Reserve Safe N is at `RESERVE_SAFE_BASE + N` with the v1.5.0 proxy runtime, nothing is
+    /// past the tenth, and none is a validator Safe. The yaml test above shows no other genesis
+    /// account shares their addresses
+    function test_reserveSafesAreTenProxiesAtAssignedAddresses() public view {
+        address[10] memory reserves = _reserveSafes();
+        address[10] memory validators = _validatorSafes();
+        for (uint256 i; i < reserves.length; ++i) {
+            assertEq(reserves[i], address(uint160(RESERVE_SAFE_BASE) + uint160(i)));
+            assertEq(keccak256(reserves[i].code), SAFE_V150_PROXY_CODEHASH, "reserve safe is not a v1.5.0 proxy");
+            assertEq(reserves[i].codehash, validators[0].codehash);
+            for (uint256 j; j < validators.length; ++j) {
+                assertTrue(reserves[i] != validators[j], "reserve safe is a validator safe");
+            }
+        }
+        assertEq(address(uint160(reserves[9]) + 1).code.length, 0);
+    }
+
+    /// @notice Each reserve Safe is configured like a validator Safe: the governance owners and
+    /// threshold (three of seven), the v1.5.0 SafeL2 singleton and fallback handler, no modules, no
+    /// guard, nonce 0. It holds exactly 1,000,001 TEL
+    function test_reserveSafesMatchValidatorSafesAndHoldTheirBalance() public view {
+        address[] memory governanceOwners = IValidatorSafe(GOVERNANCE_SAFE).getOwners();
+        assertEq(governanceOwners.length, 7);
+        assertEq(IValidatorSafe(GOVERNANCE_SAFE).getThreshold(), 3);
+
+        address[10] memory reserves = _reserveSafes();
+        for (uint256 i; i < reserves.length; ++i) {
+            IValidatorSafe safe = IValidatorSafe(reserves[i]);
+            assertEq(safe.getOwners(), governanceOwners);
+            assertEq(safe.getThreshold(), 3);
+            assertEq(safe.nonce(), 0);
+            assertEq(_loadAddress(address(safe), bytes32(0)), SAFE_V150_L2_SINGLETON);
+            assertEq(ISafeProxy(address(safe)).masterCopy(), SAFE_V150_L2_SINGLETON);
+            assertEq(safe.VERSION(), "1.5.0");
+            assertEq(_loadAddress(address(safe), FALLBACK_HANDLER_STORAGE_SLOT), SAFE_V150_FALLBACK_HANDLER);
+            (address[] memory modules, address next) = safe.getModulesPaginated(SENTINEL, 10);
+            assertEq(modules.length, 0);
+            assertEq(next, SENTINEL);
+            assertEq(vm.load(address(safe), GUARD_STORAGE_SLOT), bytes32(0));
+            assertEq(vm.load(address(safe), MODULE_GUARD_STORAGE_SLOT), bytes32(0));
+            assertEq(address(safe).balance, RESERVE_SAFE_BALANCE);
+        }
+    }
+
+    /// @notice Once the registry owner mints the ConsensusNFT for it, reserve Safe 0 stakes itself as a
+    /// new validator from its own balance, through a Safe transaction three of the seven owners
+    /// approve. The relayer pays the gas and the transaction sets no gas refund (`gasPrice` 0), so the
+    /// Safe spends exactly the stake and keeps 1 TEL
+    function test_reserveSafeStakesNewValidatorFromItsBalance() public {
+        ConsensusRegistry registry = _genesisRegistry(_validatorSafes());
+        IValidatorSafe safe = IValidatorSafe(_reserveSafes()[0]);
+        address[] memory owners = IValidatorSafe(GOVERNANCE_SAFE).getOwners();
+        address[] memory signers = new address[](3);
+        for (uint256 i; i < signers.length; ++i) {
+            signers[i] = owners[i];
+        }
+
+        vm.prank(registryOwner);
+        registry.mint(address(safe));
+
+        uint256 registryBefore = address(registry).balance;
+        // key fixture 10: the ten genesis validators hold 0 to 9
+        bytes memory stakeCall = abi.encodeCall(
+            ConsensusRegistry.stake, (_blsPubkey(10), IStakeManager.ProofOfPossession(_blsSignature(10)))
+        );
+        assertTrue(_execAsOwners(safe, signers, address(registry), STAKE_AMOUNT, stakeCall));
+
+        assertEq(
+            uint8(registry.getValidator(address(safe)).currentStatus), uint8(IConsensusRegistry.ValidatorStatus.Staked)
+        );
+        assertEq(address(registry).balance, registryBefore + STAKE_AMOUNT);
+        assertEq(address(safe).balance, 1e18);
     }
 
     /// @notice `validator-safes.yaml` is the ordered list of the ten addresses, checksummed
@@ -623,6 +712,64 @@ contract GenesisValidatorSafesTest is GenesisYamlAssertions, GenesisPrecompiler,
         (slots[k + 1], values[k + 1]) = (bytes32(THRESHOLD_SLOT), bytes32(threshold));
         (slots[k + 2], values[k + 2]) = (FALLBACK_HANDLER_STORAGE_SLOT, _word(SAFE_V150_FALLBACK_HANDLER));
         (slots[k + 3], values[k + 3]) = (keccak256(abi.encode(SENTINEL, MODULES_SLOT)), _word(SENTINEL));
+    }
+
+    /// @dev The yaml entries the generator writes for `safes`, in order, each keyed by the address and
+    /// commented `<label><index>`: nonce 1, `balance`, the v1.5.0 proxy runtime and the storage `setup`
+    /// writes for the governance owners and threshold
+    function _yamlSafeEntries(
+        address[10] memory safes,
+        string memory label,
+        string memory balance
+    )
+        internal
+        view
+        returns (string memory entries)
+    {
+        string memory body = string.concat(
+            "  nonce: 1\n  balance: ",
+            balance,
+            "\n  code: ",
+            vm.readFile(string.concat(vm.projectRoot(), CANONICAL_BYTECODE_DIR, "safe-v1.5.0/SafeProxy.hex")),
+            "\n  storage:\n"
+        );
+        (bytes32[] memory slots, bytes32[] memory values) = _expectedStorage();
+        for (uint256 j; j < slots.length; ++j) {
+            body = string.concat(
+                body,
+                '    "',
+                LibString.toHexString(uint256(slots[j]), 32),
+                '": "',
+                LibString.toHexString(uint256(values[j]), 32),
+                '"\n'
+            );
+        }
+        for (uint256 i; i < safes.length; ++i) {
+            entries = string.concat(
+                entries, '"', LibString.toHexString(safes[i]), '": # ', label, vm.toString(i), "\n", body
+            );
+        }
+    }
+
+    /// @dev Asserts `entries` appear in `yaml` as one block starting a line and followed by another
+    /// key, and that `keyPrefix`, the shared prefix of their keys, appears nowhere outside it
+    function _assertYamlSafeBlock(
+        string memory yaml,
+        string memory entries,
+        string memory keyPrefix,
+        string memory name
+    )
+        internal
+        pure
+        returns (uint256 blockAt, uint256 blockEnd)
+    {
+        blockAt = LibString.indexOf(yaml, entries);
+        assertTrue(blockAt != LibString.NOT_FOUND, string.concat(name, ": entries missing or different"));
+        assertTrue(blockAt == 0 || bytes(yaml)[blockAt - 1] == "\n", string.concat(name, ": not at a line start"));
+        blockEnd = blockAt + bytes(entries).length;
+        assertEq(bytes(yaml)[blockEnd], bytes1('"'), string.concat(name, ": last entry continues"));
+        assertEq(LibString.indexOf(yaml, keyPrefix), blockAt, string.concat(name, ": key before the block"));
+        assertEq(LibString.indexOf(yaml, keyPrefix, blockEnd), LibString.NOT_FOUND, string.concat(name, ": key after"));
     }
 
     function _word(address account) internal pure returns (bytes32) {
